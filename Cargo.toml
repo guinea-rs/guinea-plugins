@@ -9,10 +9,12 @@ resolver = "2"
 members = ["plugins/*"]
 
 [workspace.dependencies]
-# Path, not git, while guinea's plugin API is still moving - a plugin here is
-# usually written in the same sitting as the `guinea::app` change it needs.
-guinea = { path = "../guinea/crates/guinea" }
-guinea-core = { path = "../guinea/crates/guinea-core" }
+# Pinned to a rev: the plugin API is still moving, and a plugin is usually
+# written in the same sitting as the `guinea::app` change it needs. An
+# application consuming both from git must patch them to the same rev, or it
+# ends up with two copies of guinea and two incompatible `PluginBuilder`s.
+guinea = { git = "https://github.com/uniproc-dev/guinea", rev = "083ce0c" }
+guinea-core = { git = "https://github.com/uniproc-dev/guinea", rev = "083ce0c" }
 
 anyhow = "1.0.100"
 tracing = "0.1.44"

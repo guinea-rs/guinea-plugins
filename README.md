@@ -64,11 +64,17 @@ assert!(app.shutdown().is_empty());
 Each plugin is its own crate under `plugins/`, versioned and released
 independently.
 
-`guinea` is a path dependency while the plugin API is still moving - clone this
-repository next to `guinea`:
+`guinea` is pinned to a rev rather than a version, since the plugin API is
+still moving. An application that also depends on guinea directly must resolve
+both to the same source, otherwise cargo builds two copies of guinea and the
+`PluginBuilder` a plugin expects is a different type from the one the
+application has:
 
+```toml
+[patch."https://github.com/uniproc-dev/guinea"]
+guinea = { path = "../guinea/crates/guinea" }
+guinea-core = { path = "../guinea/crates/guinea-core" }
 ```
-projects/
-  guinea/
-  guinea-plugins/
-```
+
+Working on a plugin and on guinea at the same time is the same `[patch]`,
+pointing at your guinea checkout.
