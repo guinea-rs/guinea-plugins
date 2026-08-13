@@ -275,7 +275,7 @@ dependencies = [
 [[package]]
 name = "guinea"
 version = "0.1.0"
-source = "git+https://github.com/uniproc-dev/guinea?rev=083ce0c#083ce0c4c079214c1880bef4ca233a0c4c75963d"
+source = "git+https://github.com/uniproc-dev/guinea?rev=9b54c21#9b54c21428e9629d2b9b32d8bb174235a26b7cea"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -294,7 +294,7 @@ dependencies = [
 [[package]]
 name = "guinea-codegen"
 version = "0.1.0"
-source = "git+https://github.com/uniproc-dev/guinea?rev=083ce0c#083ce0c4c079214c1880bef4ca233a0c4c75963d"
+source = "git+https://github.com/uniproc-dev/guinea?rev=9b54c21#9b54c21428e9629d2b9b32d8bb174235a26b7cea"
 dependencies = [
  "fluent-syntax",
  "guinea-core",
@@ -311,7 +311,7 @@ dependencies = [
 [[package]]
 name = "guinea-core"
 version = "0.1.0"
-source = "git+https://github.com/uniproc-dev/guinea?rev=083ce0c#083ce0c4c079214c1880bef4ca233a0c4c75963d"
+source = "git+https://github.com/uniproc-dev/guinea?rev=9b54c21#9b54c21428e9629d2b9b32d8bb174235a26b7cea"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -342,6 +342,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "guinea-plugin-l10n"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "guinea",
+ "guinea-core",
+ "guinea-plugin-store",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "guinea-plugin-store"
 version = "0.1.0"
 dependencies = [
@@ -355,7 +367,7 @@ dependencies = [
 [[package]]
 name = "guinea-trace"
 version = "0.1.0"
-source = "git+https://github.com/uniproc-dev/guinea?rev=083ce0c#083ce0c4c079214c1880bef4ca233a0c4c75963d"
+source = "git+https://github.com/uniproc-dev/guinea?rev=9b54c21#9b54c21428e9629d2b9b32d8bb174235a26b7cea"
 dependencies = [
  "anyhow",
  "once_cell",

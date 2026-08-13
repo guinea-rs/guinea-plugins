@@ -1,0 +1,27 @@
+[package]
+name = "guinea-plugin-l10n"
+description = "Loads a guinea application's localisation, and remembers the chosen language"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+guinea.workspace = true
+guinea-core.workspace = true
+guinea-plugin-store = { path = "../store", optional = true }
+anyhow.workspace = true
+tracing.workspace = true
+
+[features]
+default = ["persist"]
+# Restores the language chosen last run, and saves every change, through
+# `guinea-plugin-store`.
+persist = ["dep:guinea-plugin-store"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+guinea = { workspace = true, features = ["test-utils"] }
+tempfile = "3.27.0"

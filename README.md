@@ -9,6 +9,7 @@ updater, a tray icon. It knows guinea; guinea does not know it.
 | Plugin | Crate | What it does |
 |---|---|---|
 | Store | `guinea-plugin-store` | Persistent key-value storage backed by [amethystate](https://crates.io/crates/amethystate), with migrations |
+| L10n | `guinea-plugin-l10n` | Loads the application's strings at startup, and remembers the chosen language |
 
 ## Usage
 
@@ -17,6 +18,7 @@ use guinea_plugin_store::StorePlugin;
 
 guinea::app::App::new()
     .plugin(StorePlugin::for_app("my-app", "settings"))
+    .plugin(L10nPlugin::<L10n>::new("en"))
     .feature(Startup)
     .run(window, RouterRoot::at(initial_route()));
 ```
@@ -24,6 +26,10 @@ guinea::app::App::new()
 Installation is idempotent and keyed by `Plugin::ID`, so a feature can install
 the plugins it depends on itself, and listing the same plugin twice is a no-op
 rather than a conflict.
+
+Order matters only where one plugin reads what another provides - the l10n
+plugin above restores the saved language if a store is already installed, and
+runs without persistence if it is not.
 
 ## Writing a plugin
 
