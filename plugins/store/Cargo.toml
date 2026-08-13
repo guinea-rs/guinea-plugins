@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 guinea.workspace = true
-amethystate = "0.9.4"
+amethystate = "0.11.0"
 anyhow.workspace = true
 tracing.workspace = true
 
