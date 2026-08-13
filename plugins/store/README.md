@@ -13,8 +13,15 @@ migrations, logs the report (including schema drift), and provides the store as
 a service:
 
 ```rust
-let store = app.require::<guinea_plugin_store::Store>()?;
+use guinea_plugin_store::{Store, amethystate::Store as _};
+
+let store = app.require::<Store>()?;
+let launches: u64 = store.get("app.launches")?.unwrap_or(0) + 1;
+store.set("app.launches", &launches)?;
 ```
+
+amethystate is re-exported, so an application needs no dependency on it of its
+own.
 
 View code that already talks to amethystate directly keeps working -
 `amethystate::global_store()` returns the same store the plugin initialised.
