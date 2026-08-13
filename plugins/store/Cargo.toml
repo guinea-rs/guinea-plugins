@@ -1,0 +1,20 @@
+[package]
+name = "guinea-plugin-store"
+description = "Persistent key-value store for guinea applications, backed by amethystate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+guinea.workspace = true
+amethystate = "0.9.4"
+anyhow.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+guinea = { workspace = true, features = ["test-utils"] }
+tempfile = "3.27.0"
