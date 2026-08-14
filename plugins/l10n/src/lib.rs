@@ -1,9 +1,11 @@
-//! Localisation startup for guinea applications.
+//! Localisation for guinea applications: the store the whole process reads,
+//! the Fluent resolver, the per-backend hooks, and the plugin that loads it all
+//! at startup.
 //!
 //! ```no_run
 //! # use guinea_plugin_l10n::L10nPlugin;
 //! # #[derive(Clone, Default)] struct Strings;
-//! # impl guinea::l10n::Localization for Strings {
+//! # impl guinea_plugin_l10n::Localization for Strings {
 //! #     fn for_tag(_: &str) -> Option<Self> { Some(Self) }
 //! #     fn tag(&self) -> String { "en".into() }
 //! # }
@@ -12,14 +14,21 @@
 //!     # ;
 //! ```
 //!
-//! Views keep reading the language through `guinea::l10n::use_l10n`, and
-//! anything switching it keeps calling `L10n::<S>::load` - the plugin only
-//! owns startup, and, with the `persist` feature, remembering the choice.
+//! Views read the current strings through a backend hook (`ui::use_l10n` under
+//! the `winui` feature); anything switching the language calls
+//! [`L10n::load`]. The plugin owns startup and, with the `persist` feature,
+//! remembering the choice.
+
+#[cfg(feature = "fluent")]
+pub mod fluent;
+mod store;
+pub mod ui;
+
+pub use store::{L10n, Localization};
 
 use std::marker::PhantomData;
 
 use guinea::app::{Plugin, PluginBuilder};
-use guinea::l10n::{L10n, Localization};
 
 #[cfg(feature = "persist")]
 const KEY: &str = "app.language";

@@ -1,0 +1,20 @@
+[package]
+name = "guinea-plugin-l10n-build"
+description = "Build-time half of guinea-plugin-l10n: turns Fluent .ftl files into typed accessors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fluent-syntax = "0.12.0"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+walkdir = "2.5.0"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
