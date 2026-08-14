@@ -521,6 +521,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "guinea-widgets"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "windows-canvas",
+ "windows-reactor",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1488,6 +1497,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-canvas"
+version = "0.100.0"
+source = "git+https://github.com/Tam1SH/windows-rs?rev=d0fd3ce88#d0fd3ce88f14dea874101c226c6166261053d82e"
+dependencies = [
+ "windows-core 0.100.0",
+ "windows-numerics 0.100.0",
+ "windows-window",
+]
+
+[[package]]
 name = "windows-collections"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1623,6 +1642,7 @@ version = "0.0.0"
 source = "git+https://github.com/Tam1SH/windows-rs?rev=d0fd3ce88#d0fd3ce88f14dea874101c226c6166261053d82e"
 dependencies = [
  "rustc-hash",
+ "windows-canvas",
  "windows-collections 0.100.0",
  "windows-composition",
  "windows-core 0.100.0",
@@ -1709,6 +1729,14 @@ source = "git+https://github.com/Tam1SH/windows-rs?rev=d0fd3ce88#d0fd3ce88f14dea
 dependencies = [
  "windows-core 0.100.0",
  "windows-link 0.100.0",
+]
+
+[[package]]
+name = "windows-window"
+version = "0.100.0"
+source = "git+https://github.com/Tam1SH/windows-rs?rev=d0fd3ce88#d0fd3ce88f14dea874101c226c6166261053d82e"
+dependencies = [
+ "windows-core 0.100.0",
 ]
 
 [[package]]

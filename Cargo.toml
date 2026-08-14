@@ -6,7 +6,7 @@ repository = "https://github.com/uniproc-dev/guinea-plugins"
 
 [workspace]
 resolver = "2"
-members = ["plugins/*"]
+members = ["plugins/*", "widgets"]
 
 [workspace.dependencies]
 # Pinned to a rev: the plugin API is still moving, and a plugin is usually

@@ -1,0 +1,24 @@
+[package]
+name = "guinea-widgets"
+description = "Tables, charts and drag-resize handles for guinea applications"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-reactor = { git = "https://github.com/Tam1SH/windows-rs", rev = "d0fd3ce88", features = ["canvas"], optional = true }
+windows-canvas = { git = "https://github.com/Tam1SH/windows-rs", rev = "d0fd3ce88", optional = true }
+
+[features]
+default = ["winui"]
+
+# Backends. Without one, what is left is the part that is pure layout and
+# geometry: column sizing, sort/flow state, ring series.
+winui = ["dep:windows-reactor", "dep:windows-canvas"]
+
+[lints]
+workspace = true
