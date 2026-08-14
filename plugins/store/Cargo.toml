@@ -1,7 +1,11 @@
 [package]
 name = "guinea-plugin-store"
 description = "Persistent key-value store for guinea applications, backed by amethystate"
-version.workspace = true
+# Tracks amethystate's minor, not the workspace's: this crate is a thin lid on
+# top of it and re-exports it whole, so a caller reading `guinea_plugin_store::
+# amethystate` can tell from one number which amethystate they are getting.
+# Bumping amethystate's minor bumps this one.
+version = "0.12.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
