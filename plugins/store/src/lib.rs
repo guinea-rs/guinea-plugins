@@ -2,7 +2,7 @@
 //!
 //! ```no_run
 //! # use guinea_plugin_store::StorePlugin;
-//! guinea::app::App::new()
+//! guinea::app::GuineaApp::new()
 //!     .plugin(StorePlugin::for_app("my-app", "settings"))
 //!     # ;
 //! ```

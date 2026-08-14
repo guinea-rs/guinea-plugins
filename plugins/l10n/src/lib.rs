@@ -9,7 +9,7 @@
 //! #     fn for_tag(_: &str) -> Option<Self> { Some(Self) }
 //! #     fn tag(&self) -> String { "en".into() }
 //! # }
-//! guinea::app::App::new()
+//! guinea::app::GuineaApp::new()
 //!     .plugin(L10nPlugin::<Strings>::new("en"))
 //!     # ;
 //! ```
