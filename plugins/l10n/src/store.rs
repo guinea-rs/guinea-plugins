@@ -42,14 +42,12 @@ impl<S: Clone + Default + 'static> L10n<S> {
     }
 
     pub fn current() -> S {
-        GlobalScope::instance().state::<Marker<S>>().borrow().clone()
+        GlobalScope::instance().binding::<Marker<S>>().get()
     }
 
     pub fn subscribe(callback: impl Fn(S) + 'static) -> Subscription {
-        let scope = GlobalScope::instance();
-        let scope_for_cb = scope.clone();
-        scope.subscribe::<Marker<S>>(move || {
-            callback(scope_for_cb.state::<Marker<S>>().borrow().clone());
-        })
+        GlobalScope::instance()
+            .binding::<Marker<S>>()
+            .on_change(move |strings| callback(strings.clone()))
     }
 }

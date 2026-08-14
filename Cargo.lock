@@ -401,7 +401,7 @@ dependencies = [
 [[package]]
 name = "guinea"
 version = "0.1.0"
-source = "git+https://github.com/uniproc-dev/guinea?rev=0f53049#0f53049d284bdc56c522cb9b1fa7216b36b428ee"
+source = "git+https://github.com/uniproc-dev/guinea?rev=fba5588#fba5588b4710073b9b32c1b403dd8d9c793dd6ed"
 dependencies = [
  "anyhow",
  "derive_more",
@@ -420,9 +420,8 @@ dependencies = [
 [[package]]
 name = "guinea-codegen"
 version = "0.1.0"
-source = "git+https://github.com/uniproc-dev/guinea?rev=0f53049#0f53049d284bdc56c522cb9b1fa7216b36b428ee"
+source = "git+https://github.com/uniproc-dev/guinea?rev=fba5588#fba5588b4710073b9b32c1b403dd8d9c793dd6ed"
 dependencies = [
- "fluent-syntax",
  "guinea-core",
  "guinea-meta-build",
  "heck",
@@ -437,7 +436,7 @@ dependencies = [
 [[package]]
 name = "guinea-core"
 version = "0.1.0"
-source = "git+https://github.com/uniproc-dev/guinea?rev=0f53049#0f53049d284bdc56c522cb9b1fa7216b36b428ee"
+source = "git+https://github.com/uniproc-dev/guinea?rev=fba5588#fba5588b4710073b9b32c1b403dd8d9c793dd6ed"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -509,7 +508,7 @@ dependencies = [
 [[package]]
 name = "guinea-trace"
 version = "0.1.0"
-source = "git+https://github.com/uniproc-dev/guinea?rev=0f53049#0f53049d284bdc56c522cb9b1fa7216b36b428ee"
+source = "git+https://github.com/uniproc-dev/guinea?rev=fba5588#fba5588b4710073b9b32c1b403dd8d9c793dd6ed"
 dependencies = [
  "anyhow",
  "once_cell",
