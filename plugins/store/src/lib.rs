@@ -13,7 +13,7 @@
 
 use std::path::PathBuf;
 
-use amethystate::{Store as _, StoreBuilder};
+use amethystate::StoreBuilder;
 use guinea::app::{Plugin, PluginBuilder};
 
 /// Re-exported so an application can read and write through the store - the
@@ -23,7 +23,7 @@ pub use amethystate;
 
 /// The store this plugin provides. `app.require::<Store>()` hands out an
 /// `Arc` of it; the store itself is cheap to clone and safe to share.
-pub type Store = amethystate::DefaultStore;
+pub type Store = amethystate::Store;
 
 enum Open {
     App { app: String, config: String },

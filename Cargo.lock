@@ -13,12 +13,13 @@ dependencies = [
 
 [[package]]
 name = "amethystate"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a3e89a423df4d9ffa542d2768fd92f42fd5363aaf86332e895450b3f67c67d"
+checksum = "d55e0573887d500d9b206440f43278cda616bda8e537ff7a65bd7c27d9a83db9"
 dependencies = [
  "amethystate-core",
  "amethystate-macros",
+ "erased-serde",
  "etcetera",
  "futures-core",
  "inventory",
@@ -35,9 +36,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-core"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc508b9475f4c126e881aa366e71ad6467fec4e8bfd926dc5957d5fbd5f5301d"
+checksum = "9236e44b7eb1fb7cfd64c62b8545768bc5ad0de7a73352ea4cb2fcf90aefc5ed"
 dependencies = [
  "arc-swap",
  "inventory",
@@ -49,9 +50,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "198559c96574dbb14c7ec01bba6f011992ae8f856fbc527c7241ae2719d4edaa"
+checksum = "9faa9d8ecec7fd1e34678da8df07b6af350de44ecf4b3b5f5fa7e72b1259a1d2"
 dependencies = [
  "amethystate-macros-core",
  "darling",
@@ -63,9 +64,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros-core"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "190800f682178147a22636641f207a69a4c66a489d5180674aebe32dad264ea2"
+checksum = "47a58a727dcf5b9720c80af4e1751aa2ba9227f1b97013f82ec503ae01b0ae85"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -235,6 +236,17 @@ name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+
+[[package]]
+name = "erased-serde"
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2add8a07dd6a8d93ff627029c51de145e12686fbc36ecb298ac22e74cf02dec"
+dependencies = [
+ "serde",
+ "serde_core",
+ "typeid",
+]
 
 [[package]]
 name = "errno"
@@ -501,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -1349,6 +1361,12 @@ checksum = "cb30dbbd9036155e74adad6812e9898d03ec374946234fbcebd5dfc7b9187b90"
 dependencies = [
  "rustc-hash",
 ]
+
+[[package]]
+name = "typeid"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "unic-langid"
