@@ -90,7 +90,7 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
 
 #[cfg(feature = "persist")]
 fn saved_tag(app: &PluginBuilder) -> Option<String> {
-    use guinea_plugin_store::{Store, amethystate::Store as _};
+    use guinea_plugin_store::Store;
 
     let store = app.try_require::<Store>()?;
     match store.get::<String>(KEY) {
@@ -109,7 +109,7 @@ fn saved_tag(_app: &PluginBuilder) -> Option<String> {
 
 #[cfg(feature = "persist")]
 fn remember_changes<S: Localization>(app: &PluginBuilder) {
-    use guinea_plugin_store::{Store, amethystate::Store as _};
+    use guinea_plugin_store::Store;
 
     let Some(store) = app.try_require::<Store>() else {
         tracing::warn!(

@@ -10,8 +10,8 @@ repository.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-reactor = { git = "https://github.com/Tam1SH/windows-rs", rev = "d0fd3ce88", features = ["canvas"], optional = true }
-windows-canvas = { git = "https://github.com/Tam1SH/windows-rs", rev = "d0fd3ce88", optional = true }
+windows-reactor = { git = "https://github.com/Tam1SH/windows-rs", rev = "afb695ebe", features = ["canvas"], optional = true }
+windows-canvas = { git = "https://github.com/Tam1SH/windows-rs", rev = "afb695ebe", optional = true }
 
 [features]
 default = ["winui"]

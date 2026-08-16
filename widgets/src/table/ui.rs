@@ -1,7 +1,7 @@
 use super::*;
 
 use std::rc::Rc;
-use windows_reactor::{grid, hstack, Color, Element, ElementExt, GridLength, RenderCx, SetState, Shape, Thickness};
+use windows_reactor::{grid, hstack, Color, Element, GridChildExt, InputExt, LayoutExt, PaddingExt, GridLength, RenderCx, SetState, Shape, Thickness};
 
 use crate::resize::resize_handle;
 
@@ -151,12 +151,15 @@ pub fn table_with_sort_indicator<T: 'static>(
         }
     };
 
-    let header_separator: Element = Shape::rectangle()
+    let header_separator = Shape::rectangle()
         .fill(HEADER_SEPARATOR_COLOR)
-        .height(1.0)
-        .into();
+        .height(1.0);
 
-    grid((header.grid_row(0), header_separator.grid_row(1), body.grid_row(2)))
+    grid((
+        header.grid_row(0),
+        header_separator.grid_row(1),
+        windows_reactor::border(body).grid_row(2),
+    ))
         .rows([GridLength::Auto, GridLength::Auto, GridLength::Star(1.0)])
         .into()
 }
@@ -181,19 +184,23 @@ fn header_cell<T>(
         None => base,
     };
 
-    let cell: Element = match (c.sortable, on_sort) {
+    // Kept as a `Border` rather than collapsed to `Element`: padding and
+    // width are capabilities of the widget, and the reconciler no longer
+    // offers them on an erased node.
+    let cell = match (c.sortable, on_sort) {
         (true, Some(cb)) => {
             let id = c.id.to_string();
             let cb = cb.clone();
-            windows_reactor::border(content).on_tapped(move || cb.call(id.clone())).into()
+            windows_reactor::border(content).on_tapped(move || cb.call(id.clone()))
         }
-        _ => content,
+        _ => windows_reactor::border(content),
     };
     cell.padding(Thickness::xy(
         if c.flush { 0.0 } else { CELL_HORIZONTAL_PADDING },
         HEADER_VERTICAL_PADDING,
     ))
-        .width(c.width.get() as f64)
+    .width(c.width.get() as f64)
+    .into()
 }
 
 fn column_resize_handle(cx: &mut RenderCx, width: Width, min_width: f64, request_rerender: SetState<()>) -> Element {
@@ -210,12 +217,15 @@ fn row_view<T>(row: &T, columns: &[ResolvedColumn<T>]) -> Element {
         .iter()
         .map(|c| {
             let width = c.width.get() as f64;
-            (c.cell)(row)
+            // The column renders whatever it likes, so what comes back is
+            // erased - wrap it in the thing that carries padding and width.
+            windows_reactor::border((c.cell)(row))
                 .padding(Thickness::xy(
                     if c.flush { 0.0 } else { CELL_HORIZONTAL_PADDING },
                     0.0,
                 ))
                 .width(width)
+                .into()
         })
         .collect();
     hstack(cells).into()

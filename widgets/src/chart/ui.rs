@@ -5,7 +5,11 @@ use std::rc::Rc;
 use windows_canvas::{Brush, ColorF, GpuDevice, Path, PathBuilder, Rect, Result as CanvasResult, Vector2};
 
 use crate::color::{hex, hex_alpha};
-use windows_reactor::{CanvasSwapChain, DrawContext, Element, ElementExt, PointerEventInfo, RenderCx, swap_chain_panel};
+use windows_reactor::{
+    CanvasSwapChain, DrawContext, Element, InputExt,
+    PointerEventInfo, RenderCx,
+    swap_chain_panel,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Interpolation {
@@ -149,14 +153,14 @@ pub fn line_chart_with_options(
     let panel = panel.on_resize(move |w, h| {
         let (w, h) = (w as f32, h as f32);
         size_for_resize.set((w, h));
-        if let Some(chain) = chain_for_resize.borrow().as_ref() {
-            if chain.resize(w, h).is_ok() {
-                let options = *options_for_resize.borrow();
-                let _ = chain.draw(|ctx| {
-                    render(ctx, &series_for_resize.borrow(), &options);
-                    Ok(())
-                });
-            }
+        if let Some(chain) = chain_for_resize.borrow().as_ref()
+            && chain.resize(w, h).is_ok()
+        {
+            let options = *options_for_resize.borrow();
+            let _ = chain.draw(|ctx| {
+                render(ctx, &series_for_resize.borrow(), &options);
+                Ok(())
+            });
         }
     });
 

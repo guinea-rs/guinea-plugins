@@ -1,5 +1,5 @@
 use windows_reactor::{
-    border, grid, Color, Element, ElementExt, GridLength, HookRef, HorizontalAlignment,
+    border, grid, Color, Element, BackgroundExt, GridChildExt, InputExt, LayoutExt, VisualExt, GridLength, HookRef, HorizontalAlignment,
     PointerEventInfo, RenderCx, SetState, ThemeRef, VerticalAlignment,
 };
 
@@ -129,9 +129,9 @@ impl ResizeHandle {
         };
 
         let indicator = grid((
-            Element::Empty.grid_row(0),
-            Element::from(pill).grid_row(1),
-            Element::Empty.grid_row(2),
+            windows_reactor::border(Element::Empty).grid_row(0),
+            pill.grid_row(1),
+            windows_reactor::border(Element::Empty).grid_row(2),
         ))
         .rows([top, mid, bottom])
         .columns([GridLength::Star(1.0)]);
