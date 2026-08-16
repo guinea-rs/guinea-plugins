@@ -35,6 +35,7 @@ pub struct ResizeHandle {
     min: f64,
     max: f64,
     indicator_size: HandleSize,
+    rail: Option<Color>,
 }
 
 pub fn resize_handle(cx: &mut RenderCx, current: f64, set: SetState<f64>) -> ResizeHandle {
@@ -52,6 +53,7 @@ pub fn resize_handle(cx: &mut RenderCx, current: f64, set: SetState<f64>) -> Res
         min: 0.0,
         max: f64::MAX,
         indicator_size: HandleSize::Percent(0.24),
+        rail: None,
     }
 }
 
@@ -72,6 +74,20 @@ impl ResizeHandle {
         self
     }
 
+    /// Draws a hairline down the handle that is always visible, under the
+    /// pill.
+    ///
+    /// Without it a handle is invisible until pointed at, which is fine for a
+    /// resize affordance and wrong for a table header, where the line is also
+    /// what tells one column from the next. A separate layer rather than a
+    /// resting colour for the pill itself: the pill's brush has to stay a
+    /// constant `ThemeRef` (see `build`), and this one is a plain colour that
+    /// never changes either.
+    pub fn rail(mut self, color: Color) -> Self {
+        self.rail = Some(color);
+        self
+    }
+
     pub fn build(self) -> Element {
         let Self {
             hovered,
@@ -84,6 +100,7 @@ impl ResizeHandle {
             min,
             max,
             indicator_size,
+            rail,
         } = self;
 
         // Fluent reserves the fully-saturated `Accent`/`AccentFillColorDefaultBrush`
@@ -136,10 +153,25 @@ impl ResizeHandle {
         .rows([top, mid, bottom])
         .columns([GridLength::Star(1.0)]);
 
+        // Both children land in the single implicit cell, so the pill draws
+        // over the rail rather than beside it.
+        let layered: Element = match rail {
+            Some(color) => grid((
+                border(Element::Empty)
+                    .width(1.0)
+                    .background(color)
+                    .horizontal_alignment(HorizontalAlignment::Center)
+                    .vertical_alignment(VerticalAlignment::Stretch),
+                indicator,
+            ))
+            .into(),
+            None => indicator.into(),
+        };
+
         let set_hovered_on_exit = set_hovered.clone();
         let set_pressed_on_release = set_pressed.clone();
         let drag_start_on_press = drag_start.clone();
-        border(indicator)
+        border(layered)
             .width(RESIZE_HANDLE_WIDTH)
             // Background must stay set (even fully transparent) so the whole
             // drag surface hit-tests - a null background does not receive

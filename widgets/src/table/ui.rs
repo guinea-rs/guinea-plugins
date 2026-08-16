@@ -209,7 +209,10 @@ fn column_resize_handle(cx: &mut RenderCx, width: Width, min_width: f64, request
         width.set(w as u64);
         request_rerender.call(());
     });
-    resize_handle(cx, current, set).min(min_width).build()
+    resize_handle(cx, current, set)
+        .min(min_width)
+        .rail(HEADER_SEPARATOR_COLOR)
+        .build()
 }
 
 fn row_view<T>(row: &T, columns: &[ResolvedColumn<T>]) -> Element {
