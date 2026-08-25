@@ -39,6 +39,7 @@ enum Open {
 pub struct StorePlugin {
     open: Open,
     save_on_exit: bool,
+    backend: Option<amethystate::store::builder::Backend>,
 }
 
 impl StorePlugin {
@@ -53,6 +54,18 @@ impl StorePlugin {
     /// Stores at an explicit path.
     pub fn at(path: impl Into<PathBuf>) -> Self {
         Self::with_open(Open::Path(path.into()))
+    }
+
+    /// Which engine backs the store. Defaults to whatever amethystate picks.
+    ///
+    /// Worth setting to `Backend::Json` when more than one copy of the
+    /// application may run: redb takes an exclusive lock on its file, so the
+    /// second one refuses to start at all, while a JSON store is written whole
+    /// and read whole and does not care. The cost is the obvious one - no
+    /// transactions, and the entire file is rewritten on every save.
+    pub fn backend(mut self, backend: amethystate::store::builder::Backend) -> Self {
+        self.backend = Some(backend);
+        self
     }
 
     /// Builds the store from a closure, for migrations and other
@@ -75,18 +88,62 @@ impl StorePlugin {
         Self {
             open,
             save_on_exit: true,
+            backend: None,
         }
     }
+}
+
+/// Where `for_app` would have put the store, with the extension of the backend
+/// actually asked for.
+///
+/// A copy of amethystate's own path logic, because it has no way to ask for
+/// the path without also building the store. Temporary: the real fix is for
+/// `StoreBuilder::backend` to rename the file, and then this goes away.
+fn app_path(
+    app: &str,
+    config: &str,
+    backend: amethystate::store::builder::Backend,
+) -> anyhow::Result<PathBuf> {
+    use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
+
+    let strategy = choose_app_strategy(AppStrategyArgs {
+        top_level_domain: "rs".to_string(),
+        author: String::new(),
+        app_name: app.to_string(),
+    })?;
+
+    let mut path = strategy.config_dir();
+    path.push(config);
+    path.set_extension(backend.extension());
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    Ok(path)
 }
 
 impl Plugin for StorePlugin {
     const ID: &'static str = "guinea.store";
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        let builder = match self.open {
-            Open::App { app, config } => StoreBuilder::for_app(&app, &config)?,
-            Open::Path(path) => StoreBuilder::new(path),
-            Open::Custom(f) => f()?,
+        let builder = match (self.open, self.backend) {
+            // `for_app` names the file after amethystate's default backend and
+            // `backend()` does not rename it, so a store asked for JSON would
+            // open the redb file and fail on the first byte. Ask for the path
+            // first, then correct the extension ourselves.
+            (Open::App { app, config }, Some(backend)) => {
+                let path = app_path(&app, &config, backend)?;
+                StoreBuilder::new(path).backend(backend)
+            }
+            (Open::App { app, config }, None) => StoreBuilder::for_app(&app, &config)?,
+            (Open::Path(path), backend) => match backend {
+                Some(backend) => StoreBuilder::new(path).backend(backend),
+                None => StoreBuilder::new(path),
+            },
+            (Open::Custom(f), backend) => match backend {
+                Some(backend) => f()?.backend(backend),
+                None => f()?,
+            },
         };
 
         let report = amethystate::init_global(builder);

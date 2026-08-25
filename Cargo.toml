@@ -13,8 +13,8 @@ members = ["plugins/*", "widgets"]
 # written in the same sitting as the `guinea::app` change it needs. An
 # application consuming both from git must patch them to the same rev, or it
 # ends up with two copies of guinea and two incompatible `PluginBuilder`s.
-guinea = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.2.1" }
-guinea-core = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.2.1" }
+guinea = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.3.0" }
+guinea-core = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.3.0" }
 
 anyhow = "1.0.100"
 tracing = "0.1.44"
@@ -22,6 +22,9 @@ tracing = "0.1.44"
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
+# TEMPORARY, do not commit as is: points the windows-rs fork at a local checkout
+# carrying the lifted-composition Direct2D bridge the chart widget needs. Drop it
+# once those commits are pushed and the `rev` above is bumped to them.
 [profile.dev]
 debug = 1
 incremental = true

@@ -1,5 +1,8 @@
 use std::collections::VecDeque;
 
+/// One reading: when it was taken, and what it was.
+pub type Sample = (u64, f32);
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RingSeries {
     capacity: usize,
@@ -26,8 +29,26 @@ impl RingSeries {
         self.points.is_empty()
     }
 
-    /// Snapshot for `Series::points` - a chart's render/hit-test logic
-    /// works over a contiguous slice, not a deque.
+    /// The points as they sit in the ring: everything from the read position to
+    /// the end, then everything that wrapped around. Either half may be empty.
+    ///
+    /// For reading without giving anything up. A chart wants one contiguous
+    /// slice, so it takes [`into_points`](Self::into_points) instead.
+    pub fn as_slices(&self) -> (&[Sample], &[Sample]) {
+        self.points.as_slices()
+    }
+
+    /// Hands the points over as a contiguous `Vec`, consuming the ring.
+    ///
+    /// This moves rather than copies - `Vec::from(VecDeque)` reuses the ring's
+    /// own allocation, at worst shifting it into place. Prefer it to
+    /// [`as_points`](Self::as_points) wherever the ring is a snapshot already,
+    /// which it is whenever it came out of a reducer's state.
+    pub fn into_points(self) -> Vec<(u64, f32)> {
+        Vec::from(self.points)
+    }
+
+    /// Copies the points out, leaving the ring alone.
     pub fn as_points(&self) -> Vec<(u64, f32)> {
         self.points.iter().copied().collect()
     }
@@ -61,6 +82,22 @@ mod tests {
         ring.push((4, 4.0));
 
         assert_eq!(ring.as_points(), vec![(2, 2.0), (3, 3.0), (4, 4.0)]);
+    }
+
+    #[test]
+    fn into_points_agrees_with_the_slices_it_replaces() {
+        let mut ring = RingSeries::new(3);
+        for t in 1..=4 {
+            ring.push((t, t as f32));
+        }
+
+        // Wrapped, so the halves are genuinely split - the interesting case.
+        let (front, back) = ring.as_slices();
+        assert!(!front.is_empty() && !back.is_empty(), "expected a wrapped ring");
+
+        let joined: Vec<_> = front.iter().chain(back).copied().collect();
+        assert_eq!(ring.clone().into_points(), joined);
+        assert_eq!(ring.as_points(), joined);
         assert_eq!(ring.len(), 3);
     }
 }

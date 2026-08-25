@@ -12,7 +12,13 @@ repository.workspace = true
 
 [dependencies]
 guinea.workspace = true
-amethystate = "0.13"
+# `json` alongside the default `redb`: a backend is picked when the store is
+# built, and the features are additive, so offering both costs nothing.
+amethystate = { version = "0.13", features = ["json"] }
+# Only to reproduce amethystate's own `for_app` path when the backend is
+# overridden - see `app_path`. Should go away once `backend()` renames the
+# file itself.
+etcetera = "0.11"
 anyhow.workspace = true
 tracing.workspace = true
 

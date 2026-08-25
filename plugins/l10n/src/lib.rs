@@ -187,7 +187,7 @@ mod tests {
         app.shutdown();
 
         let saved = {
-            use guinea_plugin_store::amethystate::{Store as _, global_store};
+            use guinea_plugin_store::amethystate::global_store;
             global_store().get::<String>(KEY).expect("read")
         };
         assert_eq!(saved.as_deref(), Some("ru"));
