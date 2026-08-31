@@ -18,8 +18,8 @@ use std::rc::Rc;
 
 use windows_reactor::{
     Border, Callback, ChildrenControl, Color, ContentControl, Grid, GridChildExt, GridLength,
-    LayoutControl, ListView, ListViewSlot, Orientation, PointerEventInfo, Rectangle, SlotsControl,
-    StackPanel, TextBlock, Thickness, View,
+    IntoPayloadCallback, LayoutControl, ListView, ListViewSlot, Orientation, PointerEventInfo,
+    Rectangle, SlotsControl, StackPanel, TextBlock, Thickness, View,
 };
 
 use crate::resize::resize_handle;
@@ -184,22 +184,31 @@ impl<T: 'static> Table<T> {
 
     /// Where a drag goes. Without it the handles are not drawn at all - a
     /// handle that reported to nobody would move and snap back.
-    pub fn on_resize(mut self, on_resize: impl Fn(Resized) + 'static) -> Self {
-        self.on_resize = Some(Callback::new(on_resize));
+    ///
+    /// Takes what every reactor widget takes: a plain closure, or a `Callback`
+    /// a segment already made. The second is the usual one - `cx.on(..)` seals
+    /// the drag as one of the page's own messages, and passing it straight in
+    /// beats wrapping it in a closure that calls it and throws the answer away.
+    pub fn on_resize(mut self, on_resize: impl IntoPayloadCallback<Resized>) -> Self {
+        self.on_resize = Some(on_resize.into_payload_callback());
         self
     }
 
-    pub fn sort(mut self, state: SortState<String>, on_sort: impl Fn(String) + 'static) -> Self {
-        self.sort = Some((state, Callback::new(on_sort)));
+    pub fn sort(
+        mut self,
+        state: SortState<String>,
+        on_sort: impl IntoPayloadCallback<String>,
+    ) -> Self {
+        self.sort = Some((state, on_sort.into_payload_callback()));
         self
     }
 
     pub fn selection(
         mut self,
         at: Option<usize>,
-        on_select: impl Fn(Option<usize>) + 'static,
+        on_select: impl IntoPayloadCallback<Option<usize>>,
     ) -> Self {
-        self.selection = Some((at, Callback::new(on_select)));
+        self.selection = Some((at, on_select.into_payload_callback()));
         self
     }
 
@@ -353,6 +362,9 @@ fn width_of<T>(widths: &ColumnWidths, column: &ColumnSpec<T>) -> f64 {
 
 fn handle<T>(column: &ColumnSpec<T>, width: f64, on_resize: Callback<Resized>) -> View {
     let id = column.id;
+    // The one place a closure is still the right shape: the handle reports a
+    // width and the table turns it into a `Resized` for the column it belongs
+    // to, which is a mapping rather than a hand-off.
     resize_handle(width, move |width| {
         // A drop here means the drag outlived the publication that started it,
         // and the column simply stays where it was.

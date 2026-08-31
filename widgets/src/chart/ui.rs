@@ -14,7 +14,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use windows_canvas::{Invalidator, canvas_invalidated};
-use windows_reactor::{Border, Callback, Color, ContentControl, PointerEventInfo, View};
+use windows_reactor::{
+    Border, Callback, Color, ContentControl, IntoPayloadCallback, PointerEventInfo, View,
+};
 
 use super::hover::hover_at;
 use super::model::{ChartRevision, HoverInfo, LineChartOptions, Series, chart_revision};
@@ -85,7 +87,10 @@ impl Chart {
     }
 
     /// The chart, drawn.
-    pub fn view(&self, on_hover: impl Fn(Option<HoverInfo>) + 'static) -> View {
+    ///
+    /// `on_hover` takes what every reactor widget takes: a plain closure, or a
+    /// `Callback` a segment already made with `cx.on(..)`.
+    pub fn view(&self, on_hover: impl IntoPayloadCallback<Option<HoverInfo>>) -> View {
         let painting = self.series.clone();
         let options = self.options.clone();
         let measured = self.width.clone();
@@ -96,7 +101,7 @@ impl Chart {
             Ok(())
         });
 
-        let on_hover = Rc::new(on_hover);
+        let on_hover = on_hover.into_payload_callback();
         let moved_over = self.series.clone();
         let width_on_move = self.width.clone();
         let pointer_on_move = self.pointer.clone();
@@ -112,11 +117,17 @@ impl Chart {
             .on_pointer_moved(Callback::new(move |info: PointerEventInfo| {
                 let at = info.x as f32;
                 pointer_on_move.set(Some(at));
-                hover_on_move(hover_at(&moved_over.borrow(), at, width_on_move.get()));
+                // Dropped when the segment that drew this chart is no longer
+                // publishing; the readout then simply stays where it was.
+                let _ = hover_on_move.call(hover_at(
+                    &moved_over.borrow(),
+                    at,
+                    width_on_move.get(),
+                ));
             }))
             .on_pointer_exited(Callback::new(move |_: PointerEventInfo| {
                 pointer_on_exit.set(None);
-                on_hover(None);
+                let _ = on_hover.call(None);
             }))
             .content(surface)
     }

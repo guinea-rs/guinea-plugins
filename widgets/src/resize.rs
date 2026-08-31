@@ -56,14 +56,17 @@ pub struct ResizeHandle {
 /// The value is reported rather than owned: a column's width belongs to
 /// whatever laid the column out, and a handle that kept its own copy would be
 /// a second answer to the same question.
-pub fn resize_handle(current: f64, on_resize: impl Fn(f64) + 'static) -> ResizeHandle {
+pub fn resize_handle(
+    current: f64,
+    on_resize: impl windows_reactor::IntoPayloadCallback<f64>,
+) -> ResizeHandle {
     ResizeHandle {
         current,
         min: 0.0,
         max: f64::MAX,
         indicator_size: HandleSize::Percent(0.24),
         rail: None,
-        on_resize: windows_reactor::Callback::new(on_resize),
+        on_resize: on_resize.into_payload_callback(),
     }
 }
 
