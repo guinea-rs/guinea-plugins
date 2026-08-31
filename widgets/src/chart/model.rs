@@ -2,6 +2,7 @@
 //! the readout handed back on hover.
 
 use windows_canvas::ColorF;
+use windows_reactor::ColorScheme;
 
 use crate::color::hex_alpha;
 
@@ -44,17 +45,24 @@ impl Default for LineChartOptions {
     fn default() -> Self {
         Self {
             background: Some(super::paint::BACKGROUND_TOP),
-            border: Some(theme_border_color()),
+            border: Some(theme_border_color(ColorScheme::Dark)),
             show_grid: true,
             y_range: None,
         }
     }
 }
 
-pub fn theme_border_color() -> ColorF {
-    match windows_reactor::current_color_scheme() {
-        windows_reactor::ColorScheme::Dark => hex_alpha(0xffffff, 36),
-        windows_reactor::ColorScheme::Light => hex_alpha(0x000000, 36),
+/// The border that reads as a hairline against `scheme`.
+///
+/// Handed the scheme rather than asking for it: the reactor used to answer
+/// `current_color_scheme()` process-wide, and now tells each component through
+/// `ViewContext::on_color_scheme`. A page that follows the system theme keeps
+/// the last one it was told and passes it here; one that does not gets the
+/// default above, which assumes the chart's own dark backdrop.
+pub fn theme_border_color(scheme: ColorScheme) -> ColorF {
+    match scheme {
+        ColorScheme::Dark => hex_alpha(0xffffff, 36),
+        ColorScheme::Light => hex_alpha(0x000000, 36),
     }
 }
 

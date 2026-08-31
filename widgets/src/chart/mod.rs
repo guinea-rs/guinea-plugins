@@ -14,11 +14,9 @@ mod model;
 #[cfg(feature = "winui")]
 mod paint;
 #[cfg(feature = "winui")]
-mod surface;
-#[cfg(feature = "winui")]
 mod ui;
 
 #[cfg(feature = "winui")]
 pub use model::{HoverInfo, Interpolation, LineChartOptions, Series, theme_border_color};
 #[cfg(feature = "winui")]
-pub use ui::{line_chart, line_chart_with_options};
+pub use ui::Chart;

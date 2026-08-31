@@ -1,8 +1,11 @@
 //! Turning a chart into strokes and fills. Nothing here knows where the
 //! surface came from or how it reaches the screen.
 
-use windows_canvas::{Brush, ColorF, GpuDevice, Path, PathBuilder, Rect, Result as CanvasResult, Vector2};
-use windows_reactor::DrawContext;
+// `DrawContext` moved here with the reactor rewrite: the canvas crate owns the
+// Reactor bridge now, rather than the reactor owning a canvas feature.
+use windows_canvas::{
+    Brush, ColorF, DrawContext, GpuDevice, Path, PathBuilder, Rect, Result as CanvasResult, Vector2,
+};
 
 use super::bounds;
 use super::model::{Interpolation, LineChartOptions, Series};

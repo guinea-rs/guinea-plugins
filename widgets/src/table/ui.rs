@@ -1,12 +1,36 @@
+//! The table, drawn.
+//!
+//! Rewritten for the component model, and smaller for it. The table used to
+//! own its column widths - a `TableLayout` in a hook slot, each width an
+//! `Rc<Cell<u64>>` it wrote to during a drag - which made two tables of the
+//! same shape in two windows share a slot or not depending on where the slot
+//! landed, and made the widths unreachable to anything that wanted to save
+//! them.
+//!
+//! Now it owns nothing. Widths come in as data, a drag goes out as
+//! [`Resized`], and what happens next is the page's business - which, in an
+//! Elm backend, means a field on the page and a line in its `update`.
+
 use super::*;
 
+use std::collections::BTreeMap;
 use std::rc::Rc;
-use windows_reactor::{grid, hstack, Color, Element, GridChildExt, InputExt, LayoutExt, PaddingExt, GridLength, RenderCx, SetState, Shape, Thickness};
+
+use windows_reactor::{
+    Border, Callback, ChildrenControl, Color, ContentControl, Grid, GridChildExt, GridLength,
+    LayoutControl, ListView, ListViewSlot, Orientation, PointerEventInfo, Rectangle, SlotsControl,
+    StackPanel, TextBlock, Thickness, View,
+};
 
 use crate::resize::resize_handle;
 
 const MIN_COLUMN_WIDTH: f64 = 24.0;
-const HEADER_SEPARATOR_COLOR: Color = Color { a: 48, r: 128, g: 128, b: 128 };
+const HEADER_SEPARATOR_COLOR: Color = Color {
+    a: 48,
+    r: 128,
+    g: 128,
+    b: 128,
+};
 
 /// Horizontal inset shared by header and body cells so column content never
 /// sits flush against the resize handle or the row edge. Opt out per column
@@ -16,36 +40,93 @@ const CELL_HORIZONTAL_PADDING: f64 = 12.0;
 /// (label + aggregate value) where body rows stay a single fixed height.
 const HEADER_VERTICAL_PADDING: f64 = 8.0;
 
+/// What each column is currently wide, by column id.
+///
+/// Plain data, and the whole point of it: the table draws with this and never
+/// writes to it. A drag is reported and the owner decides.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ColumnWidths(BTreeMap<&'static str, f64>);
+
+impl ColumnWidths {
+    /// What this column is wide, or `None` when it has never been dragged.
+    ///
+    /// `None` rather than a guess: the answer for a column nobody has touched
+    /// is what that column declared, and only the column knows it. A default
+    /// `ColumnWidths` is therefore a complete answer - a page that never
+    /// persists widths starts with one and needs no `init`.
+    pub fn get(&self, id: &str) -> Option<f64> {
+        self.0.get(id).copied()
+    }
+
+    /// Applies a drag. What a page's `update` calls when [`Resized`] arrives.
+    pub fn apply(&mut self, drag: Resized) {
+        self.0.insert(drag.column, drag.width);
+    }
+}
+
+/// A column boundary dragged to a new width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Resized {
+    pub column: &'static str,
+    pub width: f64,
+}
+
 pub struct ColumnSpec<T> {
     pub id: &'static str,
-    pub header: Rc<dyn Fn() -> Element>,
-    pub initial_width: Width,
+    pub header: Rc<dyn Fn() -> View>,
+    pub initial_width: f64,
     pub min_width: f64,
     pub sortable: bool,
     pub flush: bool,
-    pub cell: Rc<dyn Fn(&T) -> Element>,
+    pub cell: Rc<dyn Fn(&T) -> View>,
 }
 
 impl<T> ColumnSpec<T> {
-    pub fn new(id: &'static str, header: impl Into<String>, initial_width: impl IntoWidth, cell: impl Fn(&T) -> Element + 'static) -> Self {
+    pub fn new(
+        id: &'static str,
+        header: impl Into<String>,
+        initial_width: f64,
+        cell: impl Fn(&T) -> View + 'static,
+    ) -> Self {
         let header = header.into();
-        Self { id, header: Rc::new(move || windows_reactor::text_block(header.clone()).into()), initial_width: initial_width.into_width(), min_width: MIN_COLUMN_WIDTH, sortable: false, flush: false, cell: Rc::new(cell) }
+        Self {
+            id,
+            header: Rc::new(move || TextBlock::new().text(header.clone()).into()),
+            initial_width,
+            min_width: MIN_COLUMN_WIDTH,
+            sortable: false,
+            flush: false,
+            cell: Rc::new(cell),
+        }
     }
 
-    /// Use an arbitrary `Element` as the column header instead of plain text.
-    /// The factory is called on every render, so the element can depend on signals.
-    pub fn new_with_header(id: &'static str, header: impl Fn() -> Element + 'static, initial_width: impl IntoWidth, cell: impl Fn(&T) -> Element + 'static) -> Self {
-        Self { id, header: Rc::new(header), initial_width: initial_width.into_width(), min_width: MIN_COLUMN_WIDTH, sortable: false, flush: false, cell: Rc::new(cell) }
+    /// Use an arbitrary view as the column header instead of plain text. The
+    /// factory is called on every draw, so it may depend on state.
+    pub fn new_with_header(
+        id: &'static str,
+        header: impl Fn() -> View + 'static,
+        initial_width: f64,
+        cell: impl Fn(&T) -> View + 'static,
+    ) -> Self {
+        Self {
+            id,
+            header: Rc::new(header),
+            initial_width,
+            min_width: MIN_COLUMN_WIDTH,
+            sortable: false,
+            flush: false,
+            cell: Rc::new(cell),
+        }
     }
 
-    /// Sets the minimum width enforced by the resize handle.
+    /// Sets the minimum width the resize handle enforces.
     pub fn min_width(mut self, min_width: f64) -> Self {
         self.min_width = min_width;
         self
     }
 
-    /// Makes the header clickable and shows the sort indicator when `table`
-    /// receives the matching `SortState`. The sort id is the column `id`.
+    /// Makes the header clickable and shows the sort indicator when the table
+    /// is given a matching [`SortState`]. The sort id is the column `id`.
     pub fn sortable(mut self) -> Self {
         self.sortable = true;
         self
@@ -57,179 +138,254 @@ impl<T> ColumnSpec<T> {
     /// For a column that reserves its own left gutter - a tree column with a
     /// chevron slot, say - the shared inset is a second gutter on top of the
     /// first, and the two of them push the content visibly off the table's
-    /// edge. Per-column rather than global because the *other* columns still
-    /// want it: without the inset, adjacent cells with a background (a heat
-    /// wash) run into one another.
+    /// edge.
     pub fn flush(mut self) -> Self {
         self.flush = true;
         self
     }
 }
 
-struct ResolvedColumn<T> {
-    id: &'static str,
-    header: Rc<dyn Fn() -> Element>,
-    width: Width,
-    min_width: f64,
-    sortable: bool,
-    flush: bool,
-    cell: Rc<dyn Fn(&T) -> Element>,
+/// A table being described. Nothing is drawn until [`build`](Table::build).
+pub struct Table<T> {
+    rows: Vec<T>,
+    columns: Vec<ColumnSpec<T>>,
+    key: Rc<dyn Fn(&T) -> String>,
+    widths: ColumnWidths,
+    on_resize: Option<Callback<Resized>>,
+    sort: Option<(SortState<String>, Callback<String>)>,
+    selection: Option<(Option<usize>, Callback<Option<usize>>)>,
+    sort_indicator: Option<Rc<dyn Fn(bool) -> View>>,
 }
 
 pub fn table<T: 'static>(
-    cx: &mut RenderCx,
     rows: Vec<T>,
     columns: Vec<ColumnSpec<T>>,
     key: impl Fn(&T) -> String + 'static,
-    sort: Option<(SortState<String>, SetState<String>)>,
-    selection: Option<(i32, SetState<i32>)>,
-) -> Element {
-    table_with_sort_indicator(cx, rows, columns, key, sort, selection, None)
+) -> Table<T> {
+    Table {
+        widths: ColumnWidths::default(),
+        rows,
+        columns,
+        key: Rc::new(key),
+        on_resize: None,
+        sort: None,
+        selection: None,
+        sort_indicator: None,
+    }
 }
 
-/// Like [`table`], but lets the caller render the sort direction indicator
-/// itself (e.g. a themed icon) instead of the plain text glyph fallback.
-/// `guinea` has no dependency on any particular icon set, so it cannot
-/// bundle one - the closure receives `descending` and returns the element
-/// shown next to the active sort column's header.
-pub fn table_with_sort_indicator<T: 'static>(
-    cx: &mut RenderCx,
-    rows: Vec<T>,
-    columns: Vec<ColumnSpec<T>>,
-    key: impl Fn(&T) -> String + 'static,
-    sort: Option<(SortState<String>, SetState<String>)>,
-    selection: Option<(i32, SetState<i32>)>,
-    sort_indicator: Option<Rc<dyn Fn(bool) -> Element>>,
-) -> Element {
-    let layout_ref = cx.use_ref(TableLayout::<&'static str>::new());
-    let columns: Rc<Vec<ResolvedColumn<T>>> = {
-        let mut layout = layout_ref.borrow_mut();
-        Rc::new(
-            columns
-                .into_iter()
-                .map(|spec| ResolvedColumn {
-                    id: spec.id,
-                    width: layout.add_column(spec.id, spec.initial_width),
-                    header: spec.header,
-                    min_width: spec.min_width,
-                    sortable: spec.sortable,
-                    flush: spec.flush,
-                    cell: spec.cell,
-                })
-                .collect(),
-        )
-    };
-
-    let (_, request_rerender) = cx.use_state(());
-
-    let (sort_state, on_sort) = match sort {
-        Some((state, cb)) => (Some(state), Some(cb)),
-        None => (None, None),
-    };
-
-    let last_index = columns.len().saturating_sub(1);
-
-    let mut header_cells: Vec<Element> = Vec::with_capacity(columns.len() * 2);
-    for (i, c) in columns.iter().enumerate() {
-        header_cells.push(header_cell(c, sort_state.as_ref(), on_sort.as_ref(), sort_indicator.as_ref()));
-        if i != last_index {
-            header_cells.push(column_resize_handle(cx, c.width.clone(), c.min_width, request_rerender.clone()));
-        }
+impl<T: 'static> Table<T> {
+    /// The widths to draw with. Without this the table uses what the columns
+    /// declared, which is right for a table nobody can resize.
+    pub fn widths(mut self, widths: &ColumnWidths) -> Self {
+        self.widths = widths.clone();
+        self
     }
-    let header = hstack(header_cells);
 
-    let columns_for_rows = columns.clone();
-    let body = {
-        let builder = windows_reactor::list_view(rows, move |row: &T, _idx: usize| row_view(row, &columns_for_rows))
-            .with_key_selector(key);
-        match selection {
-            Some((selected_index, on_selection_changed)) => builder
-                .selected_index(selected_index)
-                .on_selection_changed(on_selection_changed)
-                .build(),
-            None => builder.build(),
+    /// Where a drag goes. Without it the handles are not drawn at all - a
+    /// handle that reported to nobody would move and snap back.
+    pub fn on_resize(mut self, on_resize: impl Fn(Resized) + 'static) -> Self {
+        self.on_resize = Some(Callback::new(on_resize));
+        self
+    }
+
+    pub fn sort(mut self, state: SortState<String>, on_sort: impl Fn(String) + 'static) -> Self {
+        self.sort = Some((state, Callback::new(on_sort)));
+        self
+    }
+
+    pub fn selection(
+        mut self,
+        at: Option<usize>,
+        on_select: impl Fn(Option<usize>) + 'static,
+    ) -> Self {
+        self.selection = Some((at, Callback::new(on_select)));
+        self
+    }
+
+    /// Renders the sort direction indicator, instead of the plain glyph.
+    ///
+    /// guinea depends on no icon set and cannot bundle one, so this is how a
+    /// themed icon gets in. The closure is handed `descending`.
+    pub fn sort_indicator(mut self, render: impl Fn(bool) -> View + 'static) -> Self {
+        self.sort_indicator = Some(Rc::new(render));
+        self
+    }
+
+    pub fn build(self) -> View {
+        let Self {
+            rows,
+            columns,
+            key,
+            widths,
+            on_resize,
+            sort,
+            selection,
+            sort_indicator,
+        } = self;
+
+        let (sort_state, on_sort) = match sort {
+            Some((state, callback)) => (Some(state), Some(callback)),
+            None => (None, None),
+        };
+
+        // Keyed rather than positional: a column that gains a resize handle
+        // when `on_resize` is given must not be mistaken for the column that
+        // used to sit at that index.
+        let last = columns.len().saturating_sub(1);
+        let mut header_cells: Vec<(String, View)> = Vec::with_capacity(columns.len() * 2);
+        for (at, column) in columns.iter().enumerate() {
+            header_cells.push((
+                column.id.to_string(),
+                header_cell(
+                    column,
+                    width_of(&widths, column),
+                    sort_state.as_ref(),
+                    on_sort.as_ref(),
+                    sort_indicator.as_ref(),
+                ),
+            ));
+
+            if at != last && let Some(on_resize) = &on_resize {
+                header_cells.push((
+                    format!("{}::handle", column.id),
+                    handle(column, width_of(&widths, column), on_resize.clone()),
+                ));
+            }
         }
-    };
 
-    let header_separator = Shape::rectangle()
-        .fill(HEADER_SEPARATOR_COLOR)
-        .height(1.0);
+        let header = StackPanel::new()
+            .orientation(Orientation::Horizontal)
+            .grid_row(0)
+            .children((View::keyed_fragment(header_cells),));
 
-    grid((
-        header.grid_row(0),
-        header_separator.grid_row(1),
-        windows_reactor::border(body).grid_row(2),
-    ))
-        .rows([GridLength::Auto, GridLength::Auto, GridLength::Star(1.0)])
-        .into()
+        let separator = Rectangle::new()
+            .fill(HEADER_SEPARATOR_COLOR)
+            .height(1.0)
+            .grid_row(1);
+
+        let items: Vec<(String, View)> = rows
+            .iter()
+            .map(|row| (key(row), row_view(row, &columns, &widths)))
+            .collect();
+
+        let mut list = ListView::new();
+        if let Some((at, on_select)) = selection {
+            list = list.selected_index(at).on_selection_changed(on_select);
+        }
+
+        Grid::new()
+            .rows([GridLength::Auto, GridLength::Auto, GridLength::Star(1.0)])
+            .children((
+                header,
+                separator,
+                Border::new()
+                    .grid_row(2)
+                    .content(list.collection_slot(ListViewSlot::Items, items)),
+            ))
+    }
 }
 
 fn header_cell<T>(
-    c: &ResolvedColumn<T>,
+    column: &ColumnSpec<T>,
+    width: f64,
     sort_state: Option<&SortState<String>>,
-    on_sort: Option<&SetState<String>>,
-    sort_indicator: Option<&Rc<dyn Fn(bool) -> Element>>,
-) -> Element {
-    let active = sort_state.filter(|s| c.sortable && s.field_id.as_deref() == Some(c.id));
+    on_sort: Option<&Callback<String>>,
+    sort_indicator: Option<&Rc<dyn Fn(bool) -> View>>,
+) -> View {
+    let active = sort_state.filter(|s| column.sortable && s.field_id.as_deref() == Some(column.id));
 
-    let base = (c.header)();
-    let content: Element = match active {
-        Some(s) => {
+    let base = (column.header)();
+    let content = match active {
+        Some(state) => {
             let indicator = match sort_indicator {
-                Some(render) => render(s.descending),
-                None => windows_reactor::text_block(if s.descending { "▼" } else { "▲" }).into(),
+                Some(render) => render(state.descending),
+                None => TextBlock::new()
+                    .text(if state.descending { "▼" } else { "▲" })
+                    .into(),
             };
-            hstack(vec![base, indicator]).into()
+            StackPanel::new()
+                .orientation(Orientation::Horizontal)
+                .children((base, indicator))
         }
         None => base,
     };
 
-    // Kept as a `Border` rather than collapsed to `Element`: padding and
-    // width are capabilities of the widget, and the reconciler no longer
-    // offers them on an erased node.
-    let cell = match (c.sortable, on_sort) {
-        (true, Some(cb)) => {
-            let id = c.id.to_string();
-            let cb = cb.clone();
-            windows_reactor::border(content).on_tapped(move || cb.call(id.clone()))
+    // Kept as a `Border` rather than collapsed to a bare view: padding and
+    // width are capabilities of the widget, and an erased node has neither.
+    let cell = Border::new()
+        .padding(Thickness::xy(
+            if column.flush {
+                0.0
+            } else {
+                CELL_HORIZONTAL_PADDING
+            },
+            HEADER_VERTICAL_PADDING,
+        ))
+        .width(width);
+
+    match (column.sortable, on_sort) {
+        (true, Some(on_sort)) => {
+            let id = column.id.to_string();
+            let on_sort = on_sort.clone();
+            // `on_tapped` is gone; a release over the cell is the same gesture
+            // for a header, and the only one a `Border` still offers.
+            cell.on_pointer_released(Callback::new(move |_: PointerEventInfo| {
+                // `false` means the segment that owns this table is not
+                // publishing, so the sort would land nowhere.
+                if !on_sort.call(id.clone()) {
+                    tracing::debug!(column = %id, "sort dropped: no active publication");
+                }
+            }))
+            .content(content)
         }
-        _ => windows_reactor::border(content),
-    };
-    cell.padding(Thickness::xy(
-        if c.flush { 0.0 } else { CELL_HORIZONTAL_PADDING },
-        HEADER_VERTICAL_PADDING,
-    ))
-    .width(c.width.get() as f64)
-    .into()
+        _ => cell.content(content),
+    }
 }
 
-fn column_resize_handle(cx: &mut RenderCx, width: Width, min_width: f64, request_rerender: SetState<()>) -> Element {
-    let current = width.get() as f64;
-    let set = SetState::new(move |w: f64| {
-        width.set(w as u64);
-        request_rerender.call(());
-    });
-    resize_handle(cx, current, set)
-        .min(min_width)
-        .rail(HEADER_SEPARATOR_COLOR)
-        .build()
+/// What this column is drawn at: what it was dragged to, or what it declared.
+fn width_of<T>(widths: &ColumnWidths, column: &ColumnSpec<T>) -> f64 {
+    widths
+        .get(column.id)
+        .unwrap_or(column.initial_width)
+        .max(column.min_width)
 }
 
-fn row_view<T>(row: &T, columns: &[ResolvedColumn<T>]) -> Element {
-    let cells: Vec<Element> = columns
+fn handle<T>(column: &ColumnSpec<T>, width: f64, on_resize: Callback<Resized>) -> View {
+    let id = column.id;
+    resize_handle(width, move |width| {
+        // A drop here means the drag outlived the publication that started it,
+        // and the column simply stays where it was.
+        let _ = on_resize.call(Resized { column: id, width });
+    })
+    .min(column.min_width)
+    .rail(HEADER_SEPARATOR_COLOR)
+    .build()
+}
+
+fn row_view<T>(row: &T, columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> View {
+    let cells: Vec<(String, View)> = columns
         .iter()
-        .map(|c| {
-            let width = c.width.get() as f64;
+        .map(|column| {
             // The column renders whatever it likes, so what comes back is
             // erased - wrap it in the thing that carries padding and width.
-            windows_reactor::border((c.cell)(row))
+            let cell = Border::new()
                 .padding(Thickness::xy(
-                    if c.flush { 0.0 } else { CELL_HORIZONTAL_PADDING },
+                    if column.flush {
+                        0.0
+                    } else {
+                        CELL_HORIZONTAL_PADDING
+                    },
                     0.0,
                 ))
-                .width(width)
-                .into()
+                .width(width_of(widths, column))
+                .content((column.cell)(row));
+
+            (column.id.to_string(), cell)
         })
         .collect();
-    hstack(cells).into()
+
+    StackPanel::new()
+        .orientation(Orientation::Horizontal)
+        .children((View::keyed_fragment(cells),))
 }

@@ -1,81 +1,123 @@
-//! The widget itself: a host element wired to a surface and a pointer.
+//! The chart widget: a canvas the page owns, and a pointer over it.
+//!
+//! This used to be 250 lines of composition plumbing - a graphics device, a
+//! drawing surface, a sprite visual, an attach/resize/detach dance against a
+//! host element - because there was nothing to do it for us. `windows-canvas`
+//! has a `reactor` feature now, and all of that is one call.
+//!
+//! What is left is what was ours to begin with: when to redraw, and where the
+//! pointer is. Both live on [`Chart`], which the page keeps as a field - a
+//! page is an Elm node, so its state is its struct, and a chart's state is
+//! part of the page's.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use windows_reactor::{
-    BackgroundExt, Color, Element, InputExt, PointerEventInfo, RenderCx, composition_host,
-};
+use windows_canvas::{Invalidator, canvas_invalidated};
+use windows_reactor::{Border, Callback, Color, ContentControl, PointerEventInfo, View};
 
 use super::hover::hover_at;
-use super::model::{HoverInfo, LineChartOptions, Series};
-use super::surface::ChartHost;
+use super::model::{ChartRevision, HoverInfo, LineChartOptions, Series, chart_revision};
+use super::paint;
 
-pub fn line_chart(
-    cx: &mut RenderCx,
-    series: Vec<Series>,
-    on_hover: impl Fn(Option<HoverInfo>) + 'static,
-) -> Element {
-    line_chart_with_options(cx, series, on_hover, LineChartOptions::default())
+/// A line chart, and what it needs between draws.
+///
+/// Held by the page rather than conjured per render: a canvas that is redrawn
+/// only when its data grew has to remember what it last drew, and that
+/// remembering is state like any other.
+pub struct Chart {
+    series: Rc<RefCell<Vec<Series>>>,
+    options: Rc<RefCell<LineChartOptions>>,
+    /// The last width the canvas drew at, for turning a pointer position into
+    /// a point on the series.
+    width: Rc<Cell<f32>>,
+    /// Where the pointer was last seen, or `None` when it is away.
+    pointer: Rc<Cell<Option<f32>>>,
+    drawn: Cell<Option<ChartRevision>>,
+    invalidator: Invalidator,
 }
 
-pub fn line_chart_with_options(
-    cx: &mut RenderCx,
-    series: Vec<Series>,
-    on_hover: impl Fn(Option<HoverInfo>) + 'static,
-    options: LineChartOptions,
-) -> Element {
-    let chart = ChartHost::new(cx);
-    chart.publish(series, options);
+impl Default for Chart {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    // Where the pointer was last seen, or `None` when it is away.
-    let pointer = cx.use_ref(Cell::new(None::<f32>));
-    let on_hover = Rc::new(on_hover);
-
-    // A composition drawing surface (unlike `animated_canvas`) presents a frame
-    // only when it is drawn into, instead of every vsync forever - a continuous
-    // render loop for a chart that changes a few times a second was burning
-    // several percent of a CPU core for nothing. So drawing happens here, gated
-    // on the data having actually grown, rather than on every render.
-    //
-    // The readout is recomputed in the same breath: the series tick on their
-    // own, and a pointer resting on the chart should follow them rather than
-    // report whatever was under it when it last moved.
-    let revision = chart.revision();
-    let redraw = chart.clone();
-    let pointer_at_tick = pointer.clone();
-    let hover_at_tick = on_hover.clone();
-    cx.use_effect((revision,), move || {
-        redraw.redraw();
-        if let Some(x) = pointer_at_tick.borrow().get() {
-            hover_at_tick(hover_at(&redraw.series(), x, redraw.width()));
+impl Chart {
+    pub fn new() -> Self {
+        Self {
+            series: Rc::new(RefCell::new(Vec::new())),
+            options: Rc::new(RefCell::new(LineChartOptions::default())),
+            width: Rc::new(Cell::new(0.0)),
+            pointer: Rc::new(Cell::new(None)),
+            drawn: Cell::new(None),
+            invalidator: Invalidator::new(),
         }
-    });
+    }
 
-    let on_mount = chart.clone();
-    let on_size = chart.clone();
-    let on_gone = chart.clone();
-    let moved_over = chart.clone();
-    let pointer_on_move = pointer.clone();
-    let hover_on_move = on_hover.clone();
+    /// Hands the chart new data.
+    ///
+    /// A redraw is asked for only when the data actually moved. A drawing
+    /// surface presents a frame when it is drawn into rather than every vsync,
+    /// so this gate is what keeps a chart that ticks twice a second from
+    /// burning several percent of a core - which an unconditional animated
+    /// canvas did.
+    pub fn publish(&self, series: Vec<Series>, options: LineChartOptions) {
+        let revision = chart_revision(&series);
+        *self.series.borrow_mut() = series;
+        *self.options.borrow_mut() = options;
 
-    composition_host()
-        .on_mounted(move |handle| on_mount.attach(handle))
-        .on_resize(move |w, h| on_size.resize(w as f32, h as f32))
-        .on_unmounted(move |_| on_gone.detach())
-        // A composition child visual is invisible to XAML hit-testing, so
-        // without a brush on the host itself the chart would never see a
-        // pointer. Transparent is enough, and stays out of the way of whatever
-        // the chart draws.
-        .background(Color::transparent())
-        .on_pointer_moved(move |info: PointerEventInfo| {
-            let x = info.x as f32;
-            pointer_on_move.borrow().set(Some(x));
-            hover_on_move(hover_at(&moved_over.series(), x, moved_over.width()));
-        })
-        .on_pointer_exited(move || {
-            pointer.borrow().set(None);
-            on_hover(None);
-        })
-        .into()
+        if self.drawn.get() != Some(revision) {
+            self.drawn.set(Some(revision));
+            self.invalidator.invalidate();
+        }
+    }
+
+    /// What the readout should say right now, without the pointer having
+    /// moved.
+    ///
+    /// The series tick on their own, and a pointer resting on the chart should
+    /// follow them rather than report whatever was under it when it last
+    /// moved. A page asks for this in the same breath as it publishes.
+    pub fn hovered(&self) -> Option<HoverInfo> {
+        let at = self.pointer.get()?;
+        hover_at(&self.series.borrow(), at, self.width.get())
+    }
+
+    /// The chart, drawn.
+    pub fn view(&self, on_hover: impl Fn(Option<HoverInfo>) + 'static) -> View {
+        let painting = self.series.clone();
+        let options = self.options.clone();
+        let measured = self.width.clone();
+
+        let surface = canvas_invalidated(&self.invalidator, move |draw| {
+            measured.set(draw.width);
+            paint::render(draw, &painting.borrow(), &options.borrow());
+            Ok(())
+        });
+
+        let on_hover = Rc::new(on_hover);
+        let moved_over = self.series.clone();
+        let width_on_move = self.width.clone();
+        let pointer_on_move = self.pointer.clone();
+        let hover_on_move = on_hover.clone();
+        let pointer_on_exit = self.pointer.clone();
+
+        Border::new()
+            // A composition child visual is invisible to XAML hit-testing, so
+            // without a brush on the host itself the chart would never see a
+            // pointer. Transparent is enough, and stays out of the way of
+            // whatever the chart draws.
+            .background(Color::transparent())
+            .on_pointer_moved(Callback::new(move |info: PointerEventInfo| {
+                let at = info.x as f32;
+                pointer_on_move.set(Some(at));
+                hover_on_move(hover_at(&moved_over.borrow(), at, width_on_move.get()));
+            }))
+            .on_pointer_exited(Callback::new(move |_: PointerEventInfo| {
+                pointer_on_exit.set(None);
+                on_hover(None);
+            }))
+            .content(surface)
+    }
 }

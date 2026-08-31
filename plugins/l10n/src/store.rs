@@ -1,17 +1,17 @@
 use std::marker::PhantomData;
 
-use guinea_core::scope::{GlobalScope, NoopActions, Reducer, Subscription};
+use guinea_core::scope::{GlobalScope, Reducer, Subscription};
 
-struct Marker<S>(PhantomData<S>);
+/// The strings themselves, as a reducer - the state is the reducer now, so
+/// this is a newtype around `S` rather than a marker beside it.
+#[derive(Clone, Default)]
+struct Strings<S>(S);
 
-impl<S: Clone + Default + 'static> Reducer for Marker<S> {
-    type State = S;
-    type Push = S;
-    type Group = ();
-    type Actions = NoopActions;
+impl<S: Clone + Default + 'static> Reducer for Strings<S> {
+    type Update = S;
 
-    fn reduce(state: &mut Self::State, msg: Self::Push) {
-        *state = msg;
+    fn reduce(&mut self, next: S) {
+        self.0 = next;
     }
 }
 
@@ -38,16 +38,16 @@ pub struct L10n<S>(PhantomData<S>);
 
 impl<S: Clone + Default + 'static> L10n<S> {
     pub fn load(strings: S) {
-        GlobalScope::instance().push::<Marker<S>>(strings);
+        GlobalScope::instance().push::<Strings<S>>(strings);
     }
 
     pub fn current() -> S {
-        GlobalScope::instance().binding::<Marker<S>>().get()
+        GlobalScope::instance().binding::<Strings<S>>().get().0
     }
 
     pub fn subscribe(callback: impl Fn(S) + 'static) -> Subscription {
         GlobalScope::instance()
-            .binding::<Marker<S>>()
-            .on_change(move |strings| callback(strings.clone()))
+            .binding::<Strings<S>>()
+            .on_change(move |strings| callback(strings.0.clone()))
     }
 }
