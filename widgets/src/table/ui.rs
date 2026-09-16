@@ -18,8 +18,8 @@ use std::rc::Rc;
 
 use windows_reactor::{
     Border, Callback, ChildrenControl, Color, ContentControl, Grid, GridChildExt, GridLength,
-    IntoPayloadCallback, LayoutControl, ListView, ListViewSlot, Orientation, PointerEventInfo,
-    Rectangle, SlotsControl, StackPanel, TextBlock, Thickness, View,
+    IntoPayloadCallback, LayoutControl, ListView, Orientation, PointerEventInfo, Rectangle,
+    StackPanel, TextBlock, Thickness, View,
 };
 
 use crate::resize::resize_handle;
@@ -290,7 +290,7 @@ impl<T: 'static> Table<T> {
                 separator,
                 Border::new()
                     .grid_row(2)
-                    .content(list.collection_slot(ListViewSlot::Items, items)),
+                    .content(list.items(items)),
             ))
     }
 }

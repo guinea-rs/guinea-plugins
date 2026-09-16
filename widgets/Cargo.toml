@@ -10,16 +10,16 @@ repository.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "dc720b367", optional = true }
+windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", optional = true }
 # The canvas moved out of `windows-reactor`'s features and into its own crate's
 # `reactor` feature when the reactor was rewritten.
-windows-canvas = { git = "https://github.com/microsoft/windows-rs", rev = "dc720b367", features = [
+windows-canvas = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", features = [
     "reactor",
 ], optional = true }
 # The lifted stack - the same one `windows-reactor` pins. Charts draw Direct2D
 # into a composition surface owned by a WinUI host element, so the widget crate
 # names the composition types directly.
-windows-composition = { git = "https://github.com/microsoft/windows-rs", rev = "dc720b367", default-features = false, features = [
+windows-composition = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", default-features = false, features = [
     "reactor",
 ], optional = true }
 
