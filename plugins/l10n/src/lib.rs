@@ -31,7 +31,7 @@ use std::marker::PhantomData;
 use guinea::app::{Plugin, PluginBuilder};
 
 #[cfg(feature = "persist")]
-const KEY: &str = "app.language";
+const KEY: [&str; 2] = ["app", "language"];
 
 /// Loads the application's strings before the first render.
 pub struct L10nPlugin<S> {
@@ -175,7 +175,8 @@ mod tests {
         use guinea_plugin_store::StorePlugin;
 
         let dir = tempfile::tempdir().expect("tempdir");
-        let store = StorePlugin::at(dir.path().join("store"));
+        let path = dir.path().join("store");
+        let store = StorePlugin::at(&path);
 
         let mut app = TestApp::new();
         app.install(store).expect("store");
@@ -186,10 +187,11 @@ mod tests {
         L10n::<Strings>::load(Strings("ru".into()));
         app.shutdown();
 
-        let saved = {
-            use guinea_plugin_store::amethystate::global_store;
-            global_store().get::<String>(KEY).expect("read")
-        };
+        let saved = guinea_plugin_store::amethystate::StoreBuilder::new(&path)
+            .build()
+            .expect("reopen")
+            .get::<String>(KEY)
+            .expect("read");
         assert_eq!(saved.as_deref(), Some("ru"));
     }
 }

@@ -5,20 +5,14 @@ description = "Persistent key-value store for guinea applications, backed by ame
 # `guinea_plugin_store::amethystate` gets types that are not ours, so the
 # version has to say which ones. Follow whichever part of amethystate's version
 # means incompatibility - its minor while it is 0.x, its major afterwards.
-version = "0.13.0"
+version = "0.20.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [dependencies]
 guinea.workspace = true
-# `json` alongside the default `redb`: a backend is picked when the store is
-# built, and the features are additive, so offering both costs nothing.
-amethystate = { version = "0.13", features = ["json"] }
-# Only to reproduce amethystate's own `for_app` path when the backend is
-# overridden - see `app_path`. Should go away once `backend()` renames the
-# file itself.
-etcetera = "0.11"
+amethystate = { version = "0.20", features = ["redb", "json"] }
 anyhow.workspace = true
 tracing.workspace = true
 

@@ -99,18 +99,18 @@ impl Memory {
         // Straight to the store: `set` buffers, and amethystate's debouncer
         // decides when that reaches the disk. Doing it again here would only
         // add a second opinion about the same question.
-        if let Err(e) = self.store.set(&self.key(label), &saved) {
+        if let Err(e) = self.store.set(self.key(label), &saved) {
             tracing::warn!(error = %e, label, "could not remember the window");
         }
     }
 
     /// One entry per window, under the plugin's prefix.
-    fn key(&self, label: &str) -> String {
-        format!("{}.{label}", self.prefix)
+    fn key<'a>(&'a self, label: &'a str) -> [&'a str; 2] {
+        [self.prefix.as_str(), label]
     }
 
     fn read(&self, label: &str) -> Option<Saved> {
-        match self.store.get::<Saved>(&self.key(label)) {
+        match self.store.get::<Saved>(self.key(label)) {
             Ok(saved) => saved,
             Err(e) => {
                 tracing::warn!(error = %e, label, "could not read the remembered window");
