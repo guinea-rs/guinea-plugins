@@ -1,0 +1,109 @@
+//! The connection, on a thread and a runtime of its own.
+//!
+//! Reports go through a short queue. When devtools are not there, or not
+//! keeping up, they are dropped: a snapshot is replaced by the next one anyway,
+//! and the application must never wait on its own debugger.
+
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use futures::StreamExt;
+use futures::channel::mpsc::{Receiver, Sender, channel};
+use guinea_devtools_protocol::devtools_capnp::peer;
+use guinea_devtools_protocol::{AppInfo, Report, key, wire};
+use ogurpchik::rpc::connect_session;
+
+const QUEUE: usize = 64;
+const RETRY: Duration = Duration::from_secs(1);
+
+pub struct Outbox(Sender<Report>);
+
+impl Outbox {
+    pub fn send(&mut self, report: Report) {
+        if let Err(error) = self.0.try_send(report)
+            && error.is_disconnected()
+        {
+            tracing::trace!("the devtools link is gone");
+        }
+    }
+}
+
+pub fn spawn(info: Arc<Mutex<AppInfo>>) -> Outbox {
+    let (sender, receiver) = channel(QUEUE);
+    let spawned = std::thread::Builder::new()
+        .name("guinea-devtools".into())
+        .spawn(move || match compio::runtime::Runtime::new() {
+            Ok(runtime) => runtime.block_on(run(info, receiver)),
+            Err(error) => tracing::warn!(%error, "the devtools link has no runtime"),
+        });
+    if let Err(error) = spawned {
+        tracing::warn!(%error, "the devtools link did not start");
+    }
+    Outbox(sender)
+}
+
+/// Takes whatever devtools send. Nothing yet: the link only reports.
+struct Inbound;
+
+impl peer::Server for Inbound {
+    async fn send(
+        self: capnp::capability::Rc<Self>,
+        params: peer::SendParams,
+        _results: peer::SendResults,
+    ) -> Result<(), capnp::Error> {
+        let report = wire::received(&params)?;
+        tracing::debug!(?report, "devtools sent something this version does not act on");
+        Ok(())
+    }
+}
+
+async fn run(info: Arc<Mutex<AppInfo>>, mut reports: Receiver<Report>) {
+    let endpoint = guinea_devtools_protocol::endpoint();
+    loop {
+        let session = match key::read() {
+            Ok(secret) => {
+                connect_session::<peer::Client, _>(&endpoint, &key::handshake(secret), Inbound)
+                    .await
+                    .ok()
+            }
+            Err(_) => None,
+        };
+        let Some(session) = session else {
+            if !idle(&mut reports).await {
+                return;
+            }
+            continue;
+        };
+        tracing::debug!(%endpoint, "connected to devtools");
+
+        let remote = session.remote();
+        let mut announced = AppInfo::default();
+        loop {
+            let current = info.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+            if current != announced {
+                if wire::send(remote, &Report::Hello(current.clone())).await.is_err() {
+                    break;
+                }
+                announced = current;
+            }
+
+            let Some(report) = reports.next().await else {
+                return;
+            };
+            if wire::send(remote, &report).await.is_err() {
+                tracing::debug!(%endpoint, "devtools went away");
+                break;
+            }
+        }
+    }
+}
+
+/// Throws away what arrives while there is no connection. `false` once the
+/// application has gone.
+async fn idle(reports: &mut Receiver<Report>) -> bool {
+    let drained = compio::time::timeout(RETRY, async {
+        while reports.next().await.is_some() {}
+    })
+    .await;
+    drained.is_err()
+}

@@ -51,7 +51,7 @@ impl Plugin for MyPlugin {
 ```
 
 `PluginBuilder` is deliberately narrow - services in and out (`provide` /
-`require`), actors (`spawn`), timers (`spawn_heartbeat`), global-bus
+`require`), actors (`spawn`), timers (`every` / `repeat`), global-bus
 subscriptions, and cleanups. Anything a plugin registers is tracked and torn
 down for it; subscription ids are never handed out, so an unsubscribe cannot
 be forgotten.

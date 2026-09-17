@@ -1,0 +1,24 @@
+[package]
+name = "guinea-plugin-devtools"
+description = "Lets guinea devtools look inside a running application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+guinea.workspace = true
+guinea-core.workspace = true
+guinea-devtools-protocol = { path = "../devtools-protocol" }
+ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.4.0" }
+capnp = "0.27"
+compio = { version = "0.18.0", features = ["runtime", "time"] }
+futures = "0.3.31"
+anyhow.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+guinea = { workspace = true, features = ["test-utils"] }
