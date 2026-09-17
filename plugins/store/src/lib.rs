@@ -133,7 +133,7 @@ impl Plugin for StorePlugin {
             builder = configure(builder);
         }
 
-        let (report, guard) = amethystate::init_global_with_migration(builder);
+        let (report, guard) = amethystate::try_init_global_with_migration(builder)?;
         if report.has_failures() {
             anyhow::bail!("store migration failed - see the report above");
         }
@@ -167,6 +167,12 @@ mod tests {
 
         let store = app.require::<Store>().expect("store provided");
         store.kv().set("greeting", &"hello").expect("set");
+
+        let mut second = TestApp::new();
+        second
+            .install(StorePlugin::at(dir.path().join("other")).backend(Backend::Json))
+            .map(|_| ())
+            .expect_err("a second global store is an installation error");
 
         assert!(app.shutdown().is_empty(), "no actors should leak");
 
