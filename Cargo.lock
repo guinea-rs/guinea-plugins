@@ -13,9 +13,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0af1c634daf1091bf9143f7a08fb00b3a8a9b2ce892370d6a63bec0ec5db8947"
+checksum = "3d598e72d584319e7d84cd2164704ff4e8e27ad62c00ba68d5913b34c8968ba0"
 dependencies = [
  "amethystate-core",
  "amethystate-macros",
@@ -44,9 +44,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-core"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "613d512e91b4afe8f04cca6ede3e07b31993e3953cd255d18ebcd28db8ec8c30"
+checksum = "d65ca639f3e1585cb29440142251b026dd8f189e24b14793b7170f9b04f839ca"
 dependencies = [
  "arc-swap",
  "dashmap",
@@ -64,9 +64,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02cea841266764d6734197d28feec2323bda1171c914449c639949c5741de74b"
+checksum = "6f479d1cc55d2d45414f616fc582305b7b92dbff917070475c3356a4042c7224"
 dependencies = [
  "amethystate-macros-core",
  "darling",
@@ -78,9 +78,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros-core"
-version = "0.20.0"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06cef7abf2bcebcea20007c47a05e432d819ccae49946c3f5ddbb031aaf4bde3"
+checksum = "c29793054f5d789fc3a385aac460ef55f52e9832706c0cdc869171afd7e05b19"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-window-state"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "guinea",
@@ -677,7 +677,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "tracing",
  "windows-canvas",
