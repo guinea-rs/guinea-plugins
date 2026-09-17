@@ -1,0 +1,41 @@
+[package]
+name = "guinea-devtools"
+description = "Looks inside running guinea applications"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]
+members = ["model", "hub", "cli"]
+
+[dependencies]
+guinea-devtools-model = { path = "model" }
+guinea-devtools-hub = { path = "hub" }
+guinea = { path = "../../../guinea/crates/guinea", default-features = false, features = ["eframe"] }
+guinea-core = { path = "../../../guinea/crates/guinea-core" }
+guinea-macros = { path = "../../../guinea/crates/guinea-macros" }
+guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
+guinea-plugin-store = { path = "../../plugins/store" }
+amethystate = { version = "0.20.1", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.4.0" }
+capnp = "0.27"
+compio = { version = "0.18.0", features = ["runtime", "time"] }
+eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
+egui = "0.36"
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+guicons = { path = "../../../guicons/crates/guicons", default-features = false, features = ["macros", "egui"] }
+anyhow = "1.0"
+clap = { version = "4.6", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+inventory = "0.3"
+tokio = { version = "1", features = ["sync", "time", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# The store plugin depends on guinea from git; this keeps one guinea in the
+# build, the one next door.
+[patch."https://github.com/uniproc-dev/guinea"]
+guinea = { path = "../../../guinea/crates/guinea" }
+guinea-core = { path = "../../../guinea/crates/guinea-core" }

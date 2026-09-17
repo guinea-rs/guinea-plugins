@@ -1,0 +1,29 @@
+[everything]
+iconify = "tabler:stack-2"
+
+[records]
+iconify = "tabler:list"
+
+[action]
+iconify = "tabler:bolt"
+
+[timer]
+iconify = "tabler:clock"
+
+[repeat]
+iconify = "tabler:repeat"
+
+[navigation]
+iconify = "tabler:route"
+
+[store]
+iconify = "tabler:database"
+
+[log]
+iconify = "tabler:notes"
+
+[loose]
+iconify = "tabler:help-circle"
+
+[close]
+iconify = "tabler:x"

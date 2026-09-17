@@ -1,0 +1,70 @@
+//! How things are called on screen.
+
+use guinea_devtools_protocol::BusKind;
+
+/// A type without its path: `MetricsActor`, `List<c::Recent>`.
+pub fn type_name(full: &str) -> &str {
+    let generic = full.find('<').unwrap_or(full.len());
+    let start = full[..generic].rfind("::").map_or(0, |at| at + 2);
+    &full[start..]
+}
+
+/// Whether `full`, a type path from a snapshot, is the type `name` names.
+pub fn names(name: &str, full: &str) -> bool {
+    full == name
+        || full
+            .strip_suffix(name)
+            .is_some_and(|head| head.ends_with("::"))
+}
+
+/// What a window is called: its label, or its place among the windows.
+pub fn window_name(label: Option<&str>, index: usize) -> String {
+    match label {
+        Some(label) => label.to_string(),
+        None => format!("window {}", index + 1),
+    }
+}
+
+pub fn bus_name(bus: BusKind) -> &'static str {
+    match bus {
+        BusKind::Global => "the global bus",
+        BusKind::Window => "the window bus",
+    }
+}
+
+/// A duration given in microseconds.
+pub fn took(micros: u64) -> String {
+    if micros >= 1_000 {
+        format!("{:.1} ms", micros as f64 / 1_000.0)
+    } else {
+        format!("{micros} µs")
+    }
+}
+
+/// How often something happens, given in milliseconds.
+pub fn period(millis: u64) -> String {
+    if millis >= 1_000 && millis.is_multiple_of(1_000) {
+        format!("{} s", millis / 1_000)
+    } else {
+        format!("{millis} ms")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_period_reads_in_seconds_when_it_is_whole_ones() {
+        assert_eq!(period(5_000), "5 s");
+        assert_eq!(period(250), "250 ms");
+        assert_eq!(period(1_500), "1500 ms");
+    }
+
+    #[test]
+    fn a_type_is_named_by_its_last_segment() {
+        assert_eq!(type_name("a::b::List<c::Recent>"), "List<c::Recent>");
+        assert!(names("actor::Worker", "crate::actor::Worker"));
+        assert!(!names("Worker", "crate::actor::BigWorker"));
+    }
+}
