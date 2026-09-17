@@ -7,6 +7,12 @@ use guinea_core::scope::{GlobalScope, Reducer, Subscription};
 #[derive(Clone, Default)]
 struct Strings<S>(S);
 
+impl<S> std::fmt::Debug for Strings<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Strings<{}>", std::any::type_name::<S>())
+    }
+}
+
 impl<S: Clone + Default + 'static> Reducer for Strings<S> {
     type Update = S;
 
@@ -42,7 +48,7 @@ impl<S: Clone + Default + 'static> L10n<S> {
     }
 
     pub fn current() -> S {
-        GlobalScope::instance().binding::<Strings<S>>().get().0
+        GlobalScope::instance().binding::<Strings<S>>().get().0.clone()
     }
 
     pub fn subscribe(callback: impl Fn(S) + 'static) -> Subscription {

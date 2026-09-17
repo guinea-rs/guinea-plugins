@@ -42,8 +42,8 @@ impl RingSeries {
     ///
     /// This moves rather than copies - `Vec::from(VecDeque)` reuses the ring's
     /// own allocation, at worst shifting it into place. Prefer it to
-    /// [`as_points`](Self::as_points) wherever the ring is a snapshot already,
-    /// which it is whenever it came out of a reducer's state.
+    /// [`as_points`](Self::as_points) wherever the ring is owned and done with;
+    /// a reducer's state is shared, so read that one with `as_points`.
     pub fn into_points(self) -> Vec<(u64, f32)> {
         Vec::from(self.points)
     }
