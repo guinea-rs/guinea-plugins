@@ -11,6 +11,8 @@
 //! already talks to `amethystate` directly can keep using
 //! [`amethystate::global_store`] - the plugin initialises the same global.
 
+mod devtools;
+
 use std::path::PathBuf;
 
 use amethystate::StoreBuilder;
@@ -139,8 +141,10 @@ impl Plugin for StorePlugin {
         }
 
         let store = amethystate::global_store();
+        let watching = devtools::Watching::start(&store, &report);
 
         app.on_cleanup(move |_| {
+            drop(watching);
             guard
                 .close()
                 .map_err(|error| anyhow::anyhow!("closing the store: {error:?}"))
