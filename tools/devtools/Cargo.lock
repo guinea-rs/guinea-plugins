@@ -145,9 +145,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate"
-version = "0.20.1"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d598e72d584319e7d84cd2164704ff4e8e27ad62c00ba68d5913b34c8968ba0"
+checksum = "6937a6795b648a2ab49b7f69e4ebca4c624d822335016459018362cf369c7063"
 dependencies = [
  "amethystate-core",
  "amethystate-macros",
@@ -176,9 +176,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-core"
-version = "0.20.1"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d65ca639f3e1585cb29440142251b026dd8f189e24b14793b7170f9b04f839ca"
+checksum = "abc75d3452966944b720cb661793fd0752f52d1afe265b7400f4d4520d9fb19a"
 dependencies = [
  "arc-swap",
  "dashmap",
@@ -196,9 +196,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros"
-version = "0.20.1"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f479d1cc55d2d45414f616fc582305b7b92dbff917070475c3356a4042c7224"
+checksum = "ef9bde75b68bc0e3231b707add848ab7363a10c9e0e11dc116dc82384c55eb08"
 dependencies = [
  "amethystate-macros-core",
  "darling",
@@ -210,9 +210,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros-core"
-version = "0.20.1"
+version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c29793054f5d789fc3a385aac460ef55f52e9832706c0cdc869171afd7e05b19"
+checksum = "42ecd5cf1410802efbeb12a9c9f955a750a27d5d9f4a6d22296450875cc3615b"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -2096,8 +2096,8 @@ dependencies = [
  "libc 0.2.189",
  "log",
  "rustversion",
- "windows-link 0.1.3",
- "windows-result 0.3.4",
+ "windows-link 0.2.1",
+ "windows-result 0.4.1",
 ]
 
 [[package]]
@@ -2449,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2504,7 +2504,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2737,7 +2737,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]

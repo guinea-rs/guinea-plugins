@@ -135,7 +135,14 @@ impl Plugin for StorePlugin {
             builder = configure(builder);
         }
 
-        let (report, guard) = amethystate::try_init_global_with_migration(builder)?;
+        // `migrate_global` rather than `build_global`: since amethystate 0.21
+        // a build runs no step, so an application that declared migrations and
+        // opened with `build` would quietly read yesterday's shape. A plugin
+        // that is handed steps runs them.
+        let (guard, report) = builder
+            .migrate_global()
+            .map_err(|error| anyhow::anyhow!("opening the store: {error:?}"))?;
+
         if report.has_failures() {
             anyhow::bail!("store migration failed - see the report above");
         }

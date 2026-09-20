@@ -18,7 +18,7 @@ guinea-core = { path = "../../../guinea/crates/guinea-core" }
 guinea-macros = { path = "../../../guinea/crates/guinea-macros" }
 guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
 guinea-plugin-store = { path = "../../plugins/store" }
-amethystate = { version = "0.20.1", features = ["json"] }
+amethystate = { version = "0.21.0", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
 egui = "0.36"
