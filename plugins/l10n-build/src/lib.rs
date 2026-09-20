@@ -10,9 +10,21 @@ use syn::Path as SynPath;
 pub struct L10nMessage {
     pub id: String,
     pub variables: Vec<String>,
+    /// The `.ftl` it was written in, relative to the locale's own directory:
+    /// `main.ftl`, `menu/file.ftl`. Empty when the file stands alone.
+    pub file: String,
+    /// The line the message starts on, counting from one.
+    pub line: u32,
+    /// What the reference locale says, as written - placeables and all.
+    pub text: String,
 }
 
 pub fn parse_messages(ftl_path: &Path) -> Vec<L10nMessage> {
+    parse_messages_of(ftl_path, "")
+}
+
+/// [`parse_messages`], naming the file as devtools should show it.
+fn parse_messages_of(ftl_path: &Path, file: &str) -> Vec<L10nMessage> {
     let content = fs::read_to_string(ftl_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", ftl_path.display()));
     let resource = parse(content.as_str())
@@ -28,13 +40,56 @@ pub fn parse_messages(ftl_path: &Path) -> Vec<L10nMessage> {
                 if let Some(pattern) = &msg.value {
                     collect_variables(pattern, &mut variables);
                 }
-                Some(L10nMessage { id, variables })
+                let line = line_of(&content, &id);
+                Some(L10nMessage {
+                    text: text_at(&content, line),
+                    line,
+                    id,
+                    variables,
+                    file: file.to_string(),
+                })
             }
             _ => None,
         })
         .collect();
     messages.sort_by(|a, b| a.id.cmp(&b.id));
     messages
+}
+
+/// The message written at `line`: what follows the `=`, and the indented
+/// lines under it, joined by a space.
+fn text_at(content: &str, line: u32) -> String {
+    if line == 0 {
+        return String::new();
+    }
+
+    let mut lines = content.lines().skip(line as usize - 1);
+    let Some((_, first)) = lines.next().and_then(|first| first.split_once('=')) else {
+        return String::new();
+    };
+
+    let mut text = first.trim().to_string();
+    for next in lines {
+        if next.trim().is_empty() || !next.starts_with([' ', '\t']) {
+            break;
+        }
+        text.push(' ');
+        text.push_str(next.trim());
+    }
+
+    text.trim().to_string()
+}
+
+/// The line `id` is defined on. The parser drops spans, and a message starts
+/// its own line, so the line is the one that begins with the identifier.
+fn line_of(content: &str, id: &str) -> u32 {
+    content
+        .lines()
+        .position(|line| {
+            line.strip_prefix(id)
+                .is_some_and(|rest| rest.trim_start().starts_with('='))
+        })
+        .map_or(0, |at| at as u32 + 1)
 }
 
 fn collect_variables(pattern: &Pattern<&str>, out: &mut Vec<String>) {
@@ -139,43 +194,153 @@ pub fn generate_l10n_accessors(
     }
 }
 
-fn discover_locale_files(locales_dir: &Path, reference_locale: &str) -> Vec<std::path::PathBuf> {
-    let flat = locales_dir.join(format!("{reference_locale}.ftl"));
+/// Every `.ftl` of one locale, in either layout: `<tag>.ftl` beside its
+/// siblings, or `<tag>/**/*.ftl`. Empty when the locale has none.
+fn locale_files(locales_dir: &Path, tag: &str) -> Vec<std::path::PathBuf> {
+    let flat = locales_dir.join(format!("{tag}.ftl"));
     if flat.is_file() {
         return vec![flat];
     }
 
-    let nested = locales_dir.join(reference_locale);
-    if nested.is_dir() {
-        let mut files: Vec<_> = walkdir::WalkDir::new(&nested)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "ftl"))
-            .map(|e| e.into_path())
-            .collect();
-        if !files.is_empty() {
-            files.sort();
-            return files;
-        }
+    let nested = locales_dir.join(tag);
+    if !nested.is_dir() {
+        return Vec::new();
     }
 
-    panic!(
+    let mut files: Vec<_> = walkdir::WalkDir::new(&nested)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "ftl"))
+        .map(|e| e.into_path())
+        .collect();
+    files.sort();
+    files
+}
+
+fn discover_locale_files(locales_dir: &Path, reference_locale: &str) -> Vec<std::path::PathBuf> {
+    let files = locale_files(locales_dir, reference_locale);
+    assert!(
+        !files.is_empty(),
         "no `.ftl` files found for locale {reference_locale:?} under {} - expected either {} or {}/**/*.ftl",
         locales_dir.display(),
-        flat.display(),
-        nested.display(),
+        locales_dir.join(format!("{reference_locale}.ftl")).display(),
+        locales_dir.join(reference_locale).display(),
     );
+
+    files
 }
 
 pub fn parse_locale_messages(locales_dir: &Path, reference_locale: &str) -> Vec<L10nMessage> {
+    // In the nested layout a file is named by its path under the locale's
+    // directory, so `menu/file.ftl` stays apart from `file.ftl`. In the flat
+    // one the locale *is* the file, and there is nothing to nest.
+    let nested = locales_dir.join(reference_locale);
+    let named = |path: &Path| match path.strip_prefix(&nested) {
+        Ok(under) => under.to_string_lossy().replace('\\', "/"),
+        Err(_) => String::new(),
+    };
+
     let mut messages: Vec<L10nMessage> = discover_locale_files(locales_dir, reference_locale)
         .iter()
-        .flat_map(|path| parse_messages(path))
+        .flat_map(|path| parse_messages_of(path, &named(path)))
         .collect();
     messages.sort_by(|a, b| a.id.cmp(&b.id));
     messages
+}
+
+/// Every locale beside `reference_locale`, as its directory or file names it.
+pub fn locales(locales_dir: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(locales_dir) else {
+        return Vec::new();
+    };
+
+    let mut tags: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.is_dir() {
+                return path.file_name().map(|name| name.to_string_lossy().into_owned());
+            }
+            if path.extension().is_some_and(|extension| extension == "ftl") {
+                return path.file_stem().map(|stem| stem.to_string_lossy().into_owned());
+            }
+            None
+        })
+        .collect();
+
+    tags.sort();
+    tags
+}
+
+/// Which locales are missing each of `messages`, by reading every locale the
+/// way the reference one was read.
+fn missing_by_id(locales_dir: &Path, reference_locale: &str, messages: &[L10nMessage]) -> Vec<Vec<String>> {
+    let others: Vec<(String, Vec<String>)> = locales(locales_dir)
+        .into_iter()
+        .filter(|tag| tag != reference_locale)
+        .map(|tag| {
+            let ids = locale_files(locales_dir, &tag)
+                .iter()
+                .flat_map(|path| parse_messages(path))
+                .map(|message| message.id)
+                .collect();
+            (tag, ids)
+        })
+        .collect();
+
+    messages
+        .iter()
+        .map(|message| {
+            others
+                .iter()
+                .filter(|(_, ids)| !ids.contains(&message.id))
+                .map(|(tag, _)| tag.clone())
+                .collect()
+        })
+        .collect()
+}
+
+/// The table devtools read: every message, where it is written, what it takes
+/// and which locales have not translated it yet.
+pub fn generate_l10n_keys(messages: &[L10nMessage], missing: &[Vec<String>], keys_path: &str) -> TokenStream {
+    let keys_path: SynPath =
+        syn::parse_str(keys_path).unwrap_or_else(|e| panic!("invalid keys_path {keys_path:?}: {e}"));
+
+    let entries = messages.iter().zip(missing).map(|(message, missing)| {
+        let id = &message.id;
+        let file = &message.file;
+        let line = message.line;
+        let text = &message.text;
+        let variables = &message.variables;
+        let missing = missing.iter().map(String::as_str);
+
+        quote! {
+            #keys_path {
+                id: #id,
+                file: #file,
+                line: #line,
+                text: #text,
+                variables: &[#(#variables),*],
+                missing: &[#(#missing),*],
+            }
+        }
+    });
+
+    quote! {
+        /// Every message of the reference locale, as `l10n` compiled it.
+        pub static L10N_KEYS: &[#keys_path] = &[#(#entries),*];
+    }
+}
+
+pub fn write_keys(locales_dir: &Path, reference_locale: &str, out_path: &Path) {
+    let messages = parse_locale_messages(locales_dir, reference_locale);
+    let missing = missing_by_id(locales_dir, reference_locale, &messages);
+    let generated = generate_l10n_keys(&messages, &missing, "guinea_plugin_l10n::Key");
+
+    fs::write(out_path, generated.to_string())
+        .unwrap_or_else(|e| panic!("failed to write {}: {e}", out_path.display()));
 }
 
 pub fn write_accessors(locales_dir: &Path, reference_locale: &str, out_path: &Path) {
@@ -204,6 +369,11 @@ pub fn build_for_locale(locales_dir: impl AsRef<Path>, reference_locale: &str) {
         reference_locale,
         &Path::new(&out_dir).join("l10n_accessors.rs"),
     );
+    write_keys(
+        locales_dir,
+        reference_locale,
+        &Path::new(&out_dir).join("l10n_keys.rs"),
+    );
 }
 
 #[cfg(test)]
@@ -223,14 +393,23 @@ mod tests {
         fs::write(path, content).unwrap();
     }
 
+    /// A message as a test writes one: what it is called and what it takes,
+    /// with where it was written filled in.
+    fn message(id: &str, variables: &[&str], line: u32, text: &str) -> L10nMessage {
+        L10nMessage {
+            id: id.into(),
+            variables: variables.iter().map(|name| name.to_string()).collect(),
+            file: String::new(),
+            line,
+            text: text.into(),
+        }
+    }
+
     #[test]
     fn plain_message_has_no_variables() {
         let file = write_ftl("hello-world = Hello, World!\n");
         let messages = parse_messages(file.path());
-        assert_eq!(
-            messages,
-            vec![L10nMessage { id: "hello-world".into(), variables: vec![] }]
-        );
+        assert_eq!(messages, vec![message("hello-world", &[], 1, "Hello, World!")]);
     }
 
     #[test]
@@ -239,8 +418,18 @@ mod tests {
         let messages = parse_messages(file.path());
         assert_eq!(
             messages,
-            vec![L10nMessage { id: "welcome".into(), variables: vec!["userName".into()] }]
+            vec![message("welcome", &["userName"], 1, "Welcome, { $userName }.")]
         );
+    }
+
+    #[test]
+    fn a_message_knows_the_line_and_the_text_it_was_written_as() {
+        let file = write_ftl("first = One\n\nsecond =\n    Over two\n    lines\n");
+        let messages = parse_messages(file.path());
+
+        let second = messages.iter().find(|message| message.id == "second").expect("second");
+        assert_eq!(second.line, 3);
+        assert_eq!(second.text, "Over two lines");
     }
 
     #[test]
@@ -258,15 +447,12 @@ mod tests {
     fn non_message_entries_are_skipped() {
         let file = write_ftl("-brand-name = Nightly\n## a comment\nreal-message = Value\n");
         let messages = parse_messages(file.path());
-        assert_eq!(
-            messages,
-            vec![L10nMessage { id: "real-message".into(), variables: vec![] }]
-        );
+        assert_eq!(messages, vec![message("real-message", &[], 3, "Value")]);
     }
 
     #[test]
     fn generates_zero_arg_method_for_plain_message() {
-        let messages = vec![L10nMessage { id: "hello-world".into(), variables: vec![] }];
+        let messages = vec![message("hello-world", &[], 1, "Hello, World!")];
         let generated = generate_l10n_accessors(
             &messages,
             "crate::l10n::L10n",
@@ -282,10 +468,7 @@ mod tests {
 
     #[test]
     fn generates_one_param_per_variable_in_first_seen_order() {
-        let messages = vec![L10nMessage {
-            id: "emails".into(),
-            variables: vec!["count".into(), "sender".into()],
-        }];
+        let messages = vec![message("emails", &["count", "sender"], 1, "{ $count } from { $sender }")];
         let generated = generate_l10n_accessors(
             &messages,
             "crate::l10n::L10n",
@@ -312,10 +495,7 @@ mod tests {
         write_file(dir.path(), "ru.ftl", "hello-world = Привет, мир!\n");
 
         let messages = parse_locale_messages(dir.path(), "en");
-        assert_eq!(
-            messages,
-            vec![L10nMessage { id: "hello-world".into(), variables: vec![] }]
-        );
+        assert_eq!(messages, vec![message("hello-world", &[], 1, "Hello, World!")]);
     }
 
     #[test]
@@ -326,13 +506,25 @@ mod tests {
         write_file(dir.path(), "ru/main.ftl", "hello-world = Привет, мир!\n");
 
         let messages = parse_locale_messages(dir.path(), "en");
-        assert_eq!(
-            messages,
-            vec![
-                L10nMessage { id: "goodbye".into(), variables: vec![] },
-                L10nMessage { id: "hello-world".into(), variables: vec![] },
-            ]
-        );
+        let named: Vec<(&str, &str)> = messages
+            .iter()
+            .map(|message| (message.id.as_str(), message.file.as_str()))
+            .collect();
+
+        assert_eq!(named, vec![("goodbye", "extra.ftl"), ("hello-world", "main.ftl")]);
+    }
+
+    #[test]
+    fn a_locale_that_left_a_message_out_is_named_as_missing_it() {
+        let dir = tempfile::tempdir().unwrap();
+        write_file(dir.path(), "en/main.ftl", "kept = Kept\nleft-out = Left out\n");
+        write_file(dir.path(), "ru/main.ftl", "kept = Оставлено\n");
+
+        let messages = parse_locale_messages(dir.path(), "en");
+        let missing = missing_by_id(dir.path(), "en", &messages);
+
+        assert_eq!(locales(dir.path()), vec!["en".to_string(), "ru".to_string()]);
+        assert_eq!(missing, vec![Vec::<String>::new(), vec!["ru".to_string()]]);
     }
 
     #[test]

@@ -2,11 +2,13 @@
 
 use std::collections::BTreeMap;
 
-use guinea_devtools_protocol::{AppInfo, Report, Snapshot};
+use guinea_devtools_protocol::{AppInfo, Capability, Report, Snapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::chains::Chains;
 use crate::clock::Clock;
+use crate::tasks::Tasks;
+use crate::native::{Inspection, Picked};
 use crate::timers::Timers;
 use crate::trace::Reading;
 use crate::trace_log::TraceLog;
@@ -40,6 +42,12 @@ pub struct Session {
     pub timers: Timers,
     /// The trace, as chains of records that set each other off.
     pub chains: Chains,
+    /// The background work it is still waiting on.
+    pub tasks: Tasks,
+    /// What a native inspector reported, when this session is one.
+    pub inspection: Inspection,
+    /// Where its puffin profiler listens, while it is switched on.
+    pub profiler: Option<String>,
     pub received: u64,
     pub connected: bool,
 }
@@ -126,6 +134,23 @@ impl Sessions {
         self.by_id.values().rev().find(|session| session.connected)
     }
 
+    /// The connected native inspector in the same process as session `id`:
+    /// the application's own session, or another one that shares its pid.
+    pub fn native_for(&self, id: u64) -> Option<&Session> {
+        let app = self.get(id)?;
+
+        let inspects = |session: &&Session| session.connected && session.info.can(Capability::NativeTree);
+        if inspects(&app) {
+            return Some(app);
+        }
+
+        self.by_id
+            .values()
+            .rev()
+            .filter(inspects)
+            .find(|session| session.info.pid == app.info.pid && app.info.pid != 0)
+    }
+
     /// The same application started again, when `id` went away.
     pub fn successor(&self, id: u64) -> Option<u64> {
         let gone = self.get(id).filter(|session| !session.connected)?;
@@ -168,6 +193,23 @@ impl Sessions {
                     Report::Trace(batch) => {
                         session.trace.absorb(batch);
                         session.chains.absorb(&session.trace, &session.timers);
+                        session.tasks.absorb(&session.trace);
+                    }
+                    Report::NativeTree { changes } => session.inspection.tree.apply(changes),
+                    Report::NativeProperties { element, properties } => {
+                        session.inspection.properties = Some((element, properties));
+                    }
+                    Report::NativePicked { chain, bounds } => {
+                        session.inspection.picked = Some(Picked { chain, bounds });
+                    }
+                    Report::NativePerf { frames } => session.inspection.frames = frames,
+                    Report::NativeEnums { enums } => {
+                        session.inspection.enums =
+                            enums.into_iter().map(|kind| (kind.name, kind.values)).collect();
+                    }
+                    Report::Profiler { at } => session.profiler = at,
+                    Report::Refused { command, reason } => {
+                        session.inspection.refused = Some((command, reason));
                     }
                 }
             }

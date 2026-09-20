@@ -68,6 +68,8 @@ macro_rules! fluent_loader {
             }
         }
 
+        include!(concat!(env!("OUT_DIR"), "/l10n_keys.rs"));
+
         impl $crate::Localization for L10n {
             fn for_tag(tag: &str) -> ::std::option::Option<Self> {
                 tag.parse::<$crate::fluent::__deps::unic_langid::LanguageIdentifier>()
@@ -77,6 +79,14 @@ macro_rules! fluent_loader {
 
             fn tag(&self) -> ::std::string::String {
                 self.0.to_string()
+            }
+
+            fn keys() -> &'static [$crate::Key] {
+                L10N_KEYS
+            }
+
+            fn value(&self, id: &str) -> ::std::option::Option<::std::string::String> {
+                ::std::option::Option::Some(self.get_raw(id, &Args::new()))
             }
         }
 

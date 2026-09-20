@@ -19,12 +19,13 @@
 //! [`L10n::load`]. The plugin owns startup and, with the `persist` feature,
 //! remembering the choice.
 
+mod devtools;
 #[cfg(feature = "fluent")]
 pub mod fluent;
 mod store;
 pub mod ui;
 
-pub use store::{L10n, Localization};
+pub use store::{Key, L10n, Localization};
 
 use std::marker::PhantomData;
 
@@ -83,6 +84,12 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
         if self.persist {
             remember_changes::<S>(app);
         }
+
+        let panel = devtools::watch::<S>();
+        app.on_cleanup(move |_| {
+            drop(panel);
+            Ok(())
+        });
 
         Ok(())
     }

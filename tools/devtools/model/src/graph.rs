@@ -515,7 +515,10 @@ mod tests {
                     Segment {
                         name: "Tabs".into(),
                         features: vec!["TabsFeature".into()],
-                        reducers: vec![ReducerState { type_name: "tabs::Tabs".into(), state: None, feature: None }],
+                        reducers: vec![ReducerState {
+                            type_name: "tabs::Tabs".into(),
+                            ..ReducerState::default()
+                        }],
                         listeners: vec![Listener {
                             event: "events::Killed".into(),
                             actor: None,

@@ -5,7 +5,7 @@ use guinea_devtools_protocol::TracePoint;
 use serde::{Deserialize, Serialize};
 
 use crate::chains::Stream;
-use crate::names::{bus_name, type_name};
+use crate::names::{bus_name, took, type_name};
 use crate::timers::Timers;
 
 /// What a word is, for choosing its colour.
@@ -16,12 +16,119 @@ pub enum Tone {
     Muted,
     /// The one thing a row is about: a window segment's name.
     Accent,
-    /// A trace record's kind, as `TracePoint::kind` names it.
-    Kind(String),
-    /// A log line's `tracing` level: `INFO`.
-    Level(String),
+    /// What a trace record is, or what a word shares a colour with.
+    Kind(Kind),
+    /// A log line's `tracing` level.
+    Level(Level),
     /// A quoted value.
     Quote,
+}
+
+/// What a trace record is, as `TracePoint::kind` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    Action,
+    Send,
+    Handle,
+    Spawn,
+    Settled,
+    Cancelled,
+    Publish,
+    Deliver,
+    Push,
+    Navigate,
+    Store,
+    Render,
+    Log,
+    Tick,
+    Note,
+}
+
+impl Kind {
+    /// Every kind, in the order a filter lists them.
+    pub const ALL: [Kind; 15] = [
+        Kind::Action,
+        Kind::Send,
+        Kind::Handle,
+        Kind::Spawn,
+        Kind::Settled,
+        Kind::Cancelled,
+        Kind::Publish,
+        Kind::Deliver,
+        Kind::Push,
+        Kind::Navigate,
+        Kind::Store,
+        Kind::Render,
+        Kind::Log,
+        Kind::Tick,
+        Kind::Note,
+    ];
+
+    pub fn of(point: &TracePoint) -> Kind {
+        match point {
+            TracePoint::Action { .. } => Kind::Action,
+            TracePoint::Send { .. } => Kind::Send,
+            TracePoint::Handle { .. } => Kind::Handle,
+            TracePoint::Spawn { .. } => Kind::Spawn,
+            TracePoint::Settled { .. } => Kind::Settled,
+            TracePoint::Cancelled { .. } => Kind::Cancelled,
+            TracePoint::Publish { .. } => Kind::Publish,
+            TracePoint::Deliver { .. } => Kind::Deliver,
+            TracePoint::Push { .. } => Kind::Push,
+            TracePoint::Navigate { .. } => Kind::Navigate,
+            TracePoint::Render { .. } => Kind::Render,
+            TracePoint::Tick { .. } => Kind::Tick,
+            TracePoint::Store { .. } => Kind::Store,
+            TracePoint::Log { .. } => Kind::Log,
+            TracePoint::Note { .. } => Kind::Note,
+        }
+    }
+
+    /// As `TracePoint::kind` names it: `publish`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Kind::Action => "action",
+            Kind::Send => "send",
+            Kind::Handle => "handle",
+            Kind::Spawn => "spawn",
+            Kind::Settled => "settled",
+            Kind::Cancelled => "cancelled",
+            Kind::Publish => "publish",
+            Kind::Deliver => "deliver",
+            Kind::Push => "push",
+            Kind::Navigate => "navigate",
+            Kind::Store => "store",
+            Kind::Render => "render",
+            Kind::Log => "log",
+            Kind::Tick => "tick",
+            Kind::Note => "note",
+        }
+    }
+}
+
+/// A `tracing` level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum Level {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl Level {
+    /// As `tracing` spells it, `INFO`; anything else reads as `TRACE`.
+    pub fn named(level: &str) -> Level {
+        match level {
+            "ERROR" => Level::Error,
+            "WARN" => Level::Warn,
+            "INFO" => Level::Info,
+            "DEBUG" => Level::Debug,
+            _ => Level::Trace,
+        }
+    }
 }
 
 /// Where a word leads.
@@ -74,8 +181,8 @@ pub fn text(words: &[Word]) -> String {
 /// A record's colour: its kind's, or for a log line its level's.
 pub fn tone(point: &TracePoint) -> Tone {
     match point {
-        TracePoint::Log { level, .. } => Tone::Level(level.clone()),
-        _ => Tone::Kind(point.kind().to_string()),
+        TracePoint::Log { level, .. } => Tone::Level(Level::named(level)),
+        _ => Tone::Kind(Kind::of(point)),
     }
 }
 
@@ -97,9 +204,31 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
         TracePoint::Handle { actor: a, message: m } => {
             vec![actor(a), text(" handles ".into()), message(m)]
         }
-        TracePoint::Spawn { actor: a, output } => {
+        TracePoint::Spawn { actor: a, output, .. } => {
             vec![actor(a), text(" starts work for ".into()), message(output)]
         }
+        TracePoint::Settled {
+            actor: a,
+            output,
+            took_us,
+            ..
+        } => vec![
+            actor(a),
+            text(" has its ".into()),
+            message(output),
+            text(format!(" after {}", took(*took_us))),
+        ],
+        TracePoint::Cancelled {
+            actor: a,
+            output,
+            took_us,
+            ..
+        } => vec![
+            actor(a),
+            text(" is gone: ".into()),
+            message(output),
+            text(format!(" cancelled after {}", took(*took_us))),
+        ],
         TracePoint::Publish {
             event,
             bus,
@@ -153,6 +282,11 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
 
             said
         }
+        TracePoint::Render { segment, took_us } => vec![
+            text("render ".into()),
+            Word::new(type_name(segment), Tone::Plain),
+            text(format!(" in {:.1} ms", *took_us as f64 / 1000.0)),
+        ],
         TracePoint::Log {
             level,
             target,

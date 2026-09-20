@@ -4,13 +4,14 @@
 //! keeping up, they are dropped: a snapshot is replaced by the next one anyway,
 //! and the application must never wait on its own debugger.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{Receiver, Sender, channel};
 use guinea_devtools_protocol::devtools_capnp::peer;
-use guinea_devtools_protocol::{AppInfo, Report, key, wire};
+use guinea_devtools_protocol::{AppInfo, Command, Report, key, wire};
 use ogurpchik::rpc::connect_session;
 
 const QUEUE: usize = 64;
@@ -28,12 +29,15 @@ impl Outbox {
     }
 }
 
-pub fn spawn(info: Arc<Mutex<AppInfo>>) -> Outbox {
+/// Starts the link. `connected` is true while devtools are there, so that
+/// nothing is collected for nobody.
+pub fn spawn(info: Arc<Mutex<AppInfo>>, connected: Arc<AtomicBool>) -> Outbox {
     let (sender, receiver) = channel(QUEUE);
+    let answers = sender.clone();
     let spawned = std::thread::Builder::new()
         .name("guinea-devtools".into())
         .spawn(move || match compio::runtime::Runtime::new() {
-            Ok(runtime) => runtime.block_on(run(info, receiver)),
+            Ok(runtime) => runtime.block_on(run(info, connected, receiver, answers)),
             Err(error) => tracing::warn!(%error, "the devtools link has no runtime"),
         });
     if let Err(error) = spawned {
@@ -42,8 +46,17 @@ pub fn spawn(info: Arc<Mutex<AppInfo>>) -> Outbox {
     Outbox(sender)
 }
 
-/// Takes whatever devtools send. Nothing yet: the link only reports.
-struct Inbound;
+/// Takes the commands devtools send, and answers on the queue the reports go
+/// out on.
+struct Inbound(Mutex<Sender<Report>>);
+
+impl Inbound {
+    fn answer(&self, report: Report) {
+        if let Ok(mut reports) = self.0.lock() {
+            let _ = reports.try_send(report);
+        }
+    }
+}
 
 impl peer::Server for Inbound {
     async fn send(
@@ -51,18 +64,41 @@ impl peer::Server for Inbound {
         params: peer::SendParams,
         _results: peer::SendResults,
     ) -> Result<(), capnp::Error> {
-        let report = wire::received(&params)?;
-        tracing::debug!(?report, "devtools sent something this version does not act on");
+        let command: Command = wire::received(&params)?;
+
+        match command {
+            Command::Profiler { on: true } => match crate::profiler::start() {
+                Ok(at) => self.answer(Report::Profiler { at: Some(at) }),
+                Err(error) => self.answer(Report::Refused {
+                    command: "Profiler".to_string(),
+                    reason: error.to_string(),
+                }),
+            },
+            Command::Profiler { on: false } => {
+                crate::profiler::stop();
+                self.answer(Report::Profiler { at: None });
+            }
+            other => {
+                tracing::debug!(?other, "devtools asked for something this link does not offer");
+            }
+        }
+
         Ok(())
     }
 }
 
-async fn run(info: Arc<Mutex<AppInfo>>, mut reports: Receiver<Report>) {
+async fn run(
+    info: Arc<Mutex<AppInfo>>,
+    connected: Arc<AtomicBool>,
+    mut reports: Receiver<Report>,
+    answers: Sender<Report>,
+) {
     let endpoint = guinea_devtools_protocol::endpoint();
     loop {
         let session = match key::read() {
             Ok(secret) => {
-                connect_session::<peer::Client, _>(&endpoint, &key::handshake(secret), Inbound)
+                let inbound = Inbound(Mutex::new(answers.clone()));
+                connect_session::<peer::Client, _>(&endpoint, &key::handshake(secret), inbound)
                     .await
                     .ok()
             }
@@ -75,6 +111,7 @@ async fn run(info: Arc<Mutex<AppInfo>>, mut reports: Receiver<Report>) {
             continue;
         };
         tracing::debug!(%endpoint, "connected to devtools");
+        connected.store(true, Ordering::Relaxed);
 
         let remote = session.remote();
         let mut announced = AppInfo::default();
@@ -95,6 +132,8 @@ async fn run(info: Arc<Mutex<AppInfo>>, mut reports: Receiver<Report>) {
                 break;
             }
         }
+
+        connected.store(false, Ordering::Relaxed);
     }
 }
 

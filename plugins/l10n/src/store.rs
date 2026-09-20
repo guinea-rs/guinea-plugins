@@ -34,6 +34,38 @@ pub trait Localization: Clone + Default + 'static {
     fn for_tag(tag: &str) -> Option<Self>;
 
     fn tag(&self) -> String;
+
+    /// Every message the application has, as the reference locale compiled
+    /// them. Empty for a resolver that does not say.
+    fn keys() -> &'static [Key] {
+        &[]
+    }
+
+    /// What `id` reads as in these strings; `None` for a resolver that cannot
+    /// be asked by name.
+    fn value(&self, id: &str) -> Option<String> {
+        let _ = id;
+        None
+    }
+}
+
+/// One message, as the build wrote it down: devtools show these by the file
+/// they live in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Key {
+    /// `process-killed-toast`.
+    pub id: &'static str,
+    /// The `.ftl` it is written in, relative to the locale's directory.
+    pub file: &'static str,
+    /// The line it starts on, counting from one; zero when unknown.
+    pub line: u32,
+    /// What the reference locale says, as written: `Process { $name } was
+    /// killed.`
+    pub text: &'static str,
+    /// What it interpolates: `["name"]`.
+    pub variables: &'static [&'static str],
+    /// The locales that have no translation for it.
+    pub missing: &'static [&'static str],
 }
 
 /// The application's current strings, process-wide.

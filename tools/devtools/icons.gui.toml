@@ -27,3 +27,6 @@ iconify = "tabler:help-circle"
 
 [close]
 iconify = "tabler:x"
+
+[search]
+iconify = "tabler:search"

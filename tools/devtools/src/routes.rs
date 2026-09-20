@@ -5,6 +5,7 @@ use crate::layouts::shell::Shell;
 use crate::pages::elements::Elements;
 use crate::pages::graph::Graphs;
 use crate::pages::home::Home;
+use crate::pages::native::Native;
 use crate::pages::panels::Panels;
 use crate::pages::trace::Traces;
 
@@ -18,6 +19,7 @@ routes! {
                 page(Graphs) { app: u64 }
                 page(Traces) { app: u64 }
                 page(Panels) { app: u64 }
+                page(Native) { app: u64 }
             }
         }
     }

@@ -1,24 +1,27 @@
 use guinea::eframe::{Layout, LayoutCx};
 use guinea::feature::FeatureInitContext;
 
+use crate::features::editor::EditorFeature;
+use crate::features::sessions::SessionsFeature;
+use crate::features::sessions::contracts::Live;
+use crate::features::tab::LastTabFeature;
+use crate::features::tab::contracts::LastTab;
 use crate::layouts::app::tab_named;
-use crate::memory::{LastTab, MemoryFeature};
 use crate::pages::home::Home;
 use crate::routes::Route;
-use crate::sessions::SessionsFeature;
-use crate::sessions::contracts::Live;
 
+#[derive(Default)]
 pub struct Shell;
 
 impl Layout for Shell {
     type Params = crate::routes::ShellParams;
-    type Installs = (SessionsFeature, MemoryFeature);
+    type Installs = (SessionsFeature, (LastTabFeature, EditorFeature));
 
     fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        Ok((ctx.install(&())?, ctx.install(&())?))
+        Ok((ctx.install(&())?, (ctx.install(&())?, ctx.install(&())?)))
     }
 
-    fn render(cx: &mut LayoutCx<'_, Self>) {
+    fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
         let (live, _) = cx.state::<Live, _>();
         let (last, _) = cx.state::<LastTab, _>();
         let nav = cx.navigate::<Route>();

@@ -149,6 +149,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "binrw"
 version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -218,6 +227,12 @@ name = "bytemuck"
 version = "1.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "bytes"
@@ -541,6 +556,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-channel"
+version = "0.5.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-deque"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -721,7 +745,7 @@ dependencies = [
  "libc 0.2.189",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -795,7 +819,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc 0.2.189",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1031,7 +1055,7 @@ dependencies = [
  "libc 0.2.189",
  "log",
  "rustversion",
- "windows-link 0.1.3",
+ "windows-link 0.2.1",
  "windows-result 0.4.1",
 ]
 
@@ -1088,7 +1112,6 @@ dependencies = [
 [[package]]
 name = "guinea"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -1102,7 +1125,6 @@ dependencies = [
 [[package]]
 name = "guinea-app"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -1113,7 +1135,6 @@ dependencies = [
 [[package]]
 name = "guinea-codegen"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "guinea-core",
  "guinea-meta-build",
@@ -1129,7 +1150,6 @@ dependencies = [
 [[package]]
 name = "guinea-core"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1139,6 +1159,7 @@ dependencies = [
  "inventory",
  "once_cell",
  "parking_lot",
+ "puffin",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -1161,7 +1182,6 @@ dependencies = [
 [[package]]
 name = "guinea-macros"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -1200,6 +1220,7 @@ dependencies = [
  "guinea-core",
  "guinea-devtools-protocol",
  "ogurpchik",
+ "puffin_http",
  "tracing",
 ]
 
@@ -1259,7 +1280,6 @@ dependencies = [
 [[package]]
 name = "guinea-route-dsl"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1270,7 +1290,6 @@ dependencies = [
 [[package]]
 name = "guinea-router"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1283,7 +1302,6 @@ dependencies = [
 [[package]]
 name = "guinea-trace"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "anyhow",
  "tracing",
@@ -1303,7 +1321,6 @@ dependencies = [
 [[package]]
 name = "guinea-winui"
 version = "0.7.1"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.7.1#6a68f5e8fcee41a7af8e8d891e5fd463e76f2d31"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1463,6 +1480,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1568,6 +1594,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
+name = "lz4_flex"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1627,7 +1659,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1697,7 +1729,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc 0.2.189",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1793,6 +1825,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "puffin"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84b514d95a258be801fde8a1ff1c974f4a4841d9750f5d1d6690fc07a5ad4049"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "byteorder",
+ "cfg-if",
+ "itertools",
+ "lz4_flex",
+ "parking_lot",
+ "serde",
+]
+
+[[package]]
+name = "puffin_http"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f912991aab1adae69d2be9455e8db0f41e5ad3da87706ab2de64908678c2c76"
+dependencies = [
+ "anyhow",
+ "crossbeam-channel",
+ "log",
+ "parking_lot",
+ "puffin",
 ]
 
 [[package]]
@@ -1999,7 +2060,7 @@ dependencies = [
  "errno",
  "libc 0.2.189",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2211,7 +2272,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc 0.2.189",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2287,7 +2348,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2764,7 +2825,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

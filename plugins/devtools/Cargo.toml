@@ -16,6 +16,13 @@ compio = { version = "0.18.0", features = ["runtime", "time"] }
 futures = "0.3.31"
 anyhow.workspace = true
 tracing.workspace = true
+puffin_http = { version = "0.17", optional = true }
+
+[features]
+default = ["profiling"]
+# The puffin profiler: zones around the same moments the trace marks, and a
+# server devtools can be told to start. Nothing runs until it is asked for.
+profiling = ["dep:puffin_http", "guinea-core/profiling"]
 
 [lints]
 workspace = true

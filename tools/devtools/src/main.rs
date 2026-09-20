@@ -1,16 +1,11 @@
-mod demo;
-mod editor;
-mod focus;
+mod components;
+mod features;
 mod fonts;
 mod icons;
 mod layouts;
-mod memory;
 mod pages;
 mod routes;
-mod sessions;
-mod style;
 mod theme;
-mod trace_view;
 
 use clap::Parser;
 use guinea::app::GuineaApp;
@@ -19,14 +14,16 @@ use routes::Route;
 
 /// Looks inside running guinea applications.
 #[derive(Parser)]
-#[command(version)]
+#[command(version, after_long_help = api())]
 struct Arguments {
     /// Serve the HTTP API without opening a window.
     #[arg(long)]
     headless: bool,
-    /// Connect two made-up applications, to have something to look at.
-    #[arg(long)]
-    demo: bool,
+}
+
+/// The HTTP API, as its own OpenAPI document describes it.
+fn api() -> String {
+    guinea_devtools_api::help::routes(&guinea_devtools_api::document())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -38,10 +35,6 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| "warn".into()),
         )
         .init();
-
-    if arguments.demo {
-        demo::spawn();
-    }
 
     if arguments.headless {
         let hub = guinea_devtools_hub::Hub::start();
@@ -63,8 +56,7 @@ fn main() -> anyhow::Result<()> {
         .plugin(
             guinea_plugin_store::StorePlugin::for_app("guinea-devtools", "settings")
                 .backend(amethystate::store::builder::Backend::Json),
-        )
-        .plugin(memory::MemoryPlugin);
+        );
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

@@ -18,8 +18,8 @@ use std::rc::Rc;
 
 use windows_reactor::{
     Border, Callback, ChildrenControl, Color, ContentControl, Grid, GridChildExt, GridLength,
-    IntoPayloadCallback, LayoutControl, ListView, Orientation, PointerEventInfo, Rectangle,
-    StackPanel, TextBlock, Thickness, View,
+    HorizontalAlignment, IntoPayloadCallback, ItemsRepeater, LayoutControl, Orientation, PointerEventInfo, Rectangle,
+    ScrollViewer, StackPanel, TextBlock, Thickness, VerticalAlignment, View, VirtualSource,
 };
 
 use crate::resize::resize_handle;
@@ -39,6 +39,20 @@ const CELL_HORIZONTAL_PADDING: f64 = 12.0;
 /// Extra vertical room for the header row - it can carry two-line content
 /// (label + aggregate value) where body rows stay a single fixed height.
 const HEADER_VERTICAL_PADDING: f64 = 8.0;
+/// A body row's height, the one a `ListView` item used to impose.
+const ROW_HEIGHT: f64 = 32.0;
+const SELECTED_ROW_COLOR: Color = Color {
+    a: 40,
+    r: 128,
+    g: 128,
+    b: 128,
+};
+const TRANSPARENT: Color = Color {
+    a: 0,
+    r: 0,
+    g: 0,
+    b: 0,
+};
 
 /// What each column is currently wide, by column id.
 ///
@@ -149,7 +163,6 @@ impl<T> ColumnSpec<T> {
 pub struct Table<T> {
     rows: Vec<T>,
     columns: Vec<ColumnSpec<T>>,
-    key: Rc<dyn Fn(&T) -> String>,
     widths: ColumnWidths,
     on_resize: Option<Callback<Resized>>,
     sort: Option<(SortState<String>, Callback<String>)>,
@@ -157,16 +170,18 @@ pub struct Table<T> {
     sort_indicator: Option<Rc<dyn Fn(bool) -> View>>,
 }
 
-pub fn table<T: 'static>(
-    rows: Vec<T>,
-    columns: Vec<ColumnSpec<T>>,
-    key: impl Fn(&T) -> String + 'static,
-) -> Table<T> {
+/// A table of `rows`, one per line, in the order given.
+///
+/// Rows have no identity of their own: the row drawn at a line is whatever
+/// sits at that index now. A list re-sorted every tick then changes what the
+/// visible lines show and nothing else, where rows keyed by an id made the
+/// reactor reset the whole collection - blanking the body and losing the
+/// scroll position each time.
+pub fn table<T: 'static>(rows: Vec<T>, columns: Vec<ColumnSpec<T>>) -> Table<T> {
     Table {
         widths: ColumnWidths::default(),
         rows,
         columns,
-        key: Rc::new(key),
         on_resize: None,
         sort: None,
         selection: None,
@@ -225,7 +240,6 @@ impl<T: 'static> Table<T> {
         let Self {
             rows,
             columns,
-            key,
             widths,
             on_resize,
             sort,
@@ -273,25 +287,76 @@ impl<T: 'static> Table<T> {
             .height(1.0)
             .grid_row(1);
 
-        let items: Vec<(String, View)> = rows
-            .iter()
-            .map(|row| (key(row), row_view(row, &columns, &widths)))
-            .collect();
-
-        let mut list = ListView::new();
-        if let Some((at, on_select)) = selection {
-            list = list.selected_index(at).on_selection_changed(on_select);
-        }
+        let body = ScrollViewer::new()
+            .grid_row(2)
+            .content(
+                ItemsRepeater::new()
+                    .horizontal_alignment(HorizontalAlignment::Stretch)
+                    .virtual_source(rows_source(rows, columns, widths, selection)),
+            );
 
         Grid::new()
             .rows([GridLength::Auto, GridLength::Auto, GridLength::Star(1.0)])
-            .children((
-                header,
-                separator,
-                Border::new()
-                    .grid_row(2)
-                    .content(list.items(items)),
-            ))
+            .children((header, separator, body))
+    }
+}
+
+/// The rows, built only for what is on screen.
+///
+/// Keyed by index, so the keys are `0..len` and change only with the length:
+/// the length is the whole revision, and every tick - re-sorted or not -
+/// rebuilds the visible rows and nothing else.
+fn rows_source<T: 'static>(
+    rows: Vec<T>,
+    columns: Vec<ColumnSpec<T>>,
+    widths: ColumnWidths,
+    selection: Option<(Option<usize>, Callback<Option<usize>>)>,
+) -> VirtualSource {
+    let len = rows.len();
+    let rows = Rc::new(rows);
+    let columns = Rc::new(columns);
+    let (selected, on_select) = match selection {
+        Some((at, callback)) => (at, Some(callback)),
+        None => (None, None),
+    };
+
+    VirtualSource::new(
+        len as u64,
+        len,
+        |index| index,
+        move |index| {
+            let cells = row_view(&rows[index], &columns, &widths);
+            row_frame(cells, index, selected == Some(index), on_select.as_ref())
+        },
+    )
+}
+
+/// What makes a row a row rather than a strip of cells: its height, the
+/// selection, and the click that selects it.
+///
+/// Drawn here because the rows no longer sit in a `ListView`, which used to
+/// do all three. The background is always set, transparent when unselected,
+/// so the gaps between cells take the click too.
+fn row_frame(
+    cells: View,
+    index: usize,
+    selected: bool,
+    on_select: Option<&Callback<Option<usize>>>,
+) -> View {
+    let row = Border::new()
+        .min_height(ROW_HEIGHT)
+        .horizontal_alignment(HorizontalAlignment::Stretch)
+        .background(if selected { SELECTED_ROW_COLOR } else { TRANSPARENT });
+
+    match on_select {
+        Some(on_select) => {
+            let on_select = on_select.clone();
+            row.on_pointer_released(Callback::new(move |_: PointerEventInfo| {
+                let _ = on_select.call(Some(index));
+            }))
+            .content(cells)
+        }
+        None => row.content(cells),
     }
 }
 
@@ -391,6 +456,7 @@ fn row_view<T>(row: &T, columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> Vie
                     0.0,
                 ))
                 .width(width_of(widths, column))
+                .vertical_alignment(VerticalAlignment::Center)
                 .content((column.cell)(row));
 
             (column.id.to_string(), cell)

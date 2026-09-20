@@ -37,3 +37,7 @@ pub fn stream(stream: &Stream) -> ImageSource<'static> {
 pub fn close() -> ImageSource<'static> {
     guicons::icon!(close)
 }
+
+pub fn search() -> ImageSource<'static> {
+    guicons::icon!(search)
+}

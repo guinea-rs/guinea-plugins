@@ -6,13 +6,15 @@ use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
-use guinea_devtools_protocol::{Actor, Channel, Declared, Node, ReducerState, Root, Snapshot};
+use guinea_devtools_protocol::{
+    Actor, Channel, Declared, Installed, Node, ReducerState, Root, Snapshot,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::names::{names, type_name, window_name};
 use crate::panels::is_view;
 use crate::sessions::Session;
-use crate::words::{Tone, Word};
+use crate::words::{Kind, Tone, Word};
 
 /// Something in the tree.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -148,8 +150,8 @@ fn word(text: impl Into<String>, tone: Tone) -> Word {
     Word::new(text, tone)
 }
 
-fn kind(kind: &str) -> Tone {
-    Tone::Kind(kind.to_string())
+fn kind(kind: Kind) -> Tone {
+    Tone::Kind(kind)
 }
 
 struct Lines<'a> {
@@ -197,7 +199,7 @@ impl Lines<'_> {
             Element::Actor(actor.id),
             vec![
                 word("actor ", Tone::Muted),
-                word(type_name(&actor.type_name), kind("handle")),
+                word(type_name(&actor.type_name), kind(Kind::Handle)),
             ],
             false,
             false,
@@ -214,7 +216,7 @@ impl Lines<'_> {
             },
             vec![
                 word("state ", Tone::Muted),
-                word(type_name(&state.type_name), kind("push")),
+                word(type_name(&state.type_name), kind(Kind::Push)),
             ],
             false,
             false,
@@ -226,12 +228,12 @@ impl Lines<'_> {
     fn members(
         &mut self,
         at: Option<(u64, usize)>,
-        features: &[String],
+        features: &[Installed],
         states: &[ReducerState],
         actors: &[&Actor],
         depth: usize,
     ) {
-        let mut named: Vec<&str> = features.iter().map(String::as_str).collect();
+        let mut named: Vec<&str> = features.iter().map(|feature| feature.name.as_str()).collect();
         let claimed = states
             .iter()
             .filter_map(|state| state.feature.as_deref())
@@ -265,7 +267,7 @@ impl Lines<'_> {
                 at,
                 name: feature.to_string(),
             };
-            let words = vec![word("feature ", Tone::Muted), word(feature, kind("spawn"))];
+            let words = vec![word("feature ", Tone::Muted), word(feature, kind(Kind::Spawn))];
             let branch = !own_states.is_empty() || !own_actors.is_empty();
 
             if self.push(depth, element, words, branch, forced) {
@@ -390,17 +392,17 @@ impl Lines<'_> {
         let words = match node.kind.as_str() {
             "native" => vec![
                 word("<", Tone::Muted),
-                word(&node.label, kind("send")),
+                word(&node.label, kind(Kind::Send)),
                 word(">", Tone::Muted),
             ],
             "component" => vec![
                 word("<", Tone::Muted),
-                word(&node.label, kind("deliver")),
+                word(&node.label, kind(Kind::Deliver)),
                 word(" />", Tone::Muted),
             ],
             text if text.starts_with('"') => vec![
                 word("<", Tone::Muted),
-                word(&node.label, kind("send")),
+                word(&node.label, kind(Kind::Send)),
                 word(">", Tone::Muted),
                 word(text, Tone::Quote),
             ],
@@ -478,8 +480,11 @@ pub struct Details {
     pub rows: Vec<(String, String)>,
     /// A long text shown whole: a state's value.
     pub body: Option<String>,
-    /// Where it was written, for an actor.
+    /// Where it was written: an actor's `actor!`, a page's `impl Page`.
     pub declared: Option<Declared>,
+    /// Where a page or layout was listed in `routes!`.
+    #[serde(default)]
+    pub routed: Option<Declared>,
     /// What an actor answers, each where its handler was written.
     #[serde(default)]
     pub handlers: Vec<HandlerLine>,
@@ -515,7 +520,16 @@ fn details(title: impl Into<String>, kind: &str, rows: Vec<(String, String)>) ->
         rows,
         body: None,
         declared: None,
+        routed: None,
         handlers: Vec::new(),
+    }
+}
+
+impl Details {
+    /// The same details, knowing where what they are about was written.
+    fn written(mut self, declared: Option<Declared>) -> Self {
+        self.declared = declared;
+        self
     }
 }
 
@@ -553,7 +567,8 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
             let (_, root) = root_of(snapshot, *root)?;
             let segment = root.chain.get(*depth)?;
 
-            let mut rows = vec![row("installs", segment.features.join(", "))];
+            let installs: Vec<&str> = segment.features.iter().map(|feature| feature.name.as_str()).collect();
+            let mut rows = vec![row("installs", installs.join(", "))];
             for listener in &segment.listeners {
                 rows.push(row(
                     "listens",
@@ -573,7 +588,23 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
                 rows.push(row("params", &segment.params));
             }
 
-            details(&segment.name, "segment", rows)
+            let mine: Vec<u64> = snapshot
+                .actors
+                .iter()
+                .filter(|actor| actor.root == Some(root.id) && actor.segment == Some(*depth))
+                .map(|actor| actor.id)
+                .collect();
+            for task in session.tasks.of_actors(&mine) {
+                rows.push(row(
+                    "waiting on",
+                    format!("{} for {}", type_name(&task.output), type_name(&task.actor)),
+                ));
+            }
+
+            Details {
+                routed: segment.declared.clone(),
+                ..details(&segment.name, "segment", rows).written(segment.written.clone())
+            }
         }
         Element::Feature { at, name } => {
             let mine = |owner: Option<&str>| owner == Some(name.as_str());
@@ -628,7 +659,15 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
                 rows.push(row("listens", listener));
             }
 
-            details(name, "feature", rows)
+            let declared = match at {
+                None => None,
+                Some((root, depth)) => root_of(snapshot, *root)
+                    .and_then(|(_, root)| root.chain.get(*depth))
+                    .and_then(|segment| segment.features.iter().find(|feature| mine(Some(&feature.name))))
+                    .and_then(|feature| feature.declared.clone()),
+            };
+
+            details(name, "feature", rows).written(declared)
         }
         Element::State {
             root,
@@ -650,17 +689,28 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
                         .clone()
                         .unwrap_or_else(|| "not printable".to_string()),
                 ),
+                declared: state.declared.clone(),
                 ..details(type_name(full), "state", vec![row("type", full)])
             }
         }
         Element::Actor(id) => {
             let actor = snapshot.actors.iter().find(|actor| actor.id == *id)?;
 
+            let mut rows = actor_rows(snapshot, actor);
+            let waiting: Vec<&str> = session
+                .tasks
+                .of_actor(*id)
+                .map(|task| type_name(&task.output))
+                .collect();
+            if !waiting.is_empty() {
+                rows.push(row("waiting on", waiting.join(", ")));
+            }
+
             Details {
                 body: Some(actor.state.clone()),
                 declared: actor.declared.clone(),
                 handlers: handlers(actor),
-                ..details(type_name(&actor.type_name), "actor", actor_rows(snapshot, actor))
+                ..details(type_name(&actor.type_name), "actor", rows)
             }
         }
         Element::View { root, path } => {

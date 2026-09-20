@@ -21,7 +21,7 @@ use crate::names::{period, took, type_name};
 use crate::timers::Timers;
 use crate::trace::{Reading, TREE_LIMIT};
 use crate::trace_log::TraceLog;
-use crate::words::{self, Tone, Word};
+use crate::words::{self, Kind, Level, Tone, Word};
 
 /// How many steps of a chain its line shows.
 pub const STEPS_SHOWN: usize = 6;
@@ -302,13 +302,18 @@ fn key(point: &TracePoint, timers: &Timers) -> u64 {
         TracePoint::Action { message } => ("action", message).hash(h),
         TracePoint::Send { actor, message } => ("send", actor, message).hash(h),
         TracePoint::Handle { actor, message } => ("handle", actor, message).hash(h),
-        TracePoint::Spawn { actor, output } => ("spawn", actor, output).hash(h),
+        TracePoint::Spawn { actor, output, .. } => ("spawn", actor, output).hash(h),
+        TracePoint::Settled { actor, output, .. } => ("settled", actor, output).hash(h),
+        TracePoint::Cancelled { actor, output, .. } => ("cancelled", actor, output).hash(h),
         TracePoint::Publish { event, bus, .. } => ("publish", event, bus).hash(h),
         TracePoint::Deliver { event, bus } => ("deliver", event, bus).hash(h),
         TracePoint::Push { reducer } => ("push", reducer).hash(h),
         TracePoint::Navigate { root, to } => ("navigate", root, to).hash(h),
         TracePoint::Tick { timer } => ("tick", timer.map(|id| timers.site(id))).hash(h),
         TracePoint::Store { op, path, .. } => ("store", op, path).hash(h),
+        // The segment, not how long it took: two slow frames of one page are
+        // the same step of a chain.
+        TracePoint::Render { segment, .. } => ("render", segment).hash(h),
         TracePoint::Log { level, target, .. } => ("log", level, target).hash(h),
         TracePoint::Note { text } => ("note", text).hash(h),
     }
@@ -533,8 +538,8 @@ fn whole(chains: &Chains, reading: Reading, stream: &Stream) -> GroupLine {
     let newest = chains.roots_of(stream).max().unwrap_or_default();
 
     let mut words = match stream {
-        Stream::Timer(_) => vec![Word::new("timer ", Tone::Kind("tick".into()))],
-        _ => vec![Word::new("loop ", Tone::Kind("spawn".into()))],
+        Stream::Timer(_) => vec![Word::new("timer ", Tone::Kind(Kind::Tick))],
+        _ => vec![Word::new("loop ", Tone::Kind(Kind::Spawn))],
     };
     words.push(Word::new(title(chains, reading, stream), Tone::Plain));
 
@@ -654,7 +659,7 @@ fn steps(chains: &Chains, reading: Reading, root: u64) -> Vec<Word> {
 
         match &span.point {
             TracePoint::Log { level, target, .. } => {
-                out.push(Word::new(format!("{} {target}", level.to_lowercase()), Tone::Level(level.clone())));
+                out.push(Word::new(format!("{} {target}", level.to_lowercase()), Tone::Level(Level::named(level))));
             }
             point => out.extend(words::gist_words(point, reading.timers)),
         }

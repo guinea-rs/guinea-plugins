@@ -1,6 +1,7 @@
 //! Claude Desktop's dark palette, applied to egui.
 
 use egui::{Color32, CornerRadius, Stroke, Visuals};
+use guinea_devtools_model::words::{Kind, Level, Tone};
 
 const fn rgb(hex: u32) -> Color32 {
     Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
@@ -39,6 +40,55 @@ pub const VIOLET: Color32 = rgb(0xb59cf0);
 pub const PEACH: Color32 = rgb(0xf0a58a);
 pub const LILAC: Color32 = rgb(0xcdb8f2);
 
+/// A session that is still connected.
+pub const LIVE: Color32 = GREEN;
+/// A session that is not.
+pub const GONE: Color32 = MUTED;
+/// What is picked out: the open tab, a link, a chosen row.
+pub const ACCENT: Color32 = CLAY;
+
+/// The colour of a word, by what the model says it is.
+pub fn tone_color(tone: &Tone) -> Color32 {
+    match tone {
+        Tone::Plain => TEXT,
+        Tone::Muted => MUTED,
+        Tone::Accent => ACCENT,
+        Tone::Kind(kind) => kind_color(*kind),
+        Tone::Level(level) => level_color(*level),
+        Tone::Quote => PINK,
+    }
+}
+
+/// The colour of a log line, by its `tracing` level.
+pub fn level_color(level: Level) -> Color32 {
+    match level {
+        Level::Error => RED,
+        Level::Warn => CLAY,
+        Level::Info => TEXT,
+        Level::Debug | Level::Trace => MUTED,
+    }
+}
+
+/// The colour of a trace record's kind.
+pub fn kind_color(kind: Kind) -> Color32 {
+    match kind {
+        Kind::Action => CLAY,
+        Kind::Send => LINK,
+        Kind::Handle => SKY,
+        Kind::Spawn => VIOLET,
+        Kind::Settled => LILAC,
+        Kind::Cancelled => MUTED,
+        Kind::Publish => PINK,
+        Kind::Deliver => PEACH,
+        Kind::Push => GREEN,
+        Kind::Navigate => CYAN,
+        Kind::Store => LILAC,
+        Kind::Render => SKY,
+        Kind::Log => TEXT,
+        Kind::Tick | Kind::Note => MUTED,
+    }
+}
+
 fn stroke(color: Color32) -> Stroke {
     Stroke::new(1.0, color)
 }
@@ -47,8 +97,9 @@ pub fn visuals() -> Visuals {
     let mut visuals = Visuals::dark();
 
     visuals.panel_fill = BACKGROUND;
-    visuals.window_fill = BACKGROUND;
-    visuals.window_stroke = stroke(DIVIDER);
+    visuals.window_fill = FIELD;
+    visuals.window_stroke = stroke(FIELD_BORDER);
+    visuals.menu_corner_radius = CornerRadius::same(8);
     visuals.extreme_bg_color = FIELD;
     visuals.text_edit_bg_color = Some(FIELD);
     visuals.faint_bg_color = CODE;

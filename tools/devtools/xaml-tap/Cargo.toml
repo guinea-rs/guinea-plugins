@@ -1,0 +1,19 @@
+[package]
+name = "guinea-xaml-tap"
+description = "Loaded into a WinUI 3 process by devtools: its live XAML tree, properties and hit tests"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+guinea-devtools-protocol = { path = "../../../plugins/devtools-protocol" }
+ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.4.0" }
+capnp = "0.27"
+compio = { version = "0.18.0", features = ["runtime", "time"] }
+tracing = "0.1"
+windows-core = "0.100"
+windows-numerics = "0.100"

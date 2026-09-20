@@ -7,10 +7,11 @@ license = "MIT"
 publish = false
 
 [workspace]
-members = ["model", "hub", "cli"]
+members = ["model", "api", "hub", "mcp", "xaml-tap"]
 
 [dependencies]
 guinea-devtools-model = { path = "model" }
+guinea-devtools-api = { path = "api" }
 guinea-devtools-hub = { path = "hub" }
 guinea = { path = "../../../guinea/crates/guinea", default-features = false, features = ["eframe"] }
 guinea-core = { path = "../../../guinea/crates/guinea-core" }
@@ -19,20 +20,19 @@ guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
 guinea-plugin-store = { path = "../../plugins/store" }
 amethystate = { version = "0.20.1", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
-ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.4.0" }
-capnp = "0.27"
-compio = { version = "0.18.0", features = ["runtime", "time"] }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
 egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
 guicons = { path = "../../../guicons/crates/guicons", default-features = false, features = ["macros", "egui"] }
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
 inventory = "0.3"
 tokio = { version = "1", features = ["sync", "time", "rt-multi-thread"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(windows)'.dependencies]
+guinea-xaml-tap = { path = "xaml-tap" }
 
 # The store plugin depends on guinea from git; this keeps one guinea in the
 # build, the one next door.

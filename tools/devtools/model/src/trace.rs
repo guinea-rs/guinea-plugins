@@ -10,13 +10,7 @@ use crate::clock::Clock;
 use crate::names::took;
 use crate::timers::Timers;
 use crate::trace_log::TraceLog;
-use crate::words::{self, Tone, Word};
-
-/// Every kind of record, in the order a filter lists them.
-pub const KINDS: [&str; 12] = [
-    "action", "send", "handle", "spawn", "publish", "deliver", "push", "navigate", "store",
-    "log", "tick", "note",
-];
+use crate::words::{self, Kind, Tone, Word};
 
 /// How many records between two steps of a chain are listed.
 pub const BETWEEN_LIMIT: usize = 8;
@@ -173,7 +167,7 @@ pub enum Cause {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Row {
     pub id: u64,
-    pub kind: String,
+    pub kind: Kind,
     /// Hour and minute.
     pub time: String,
     /// To the millisecond, and since the application started.
@@ -186,7 +180,7 @@ pub struct Row {
 pub fn row(reading: Reading, span: &Span) -> Row {
     Row {
         id: span.id,
-        kind: span.point.kind().to_string(),
+        kind: Kind::of(&span.point),
         time: reading.clock.short(span.at),
         when: reading.clock.long(span.at),
         took: span.took.map(took),

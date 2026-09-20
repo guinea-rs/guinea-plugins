@@ -5,9 +5,10 @@ mod http;
 mod listen;
 
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 
 use guinea_devtools_model::sessions::{Incoming, Sessions};
+use guinea_devtools_protocol::Command;
 
 pub use http::serve;
 
@@ -18,6 +19,18 @@ type Watcher = Box<dyn Fn() + Send + Sync>;
 pub struct Hub {
     sessions: RwLock<Sessions>,
     watchers: Mutex<Vec<Watcher>>,
+    commands: OnceLock<listen::Commands>,
+}
+
+/// Why a command was not sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unsent {
+    NoSuchSession,
+    Disconnected,
+    /// The session never said it can do what the command needs.
+    NotOffered,
+    /// The listener is gone.
+    Closed,
 }
 
 /// How many reports are applied under one write before readers get a turn.
@@ -28,7 +41,7 @@ impl Hub {
     pub fn start() -> Arc<Hub> {
         let hub = Arc::new(Hub::default());
         let (out, inbox) = channel();
-        listen::spawn(out);
+        let _ = hub.commands.set(listen::spawn(out));
 
         let applying = hub.clone();
         std::thread::Builder::new()
@@ -41,6 +54,42 @@ impl Hub {
 
     pub fn read(&self) -> RwLockReadGuard<'_, Sessions> {
         self.sessions.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Sends `command` to session `id`, if it listed what the command needs.
+    ///
+    /// Queued, not waited on: whatever the session answers arrives as a
+    /// report like any other.
+    pub fn send(&self, id: u64, command: Command) -> Result<(), Unsent> {
+        self.send_in(&self.read(), id, command)
+    }
+
+    /// [`Hub::send`] for a caller that already holds [`Hub::read`]: reading
+    /// again on the same thread deadlocks as soon as a report waits to be
+    /// applied.
+    pub fn send_in(&self, sessions: &Sessions, id: u64, command: Command) -> Result<(), Unsent> {
+        let session = sessions.get(id).ok_or(Unsent::NoSuchSession)?;
+
+        if !session.connected {
+            return Err(Unsent::Disconnected);
+        }
+        if !session.info.can(command.needs()) {
+            return Err(Unsent::NotOffered);
+        }
+
+        let commands = self.commands.get().ok_or(Unsent::Closed)?;
+        commands.unbounded_send((id, command)).map_err(|_| Unsent::Closed)
+    }
+
+    /// Loads the XAML tap into session `id`'s process, unless one is already
+    /// there. The tap connects on its own and shows up as a session with the
+    /// same pid.
+    ///
+    /// What is loaded is a copy: a process keeps its tap until it exits, and
+    /// the one next to devtools has to stay free to be rebuilt.
+    #[cfg(windows)]
+    pub fn attach_native(&self, id: u64) -> Result<(), String> {
+        attach_native_in(&self.read(), id)
     }
 
     /// Calls `watcher` on the applying thread after every batch of reports.
@@ -67,4 +116,27 @@ impl Hub {
             }
         }
     }
+}
+
+/// [`Hub::attach_native`] for a caller that already holds [`Hub::read`].
+#[cfg(windows)]
+pub fn attach_native_in(sessions: &Sessions, id: u64) -> Result<(), String> {
+    let session = sessions.get(id).ok_or("no such session")?;
+    if sessions.native_for(id).is_some() {
+        return Ok(());
+    }
+    let pid = session.info.pid;
+
+    let built = std::env::current_exe()
+        .map_err(|error| error.to_string())?
+        .with_file_name(guinea_xaml_tap::DLL);
+    if !built.exists() {
+        return Err(format!("no tap at {}", built.display()));
+    }
+
+    let loaded = std::env::temp_dir().join(format!("guinea-xaml-tap-{pid}.dll"));
+    std::fs::copy(&built, &loaded)
+        .map_err(|error| format!("copying the tap to {}: {error}", loaded.display()))?;
+
+    guinea_xaml_tap::inject::inject(pid, &loaded)
 }

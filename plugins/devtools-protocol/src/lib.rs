@@ -4,9 +4,12 @@
 //! are started once and applications come and go. The connection is an
 //! ogurpchik session - a named pipe or a unix socket, opened only by a peer
 //! that knows the key devtools wrote when they started - and every message is
-//! one [`Report`] as JSON inside a `Peer.send` call.
+//! one [`Report`] as JSON inside a `Peer.send` call. Devtools answer the same
+//! way with a [`Command`], and only with one the other side listed among its
+//! [`Capability`]s.
 
 pub mod key;
+pub mod native;
 pub mod wire;
 
 pub mod devtools_capnp {
@@ -33,6 +36,97 @@ pub enum Report {
     Snapshot(Snapshot),
     /// What happened since the last batch, oldest first.
     Trace(TraceBatch),
+    /// How the native tree changed. The first batch is the whole tree.
+    NativeTree { changes: Vec<native::Change> },
+    /// Every enumeration the native properties use, once per connection.
+    NativeEnums { enums: Vec<native::Enumeration> },
+    /// What [`Command::NativeProperties`] asked for.
+    NativeProperties {
+        element: u64,
+        properties: Vec<native::Property>,
+    },
+    /// What lies under a point, innermost first, and where the innermost is.
+    NativePicked {
+        chain: Vec<u64>,
+        bounds: Option<native::Bounds>,
+    },
+    /// The frames of the last few seconds, oldest first, as
+    /// [`Command::NativePerfCapture`] asked for.
+    NativePerf { frames: Vec<native::Frame> },
+    /// Where the puffin profiler is listening, and `None` once it stops.
+    /// Frames travel over that connection, not this one.
+    Profiler { at: Option<String> },
+    /// A command could not be carried out.
+    Refused { command: String, reason: String },
+}
+
+/// One message from devtools, to a peer that listed what it needs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Command {
+    /// Needs [`Capability::NativeProperties`].
+    NativeProperties { element: u64 },
+    /// Needs [`Capability::NativeEdit`]. `value` is parsed as `type_name`, the
+    /// way XAML would: `Stretch` for an alignment, `4,0,4,0` for a thickness.
+    NativeSetProperty {
+        element: u64,
+        property: u32,
+        type_name: String,
+        value: String,
+    },
+    /// Needs [`Capability::NativeHitTest`]. A point on the screen, in
+    /// physical pixels.
+    NativeHitTest { x: i32, y: i32 },
+    /// Needs [`Capability::NativeHighlight`]. `None` takes the highlight away.
+    NativeHighlight { element: Option<u64> },
+    /// Needs [`Capability::NativePerf`]. What the recording that runs while
+    /// devtools are connected holds now.
+    NativePerfCapture,
+    /// Needs [`Capability::Profiler`]. Switches the puffin profiler on or
+    /// off; the application answers with [`Report::Profiler`].
+    Profiler { on: bool },
+}
+
+impl Command {
+    /// What a peer has to have said it can do for this to reach it.
+    pub fn needs(&self) -> Capability {
+        match self {
+            Command::NativeProperties { .. } => Capability::NativeProperties,
+            Command::NativeSetProperty { .. } => Capability::NativeEdit,
+            Command::NativeHitTest { .. } => Capability::NativeHitTest,
+            Command::NativeHighlight { .. } => Capability::NativeHighlight,
+            Command::NativePerfCapture => Capability::NativePerf,
+            Command::Profiler { .. } => Capability::Profiler,
+        }
+    }
+}
+
+/// Something a peer can report or be asked to do.
+///
+/// Backends differ in what they can show: WinUI has a live native tree with
+/// properties, egui has none, a terminal has cells. Devtools offer what the
+/// peer listed and nothing else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Capability {
+    /// [`Report::Snapshot`]: roots, actors, reducers, panels.
+    Snapshot,
+    /// [`Report::Trace`].
+    Trace,
+    /// [`Report::NativeTree`].
+    NativeTree,
+    NativeProperties,
+    NativeEdit,
+    NativeHitTest,
+    NativeHighlight,
+    /// [`Report::NativePerf`], on request.
+    NativePerf,
+    /// [`Report::Profiler`]: the puffin profiler, switched on from here and
+    /// read over its own connection.
+    Profiler,
+    /// What a newer peer can do and this version of devtools cannot name.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Trace records, and the ends of points that were still open last time.
@@ -94,7 +188,30 @@ pub enum TracePoint {
     Action { message: String },
     Send { actor: String, message: String },
     Handle { actor: String, message: String },
-    Spawn { actor: String, output: String },
+    /// An actor started background work. `actor_id` is its id in
+    /// [`Snapshot::actors`], so a task sits where its actor does.
+    Spawn {
+        actor: String,
+        #[serde(default)]
+        actor_id: u64,
+        output: String,
+    },
+    /// The work finished, and its result is on its way to the actor.
+    Settled {
+        actor: String,
+        #[serde(default)]
+        actor_id: u64,
+        output: String,
+        took_us: u64,
+    },
+    /// The work was dropped unfinished: the actor that started it is gone.
+    Cancelled {
+        actor: String,
+        #[serde(default)]
+        actor_id: u64,
+        output: String,
+        took_us: u64,
+    },
     Publish { event: String, bus: BusKind, subscribers: usize },
     Deliver { event: String, bus: BusKind },
     Push { reducer: String },
@@ -110,6 +227,8 @@ pub enum TracePoint {
         field: Option<String>,
         outside: bool,
     },
+    /// A page or layout drew itself, and how long that took.
+    Render { segment: String, took_us: u64 },
     /// An ordinary `tracing` event; `level` as tracing spells it, `INFO`.
     Log {
         level: String,
@@ -126,12 +245,15 @@ impl TracePoint {
             TracePoint::Send { .. } => "send",
             TracePoint::Handle { .. } => "handle",
             TracePoint::Spawn { .. } => "spawn",
+            TracePoint::Settled { .. } => "settled",
+            TracePoint::Cancelled { .. } => "cancelled",
             TracePoint::Publish { .. } => "publish",
             TracePoint::Deliver { .. } => "deliver",
             TracePoint::Push { .. } => "push",
             TracePoint::Navigate { .. } => "navigate",
             TracePoint::Tick { .. } => "tick",
             TracePoint::Store { .. } => "store",
+            TracePoint::Render { .. } => "render",
             TracePoint::Log { .. } => "log",
             TracePoint::Note { .. } => "note",
         }
@@ -143,7 +265,22 @@ impl TracePoint {
             TracePoint::Action { message } => format!("action {message}"),
             TracePoint::Send { actor, message } => format!("send {message} → {actor}"),
             TracePoint::Handle { actor, message } => format!("{actor} handles {message}"),
-            TracePoint::Spawn { actor, output } => format!("{actor} starts work for {output}"),
+            TracePoint::Spawn { actor, output, .. } => format!("{actor} starts work for {output}"),
+            TracePoint::Settled {
+                actor,
+                output,
+                took_us,
+                ..
+            } => format!("{actor} has its {output} after {:.1} ms", *took_us as f64 / 1000.0),
+            TracePoint::Cancelled {
+                actor,
+                output,
+                took_us,
+                ..
+            } => format!(
+                "{actor} is gone: {output} cancelled after {:.1} ms",
+                *took_us as f64 / 1000.0
+            ),
             TracePoint::Publish {
                 event,
                 bus,
@@ -160,6 +297,9 @@ impl TracePoint {
                 if *outside { "disk" } else { "store" },
                 op.verb()
             ),
+            TracePoint::Render { segment, took_us } => {
+                format!("{segment} drew in {:.1} ms", *took_us as f64 / 1000.0)
+            }
             TracePoint::Log {
                 level,
                 target,
@@ -182,6 +322,15 @@ pub struct AppInfo {
     /// [`Span::at`] counts from. Zero when unknown.
     #[serde(default)]
     pub trace_epoch_ms: u64,
+    /// What this peer reports and which [`Command`]s it takes.
+    #[serde(default)]
+    pub capabilities: Vec<Capability>,
+}
+
+impl AppInfo {
+    pub fn can(&self, capability: Capability) -> bool {
+        self.capabilities.contains(&capability)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -275,8 +424,33 @@ pub struct Segment {
     pub name: String,
     pub params: String,
     pub reducers: Vec<ReducerState>,
-    pub features: Vec<String>,
+    pub features: Vec<Installed>,
     pub listeners: Vec<Listener>,
+    /// Where `routes!` listed this page or layout.
+    #[serde(default)]
+    pub declared: Option<Declared>,
+    /// Where the page or layout itself was written.
+    #[serde(default)]
+    pub written: Option<Declared>,
+}
+
+/// A feature a segment installed.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Installed {
+    pub name: String,
+    /// Where `impl Feature` was written.
+    #[serde(default)]
+    pub declared: Option<Declared>,
+}
+
+impl From<&str> for Installed {
+    /// A feature known by name alone.
+    fn from(name: &str) -> Self {
+        Installed {
+            name: name.to_string(),
+            declared: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -287,6 +461,9 @@ pub struct ReducerState {
     /// The feature that claimed it; `None` for the segment's own.
     #[serde(default)]
     pub feature: Option<String>,
+    /// Where it was claimed: the `cx.state::<R>()` that did it.
+    #[serde(default)]
+    pub declared: Option<Declared>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

@@ -11,8 +11,8 @@ use guinea_core::actor::shape;
 use guinea_core::actor::event_bus::GlobalEventBus;
 use guinea_core::trace::{self, Bus, Cause, Point, Trace};
 use guinea_devtools_protocol::{
-    Actor, BusKind, BusSubscription, Channel, Declared, End, Flow, Handled, Listener, Node, Panel,
-    ReducerState, Root, Segment, Snapshot, Span, StoreOp, Timer, TraceBatch, TracePoint,
+    Actor, BusKind, BusSubscription, Channel, Declared, End, Flow, Handled, Installed, Listener,
+    Node, Panel, ReducerState, Root, Segment, Snapshot, Span, StoreOp, Timer, TraceBatch, TracePoint,
 };
 
 /// How many records wait for the next batch before new ones are dropped.
@@ -80,9 +80,36 @@ fn point(point: &Point) -> TracePoint {
             actor: actor.to_string(),
             message: message.to_string(),
         },
-        Point::Spawn { actor, output } => TracePoint::Spawn {
+        Point::Spawn {
+            actor,
+            actor_id,
+            output,
+        } => TracePoint::Spawn {
             actor: actor.to_string(),
+            actor_id: *actor_id,
             output: output.to_string(),
+        },
+        Point::Settled {
+            actor,
+            actor_id,
+            output,
+            took_us,
+        } => TracePoint::Settled {
+            actor: actor.to_string(),
+            actor_id: *actor_id,
+            output: output.to_string(),
+            took_us: *took_us,
+        },
+        Point::Cancelled {
+            actor,
+            actor_id,
+            output,
+            took_us,
+        } => TracePoint::Cancelled {
+            actor: actor.to_string(),
+            actor_id: *actor_id,
+            output: output.to_string(),
+            took_us: *took_us,
         },
         Point::Publish {
             event,
@@ -119,6 +146,10 @@ fn point(point: &Point) -> TracePoint {
             path: path.clone(),
             field: field.clone(),
             outside: *outside,
+        },
+        Point::Render { segment, took_us } => TracePoint::Render {
+            segment: segment.to_string(),
+            took_us: *took_us,
         },
         Point::Log {
             level,
@@ -309,9 +340,17 @@ fn root(router: RouterView) -> Root {
                         type_name: short(state.type_name),
                         state: Some(state.state),
                         feature: state.feature.map(feature_name),
+                        declared: state.declared.map(place),
                     })
                     .collect(),
-                features: segment.features.into_iter().map(feature_name).collect(),
+                features: segment
+                    .features
+                    .into_iter()
+                    .map(|feature| Installed {
+                        name: feature_name(feature.name),
+                        declared: feature.declared.map(place),
+                    })
+                    .collect(),
                 listeners: segment
                     .listeners
                     .into_iter()
@@ -322,6 +361,8 @@ fn root(router: RouterView) -> Root {
                         feature: listener.feature.map(feature_name),
                     })
                     .collect(),
+                declared: segment.declared.map(place),
+                written: segment.written.map(place),
             })
             .collect(),
         back: router.back,
