@@ -33,11 +33,15 @@ pub fn bus_name(bus: BusKind) -> &'static str {
 }
 
 /// A duration given in microseconds.
+///
+/// Seconds once it is seconds: work that waits - a request, a retry, a poll
+/// that found nothing - runs for tens of them, and `30252.9 ms` is a number
+/// nobody reads as half a minute.
 pub fn took(micros: u64) -> String {
-    if micros >= 1_000 {
-        format!("{:.1} ms", micros as f64 / 1_000.0)
-    } else {
-        format!("{micros} µs")
+    match micros {
+        seconds if seconds >= 1_000_000 => format!("{:.1} s", seconds as f64 / 1_000_000.0),
+        millis if millis >= 1_000 => format!("{:.1} ms", millis as f64 / 1_000.0),
+        micros => format!("{micros} µs"),
     }
 }
 

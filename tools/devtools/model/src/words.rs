@@ -5,7 +5,7 @@ use guinea_devtools_protocol::TracePoint;
 use serde::{Deserialize, Serialize};
 
 use crate::chains::Stream;
-use crate::names::{bus_name, took, type_name};
+use crate::names::{bus_name, type_name};
 use crate::timers::Timers;
 
 /// What a word is, for choosing its colour.
@@ -207,28 +207,16 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
         TracePoint::Spawn { actor: a, output, .. } => {
             vec![actor(a), text(" starts work for ".into()), message(output)]
         }
-        TracePoint::Settled {
-            actor: a,
-            output,
-            took_us,
-            ..
-        } => vec![
-            actor(a),
-            text(" has its ".into()),
-            message(output),
-            text(format!(" after {}", took(*took_us))),
-        ],
-        TracePoint::Cancelled {
-            actor: a,
-            output,
-            took_us,
-            ..
-        } => vec![
-            actor(a),
-            text(" is gone: ".into()),
-            message(output),
-            text(format!(" cancelled after {}", took(*took_us))),
-        ],
+        // How long it took is the row's own column, not part of what the row
+        // says: a sentence carrying a number that changes every time is a
+        // different sentence every time, and what groups records by shape
+        // groups by the sentence.
+        TracePoint::Settled { actor: a, output, .. } => {
+            vec![actor(a), text(" has its ".into()), message(output)]
+        }
+        TracePoint::Cancelled { actor: a, output, .. } => {
+            vec![actor(a), text(" is gone without its ".into()), message(output)]
+        }
         TracePoint::Publish {
             event,
             bus,
@@ -282,10 +270,9 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
 
             said
         }
-        TracePoint::Render { segment, took_us } => vec![
+        TracePoint::Render { segment, .. } => vec![
             text("render ".into()),
             Word::new(type_name(segment), Tone::Plain),
-            text(format!(" in {:.1} ms", *took_us as f64 / 1000.0)),
         ],
         TracePoint::Log {
             level,

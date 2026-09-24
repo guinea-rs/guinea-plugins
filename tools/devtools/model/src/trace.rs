@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 
-use guinea_devtools_protocol::Span;
+use guinea_devtools_protocol::{Span, TracePoint};
 use serde::{Deserialize, Serialize};
 
 use crate::clock::Clock;
@@ -177,13 +177,26 @@ pub struct Row {
     pub cause: Option<Cause>,
 }
 
+/// How long a point that has no extent of its own says it took.
+///
+/// A span's `took` comes from the record that ended it; a mark has none, and
+/// the ones that measured something carry it in the point instead.
+fn measured(point: &TracePoint) -> Option<u64> {
+    match point {
+        TracePoint::Settled { took_us, .. }
+        | TracePoint::Cancelled { took_us, .. }
+        | TracePoint::Render { took_us, .. } => Some(*took_us),
+        _ => None,
+    }
+}
+
 pub fn row(reading: Reading, span: &Span) -> Row {
     Row {
         id: span.id,
         kind: Kind::of(&span.point),
         time: reading.clock.short(span.at),
         when: reading.clock.long(span.at),
-        took: span.took.map(took),
+        took: span.took.or_else(|| measured(&span.point)).map(took),
         words: words::sentence(&span.point, reading.timers),
         cause: span.parent.map(|parent| match reading.log.get(parent) {
             Some(cause) => Cause::Known {
@@ -228,6 +241,25 @@ pub fn origins(reading: Reading, span: &Span, query: &Query) -> Origins {
         None
     };
 
+    // A send whose handling is the very next step is the same line twice, so
+    // only the handling is kept - and the send is kept out of what happened
+    // in between as well, or it would come back one line lower.
+    let folded: Vec<u64> = chain
+        .iter()
+        .enumerate()
+        .filter(|(at, step)| {
+            chain
+                .get(at + 1)
+                .is_some_and(|next| says_it_again(step, next))
+        })
+        .map(|(_, step)| step.id)
+        .collect();
+
+    let chain: Vec<&Span> = chain
+        .into_iter()
+        .filter(|step| !folded.contains(&step.id))
+        .collect();
+
     let steps = chain
         .iter()
         .enumerate()
@@ -237,6 +269,7 @@ pub fn origins(reading: Reading, span: &Span, query: &Query) -> Origins {
                 .map(|next| {
                     log.between(step.id, next.id)
                         .filter(|span| query.shows(span.point.kind()))
+                        .filter(|span| !folded.contains(&span.id))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -270,6 +303,39 @@ struct Walk {
     cut: bool,
 }
 
+/// Whether a send and what it caused are one thing said twice.
+///
+/// `send Kill to ProcessActor` followed by `ProcessActor handles Kill` is a
+/// row that adds nothing and a level of depth in every tree it appears in.
+/// The handling is the half worth keeping: it carries how long it took, and
+/// whatever it set off hangs under it.
+fn says_it_again(sent: &Span, handled: &Span) -> bool {
+    match (&sent.point, &handled.point) {
+        (
+            TracePoint::Send { actor, message },
+            TracePoint::Handle {
+                actor: by,
+                message: what,
+            },
+        ) => actor == by && message == what,
+        _ => false,
+    }
+}
+
+/// What to show for `sent`: its handling, when that is all the send came to.
+///
+/// A send whose message was never handled - the actor was gone, or the
+/// handling is older than what devtools kept - stays a send, and says so by
+/// having nothing under it.
+fn instead_of<'a>(reading: Reading<'a>, sent: &'a Span) -> &'a Span {
+    let mut caused = reading.log.children(sent.id);
+
+    match (caused.next(), caused.next()) {
+        (Some(only), None) if says_it_again(sent, only) => only,
+        _ => sent,
+    }
+}
+
 fn set_off(reading: Reading, id: u64, depth: usize, walk: &mut Walk) -> Vec<Consequence> {
     let mut out = Vec::new();
 
@@ -279,10 +345,12 @@ fn set_off(reading: Reading, id: u64, depth: usize, walk: &mut Walk) -> Vec<Cons
             break;
         }
 
+        let shown = instead_of(reading, child);
+
         walk.budget -= 1;
         out.push(Consequence {
-            row: row(reading, child),
-            children: set_off(reading, child.id, depth + 1, walk),
+            row: row(reading, shown),
+            children: set_off(reading, shown.id, depth + 1, walk),
         });
     }
 
@@ -369,6 +437,69 @@ mod tests {
         let between: Vec<u64> = record.origins.steps[1].between.iter().map(|row| row.id).collect();
         assert_eq!(between, [3]);
         assert!(record.origins.steps[0].between.is_empty(), "nothing between 1 and 2");
+    }
+
+    /// `send X to A` followed by `A handles X` is one thing said twice, and
+    /// it doubles the depth of every tree it appears in.
+    #[test]
+    fn a_send_and_the_handling_it_caused_are_one_row() {
+        let span = |id, parent, point| Span {
+            id,
+            parent,
+            at: id * 10,
+            took: None,
+            point,
+        };
+        let send = |to: &str, what: &str| TracePoint::Send {
+            actor: to.into(),
+            message: what.into(),
+        };
+        let handle = |by: &str, what: &str| TracePoint::Handle {
+            actor: by.into(),
+            message: what.into(),
+        };
+
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![
+                span(1, None, TracePoint::Action { message: "a::Kill".into() }),
+                span(2, Some(1), send("a::Worker", "a::Kill")),
+                span(3, Some(2), handle("a::Worker", "a::Kill")),
+                span(4, Some(3), TracePoint::Push { reducer: "a::Tabs".into() }),
+                // A send nobody handled: the actor was gone by then.
+                span(5, Some(3), send("a::Gone", "a::Later")),
+            ],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+
+        let timers = Timers::default();
+        let record = record(read(&log, &timers), 1, &Query::default()).expect("kept");
+
+        let set_off: Vec<u64> = record.set_off.iter().map(|next| next.row.id).collect();
+        assert_eq!(set_off, [3], "the send folded into the handling under it");
+        assert_eq!(record.set_off[0].row.kind, Kind::Handle);
+
+        let under: Vec<u64> = record.set_off[0]
+            .children
+            .iter()
+            .map(|next| next.row.id)
+            .collect();
+        assert_eq!(under, [4, 5], "what the handling set off hangs where the send was");
+        assert_eq!(
+            record.set_off[0].children[1].row.kind,
+            Kind::Send,
+            "a send nobody handled stays a send"
+        );
+
+        // And the same pair, read the other way, from the push.
+        let pushed = super::record(read(&log, &timers), 4, &Query::default()).expect("kept");
+        let steps: Vec<u64> = pushed.origins.steps.iter().map(|step| step.row.id).collect();
+        assert_eq!(steps, [1, 3, 4], "the send is not a step of its own");
+        assert!(
+            pushed.origins.steps.iter().all(|step| step.between.is_empty()),
+            "and it does not come back as something that happened in between"
+        );
     }
 
     #[test]

@@ -803,6 +803,68 @@ mod tests {
         assert!(opens.contains(&Some(Stream::Loop("Worker handles Tick".into()))));
     }
 
+    /// What a record says has to be the same words every time it happens, or
+    /// nothing groups: a loop is found by the text of its step, and a
+    /// duration written into that text makes every turn of the loop its own.
+    #[test]
+    fn work_that_took_a_different_time_is_still_the_same_step() {
+        let timers = Timers::default();
+        // A mark has no extent of its own, so no `took` from an end record:
+        // what it measured is in the point.
+        let settled = |id: u64, took_us| Span {
+            id,
+            parent: Some(id - 1),
+            at: id,
+            took: None,
+            point: TracePoint::Settled {
+                actor: "a::Agent".into(),
+                actor_id: 3,
+                output: "a::ConnectResult".into(),
+                took_us,
+            },
+        };
+
+        let log = log_of(vec![
+            span(1, None, TracePoint::Action { message: "a::Start".into() }),
+            span(2, Some(1), handle("a::Connect")),
+            settled(3, 1_289_600),
+            span(4, Some(3), handle("a::Connect")),
+            settled(5, 30_252_900),
+            span(6, Some(5), handle("a::Connect")),
+            settled(7, 1_396_400),
+        ]);
+
+        let mut chains = Chains::default();
+        chains.absorb(&log, &timers);
+
+        let reading = Reading {
+            log: &log,
+            clock: Clock::default(),
+            timers: &timers,
+        };
+
+        let loops: Vec<(Stream, usize)> = streams(&chains, reading)
+            .into_iter()
+            .filter(|line| matches!(line.stream, Stream::Loop(_)))
+            .map(|line| (line.stream, line.chains))
+            .collect();
+
+        assert_eq!(loops.len(), 1, "one loop, however long each turn of it took: {loops:?}");
+        assert_eq!(loops[0].1, 2);
+
+        let Stream::Loop(step) = &loops[0].0 else {
+            unreachable!("filtered to loops")
+        };
+        assert!(
+            !step.chars().any(|letter| letter.is_ascii_digit()),
+            "a loop is named by what happened, and a duration in that name makes every turn its own: {step}"
+        );
+
+        // And the number itself is not lost - it moved to the row's column.
+        let settled = crate::trace::row(reading, log.get(3).expect("kept"));
+        assert_eq!(settled.took.as_deref(), Some("1.3 s"));
+    }
+
     #[test]
     fn forgotten_chains_leave_their_groups() {
         let timers = timers();
