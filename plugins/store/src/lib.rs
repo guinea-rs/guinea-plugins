@@ -139,13 +139,25 @@ impl Plugin for StorePlugin {
         // a build runs no step, so an application that declared migrations and
         // opened with `build` would quietly read yesterday's shape. A plugin
         // that is handed steps runs them.
-        let (guard, report) = builder
-            .migrate_global()
-            .map_err(|error| anyhow::anyhow!("opening the store: {error:?}"))?;
+        // A step that fails now refuses the open and carries the report out
+        // with it, where 0.20 opened anyway and left the caller to notice.
+        // Which is the better refusal - an application does not want a store
+        // holding yesterday's shape - so it is said plainly rather than
+        // printed as a debug blob.
+        let (guard, report) = builder.migrate_global().map_err(|refused| match refused {
+            amethystate::InitGlobal::Open(amethystate::store::OpenStore::Migrating {
+                why,
+                report,
+            }) => {
+                let failed = report
+                    .as_ref()
+                    .map(|report| report.failures().count())
+                    .unwrap_or_default();
 
-        if report.has_failures() {
-            anyhow::bail!("store migration failed - see the report above");
-        }
+                anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
+            }
+            other => anyhow::anyhow!("opening the store: {other:?}"),
+        })?;
 
         let store = amethystate::global_store();
         let watching = devtools::Watching::start(&store, &report);
