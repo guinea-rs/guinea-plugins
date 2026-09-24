@@ -83,12 +83,19 @@ async fn a_query_that_does_not_parse_is_a_400() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// The route is there and so is the application; it is the inspector that is
+/// not, and a 404 would read as "no such route".
 #[tokio::test]
-async fn a_command_with_no_inspector_to_send_it_to_is_a_404() {
-    let (status, body) = ask("POST", "/apps/latest/native/perf").await;
+async fn asking_an_application_with_no_inspector_says_to_attach_one() {
+    for (method, url) in [
+        ("POST", "/apps/latest/native/perf"),
+        ("GET", "/apps/latest/native"),
+    ] {
+        let (status, body) = ask(method, url).await;
 
-    assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(body.contains("inspector"), "{body}");
+        assert_eq!(status, StatusCode::CONFLICT, "{method} {url}");
+        assert!(body.contains("native/attach"), "{body}");
+    }
 }
 
 #[tokio::test]

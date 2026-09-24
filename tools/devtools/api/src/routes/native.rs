@@ -45,7 +45,7 @@ struct Cut {
     params(("app" = String, Path, description = "An application's id, or `latest`"), Cut),
     responses(
         (status = 200, description = "The tree, the last properties, pick and refusal"),
-        (status = 404, description = "The application has no inspector: attach one first")
+        (status = 409, description = "The application has no inspector: attach one first")
     )
 )]
 async fn native(
@@ -55,9 +55,15 @@ async fn native(
 ) -> Result<Json<View>, Failure> {
     state.read(|sessions| {
         let session = session(sessions, &app)?;
-        let inspector = sessions
-            .native_for(session.id)
-            .ok_or_else(|| Failure::not_found("no native inspector: attach one first"))?;
+        // Not a 404: the route is here and the application is here, it is the
+        // inspector that is not. A client told "no such thing" cannot tell a
+        // missing inspector from a mistyped path.
+        let inspector = sessions.native_for(session.id).ok_or_else(|| {
+            Failure::refused(format!(
+                "{} has no native inspector yet - POST /apps/{app}/native/attach",
+                session.name()
+            ))
+        })?;
 
         Ok(Json(View::of(inspector, cut.root, cut.depth.unwrap_or(6))))
     })
@@ -100,7 +106,7 @@ struct One {
     params(("app" = String, Path, description = "An application's id, or `latest`"), One),
     responses(
         (status = 200, description = "Asked; read `/native` for the answer"),
-        (status = 404, description = "The application has no inspector")
+        (status = 409, description = "The application has no inspector: attach one first")
     )
 )]
 async fn properties(
@@ -128,7 +134,7 @@ struct At {
     params(("app" = String, Path, description = "An application's id, or `latest`"), At),
     responses(
         (status = 200, description = "Asked; the chain shows up in `/native`"),
-        (status = 404, description = "The application has no inspector")
+        (status = 409, description = "The application has no inspector: attach one first")
     )
 )]
 async fn hit(
@@ -155,7 +161,7 @@ struct Maybe {
     params(("app" = String, Path, description = "An application's id, or `latest`"), Maybe),
     responses(
         (status = 200, description = "Asked"),
-        (status = 404, description = "The application has no inspector")
+        (status = 409, description = "The application has no inspector: attach one first")
     )
 )]
 async fn highlight(
@@ -188,7 +194,7 @@ struct Write {
     params(("app" = String, Path, description = "An application's id, or `latest`"), Write),
     responses(
         (status = 200, description = "Asked; the new properties show up in `/native`"),
-        (status = 404, description = "The application has no inspector")
+        (status = 409, description = "The application has no inspector: attach one first")
     )
 )]
 async fn set(
@@ -217,7 +223,7 @@ async fn set(
     params(("app" = String, Path, description = "An application's id, or `latest`")),
     responses(
         (status = 200, description = "Asked; the frames show up in `/native`"),
-        (status = 404, description = "The application has no inspector")
+        (status = 409, description = "The application has no inspector: attach one first")
     )
 )]
 async fn perf(State(state): State<crate::State>, Path(app): Path<String>) -> Result<Json<Done>, Failure> {
@@ -232,7 +238,12 @@ fn command(state: &crate::State, app: &str, command: Command) -> Result<Json<Don
         sessions
             .native_for(session.id)
             .map(|inspector| inspector.id)
-            .ok_or_else(|| Failure::not_found("no native inspector: attach one first"))
+            .ok_or_else(|| {
+                Failure::refused(format!(
+                    "{} has no native inspector yet - POST /apps/{app}/native/attach",
+                    session.name()
+                ))
+            })
     })?;
 
     state.send(inspector, command).map_err(Failure::refused)?;
