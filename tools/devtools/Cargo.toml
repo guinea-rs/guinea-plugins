@@ -34,6 +34,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [target.'cfg(windows)'.dependencies]
 guinea-xaml-tap = { path = "xaml-tap" }
 
+[build-dependencies]
+winresource = "0.1"
+
 # The store plugin depends on guinea from git; this keeps one guinea in the
 # build, the one next door.
 [patch."https://github.com/uniproc-dev/guinea"]

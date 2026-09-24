@@ -2253,7 +2253,7 @@ dependencies = [
 
 [[package]]
 name = "guicons"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "egui",
  "guicons-macros",
@@ -2261,7 +2261,7 @@ dependencies = [
 
 [[package]]
 name = "guicons-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "dunce",
  "petgraph",
@@ -2273,7 +2273,7 @@ dependencies = [
 
 [[package]]
 name = "guicons-macros"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "guicons-core",
  "guicons-net",
@@ -2284,7 +2284,7 @@ dependencies = [
 
 [[package]]
 name = "guicons-net"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "dirs",
  "guicons-core",
@@ -2385,6 +2385,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "winresource",
 ]
 
 [[package]]

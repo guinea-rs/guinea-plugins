@@ -58,10 +58,13 @@ fn main() -> anyhow::Result<()> {
                 .backend(amethystate::store::builder::Backend::Json),
         );
 
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/guinea.png"))?;
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 700.0])
-            .with_title("guinea devtools"),
+            .with_title("guinea devtools")
+            .with_icon(icon),
         ..Default::default()
     };
 

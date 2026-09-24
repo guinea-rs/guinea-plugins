@@ -1,3 +1,6 @@
+[defaults]
+paint = "#ffffff"
+
 [everything]
 iconify = "tabler:stack-2"
 
