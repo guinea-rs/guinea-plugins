@@ -14,23 +14,20 @@
 use super::*;
 
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::rc::Rc;
 
 use windows_reactor::{
-    Border, Callback, ChildrenControl, Color, ContentControl, Grid, GridChildExt, GridLength,
-    HorizontalAlignment, IntoPayloadCallback, ItemsRepeater, LayoutControl, Orientation, PointerEventInfo, Rectangle,
-    ScrollViewer, StackPanel, TextBlock, Thickness, VerticalAlignment, View, VirtualSource,
+    Border, Callback, ChildrenControl, Color, Component, ComponentContext, ContentControl,
+    CornerRadius, Grid, GridChildExt, GridLength, HorizontalAlignment, IntoPayloadCallback,
+    ItemsRepeater, LayoutControl, PointerEventInfo, Rectangle, ScrollBarVisibility, ScrollViewer,
+    TextBlock, Thickness,
+    VerticalAlignment, View, ViewContext, VirtualSource,
 };
 
-use crate::resize::resize_handle;
+use crate::resize::{RESIZE_HANDLE_WIDTH, resize_handle};
 
 const MIN_COLUMN_WIDTH: f64 = 24.0;
-const HEADER_SEPARATOR_COLOR: Color = Color {
-    a: 48,
-    r: 128,
-    g: 128,
-    b: 128,
-};
 
 /// Horizontal inset shared by header and body cells so column content never
 /// sits flush against the resize handle or the row edge. Opt out per column
@@ -39,14 +36,6 @@ const CELL_HORIZONTAL_PADDING: f64 = 12.0;
 /// Extra vertical room for the header row - it can carry two-line content
 /// (label + aggregate value) where body rows stay a single fixed height.
 const HEADER_VERTICAL_PADDING: f64 = 8.0;
-/// A body row's height, the one a `ListView` item used to impose.
-const ROW_HEIGHT: f64 = 32.0;
-const SELECTED_ROW_COLOR: Color = Color {
-    a: 40,
-    r: 128,
-    g: 128,
-    b: 128,
-};
 const TRANSPARENT: Color = Color {
     a: 0,
     r: 0,
@@ -85,6 +74,52 @@ pub struct Resized {
     pub width: f64,
 }
 
+/// How the table paints what is not content: the rows' height, the plate
+/// under a row that is pointed at or selected, and the header's lines.
+///
+/// Colours rather than theme brushes. The reactor has no token for a subtle
+/// fill or a divider, and the colour scheme is observed once per window, by
+/// the application - so the table cannot know which of the two it is drawn in,
+/// and whoever does passes the colours for it. The defaults are a grey that
+/// reads in both.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    /// The least a row is tall. Cells may make it taller, never shorter.
+    pub row_height: f64,
+    /// The plate under the row the pointer is over.
+    pub hovered: Color,
+    /// The plate under the selected row. It wins over `hovered`.
+    pub selected: Color,
+    /// How far the plate stands off the row's edges, across and down.
+    pub inset: (f64, f64),
+    pub radius: f64,
+    /// The lines between columns in the header.
+    pub separator: Color,
+    /// The line under the header.
+    pub rule: Color,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        let grey = |a| Color {
+            a,
+            r: 128,
+            g: 128,
+            b: 128,
+        };
+
+        Self {
+            row_height: 32.0,
+            hovered: grey(24),
+            selected: grey(40),
+            inset: (4.0, 1.0),
+            radius: 4.0,
+            separator: grey(48),
+            rule: grey(48),
+        }
+    }
+}
+
 pub struct ColumnSpec<T> {
     pub id: &'static str,
     pub header: Rc<dyn Fn() -> View>,
@@ -92,6 +127,7 @@ pub struct ColumnSpec<T> {
     pub min_width: f64,
     pub sortable: bool,
     pub flush: bool,
+    pub fill: bool,
     pub cell: Rc<dyn Fn(&T) -> View>,
 }
 
@@ -110,6 +146,7 @@ impl<T> ColumnSpec<T> {
             min_width: MIN_COLUMN_WIDTH,
             sortable: false,
             flush: false,
+            fill: false,
             cell: Rc::new(cell),
         }
     }
@@ -129,6 +166,7 @@ impl<T> ColumnSpec<T> {
             min_width: MIN_COLUMN_WIDTH,
             sortable: false,
             flush: false,
+            fill: false,
             cell: Rc::new(cell),
         }
     }
@@ -157,6 +195,19 @@ impl<T> ColumnSpec<T> {
         self.flush = true;
         self
     }
+
+    /// Gives this column whatever width the table has left over, so there is
+    /// no empty band after the last column. Several such columns share it.
+    ///
+    /// It never goes below [`min_width`](Self::min_width): a table too narrow
+    /// for that overflows, as a table of fixed columns does. And it has no
+    /// resize handle - its width is what the others leave, and the table is
+    /// never told what that came to, so a drag would have nothing to start
+    /// from. Its neighbours' handles move it instead.
+    pub fn fill(mut self) -> Self {
+        self.fill = true;
+        self
+    }
 }
 
 /// A table being described. Nothing is drawn until [`build`](Table::build).
@@ -167,7 +218,9 @@ pub struct Table<T> {
     on_resize: Option<Callback<Resized>>,
     sort: Option<(SortState<String>, Callback<String>)>,
     selection: Option<(Option<usize>, Callback<Option<usize>>)>,
+    span: Option<Range<usize>>,
     sort_indicator: Option<Rc<dyn Fn(bool) -> View>>,
+    look: Look,
 }
 
 /// A table of `rows`, one per line, in the order given.
@@ -185,7 +238,9 @@ pub fn table<T: 'static>(rows: Vec<T>, columns: Vec<ColumnSpec<T>>) -> Table<T> 
         on_resize: None,
         sort: None,
         selection: None,
+        span: None,
         sort_indicator: None,
+        look: Look::default(),
     }
 }
 
@@ -194,6 +249,12 @@ impl<T: 'static> Table<T> {
     /// declared, which is right for a table nobody can resize.
     pub fn widths(mut self, widths: &ColumnWidths) -> Self {
         self.widths = widths.clone();
+        self
+    }
+
+    /// What to paint around the content with. See [`Look`].
+    pub fn look(mut self, look: Look) -> Self {
+        self.look = look;
         self
     }
 
@@ -227,6 +288,18 @@ impl<T: 'static> Table<T> {
         self
     }
 
+    /// Paints a run of rows as selected together, as one block: the corners
+    /// round at its ends only, and the plates meet between its rows.
+    ///
+    /// Painting, not selecting. It takes the place of the row
+    /// [`selection`](Self::selection) would paint, and a click still reports
+    /// the one row it landed on - what that row stands for, a group or a
+    /// member of one, is the caller's to decide.
+    pub fn selected_span(mut self, rows: Range<usize>) -> Self {
+        self.span = Some(rows);
+        self
+    }
+
     /// Renders the sort direction indicator, instead of the plain glyph.
     ///
     /// guinea depends on no icon set and cannot bundle one, so this is how a
@@ -244,7 +317,9 @@ impl<T: 'static> Table<T> {
             on_resize,
             sort,
             selection,
+            span,
             sort_indicator,
+            look,
         } = self;
 
         let (sort_state, on_sort) = match sort {
@@ -252,47 +327,73 @@ impl<T: 'static> Table<T> {
             None => (None, None),
         };
 
-        // Keyed rather than positional: a column that gains a resize handle
-        // when `on_resize` is given must not be mistaken for the column that
-        // used to sit at that index.
+        // Keyed by column rather than positional, so a column is still itself
+        // when the handles come and go with `on_resize`.
         let last = columns.len().saturating_sub(1);
-        let mut header_cells: Vec<(String, View)> = Vec::with_capacity(columns.len() * 2);
+        let mut header_cells: Vec<(String, View)> = Vec::with_capacity(columns.len());
         for (at, column) in columns.iter().enumerate() {
+            let cell = header_cell(
+                column,
+                sort_state.as_ref(),
+                on_sort.as_ref(),
+                sort_indicator.as_ref(),
+            );
+
+            // Over the column's right edge, not beside it. A handle standing
+            // in the row between two header cells took its width from the row,
+            // and the body has no handles - so every header cell stood one
+            // handle further right of its column than the last, and the values
+            // stopped sitting under their headings.
+            let cell = match &on_resize {
+                Some(on_resize) if at != last && !column.fill => Grid::new()
+                    .children((
+                        cell,
+                        Border::new()
+                            .width(RESIZE_HANDLE_WIDTH)
+                            .horizontal_alignment(HorizontalAlignment::Right)
+                            .content(handle(
+                                column,
+                                width_of(&widths, column),
+                                look.separator,
+                                on_resize.clone(),
+                            )),
+                    ))
+                    .into(),
+                _ => cell,
+            };
+
             header_cells.push((
                 column.id.to_string(),
-                header_cell(
-                    column,
-                    width_of(&widths, column),
-                    sort_state.as_ref(),
-                    on_sort.as_ref(),
-                    sort_indicator.as_ref(),
-                ),
+                Border::new().grid_column(at as i32).content(cell).into(),
             ));
-
-            if at != last && let Some(on_resize) = &on_resize {
-                header_cells.push((
-                    format!("{}::handle", column.id),
-                    handle(column, width_of(&widths, column), on_resize.clone()),
-                ));
-            }
         }
 
-        let header = StackPanel::new()
-            .orientation(Orientation::Horizontal)
+        let (lengths, least) = lengths(&columns, &widths);
+        let header = Grid::new()
+            .columns(lengths)
+            .min_width(least)
             .grid_row(0)
             .children((View::keyed_fragment(header_cells),));
 
         let separator = Rectangle::new()
-            .fill(HEADER_SEPARATOR_COLOR)
+            .fill(look.rule)
             .height(1.0)
             .grid_row(1);
 
+        // No horizontal scrolling. Allowed to scroll across, the viewer
+        // measures the rows as wide as they like, and a column that fills
+        // then has no leftover to fill and shrinks to its content, row by row.
+        // Nothing is lost: the header stands outside the viewer, so scrolling
+        // the rows across only ever slid them out from under their headings.
+        // A table too narrow for its columns is clipped instead, header and
+        // rows alike.
         let body = ScrollViewer::new()
+            .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
             .grid_row(2)
             .content(
                 ItemsRepeater::new()
                     .horizontal_alignment(HorizontalAlignment::Stretch)
-                    .virtual_source(rows_source(rows, columns, widths, selection)),
+                    .virtual_source(rows_source(rows, columns, widths, selection, span, look)),
             );
 
         Grid::new()
@@ -301,18 +402,42 @@ impl<T: 'static> Table<T> {
     }
 }
 
+/// How many rows the source claims at a time.
+///
+/// The count is rounded up to this, and the rows past the data are empty and
+/// have no height. See [`rows_source`] for why.
+const BUCKET: usize = 16;
+
 /// The rows, built only for what is on screen.
 ///
-/// Keyed by index, so the keys are `0..len` and change only with the length:
-/// the length is the whole revision, and every tick - re-sorted or not -
-/// rebuilds the visible rows and nothing else.
+/// Keyed by index, so a re-sort leaves the keys alone: the row drawn at a
+/// line is whatever sits at that index now, and the line itself never moves.
+///
+/// The count is rounded up to [`BUCKET`], and the rows past the data are
+/// empty ones of no height. The reason is how the reactor treats a change of
+/// keys: any change at all retires every realized row and resets the
+/// collection - there is no path that moves a container - so a list whose
+/// length is its key set resets every time a process starts or exits, which
+/// on a process list is most seconds. Rounded, the key set survives the
+/// comings and goings within a bucket, and what the rows show is updated in
+/// place.
+///
+/// What the padding costs is scroll past the end. The repeater estimates the
+/// part of the list it has not realized from the height of the part it has,
+/// and near the top that estimate counts the empty rows as full ones - so the
+/// list scrolls a little beyond its last row, and the slack shrinks but never
+/// quite closes as the empty rows realize. That is what sets the bucket: at
+/// 64 the slack was a whole viewport of nothing, at 16 it is a few rows.
 fn rows_source<T: 'static>(
     rows: Vec<T>,
     columns: Vec<ColumnSpec<T>>,
     widths: ColumnWidths,
     selection: Option<(Option<usize>, Callback<Option<usize>>)>,
+    span: Option<Range<usize>>,
+    look: Look,
 ) -> VirtualSource {
     let len = rows.len();
+    let claimed = len.next_multiple_of(BUCKET);
     let rows = Rc::new(rows);
     let columns = Rc::new(columns);
     let (selected, on_select) = match selection {
@@ -320,49 +445,142 @@ fn rows_source<T: 'static>(
         None => (None, None),
     };
 
+    // One row selected is a run of one: the same plate, rounded at both ends.
+    let painted = span.or_else(|| selected.map(|at| at..at + 1));
+
     VirtualSource::new(
-        len as u64,
-        len,
+        claimed as u64,
+        claimed,
         |index| index,
-        move |index| {
-            let cells = row_view(&rows[index], &columns, &widths);
-            row_frame(cells, index, selected == Some(index), on_select.as_ref())
+        move |index| match rows.get(index) {
+            Some(row) => View::component::<Pointed>(Line {
+                cells: row_view(row, &columns, &widths),
+                index,
+                selected: painted
+                    .as_ref()
+                    .filter(|run| run.contains(&index))
+                    .map(|run| Run {
+                        above: index > run.start,
+                        below: index + 1 < run.end,
+                    }),
+                on_select: on_select.clone(),
+                look,
+            }),
+            None => Border::new().into(),
         },
     )
 }
 
 /// What makes a row a row rather than a strip of cells: its height, the
-/// selection, and the click that selects it.
+/// plate under it, and the click that selects it.
 ///
 /// Drawn here because the rows no longer sit in a `ListView`, which used to
-/// do all three. The background is always set, transparent when unselected,
-/// so the gaps between cells take the click too.
-fn row_frame(
+/// do all three. A component for the one thing only the row knows - whether
+/// the pointer is over it. That is not the page's business: a message to the
+/// page for every row the pointer crosses would rebuild the whole page to
+/// move a highlight.
+#[derive(Clone, PartialEq)]
+struct Line {
     cells: View,
     index: usize,
-    selected: bool,
-    on_select: Option<&Callback<Option<usize>>>,
-) -> View {
-    let row = Border::new()
-        .min_height(ROW_HEIGHT)
-        .horizontal_alignment(HorizontalAlignment::Stretch)
-        .background(if selected { SELECTED_ROW_COLOR } else { TRANSPARENT });
+    /// Where the row sits in the run painted as selected, if it is in one.
+    selected: Option<Run>,
+    on_select: Option<Callback<Option<usize>>>,
+    look: Look,
+}
 
-    match on_select {
-        Some(on_select) => {
-            let on_select = on_select.clone();
-            row.on_pointer_released(Callback::new(move |_: PointerEventInfo| {
-                let _ = on_select.call(Some(index));
-            }))
-            .content(cells)
+/// Whether a row's plate meets the plates of the rows above and below it.
+#[derive(Clone, Copy, PartialEq)]
+struct Run {
+    above: bool,
+    below: bool,
+}
+
+impl Run {
+    const ALONE: Run = Run {
+        above: false,
+        below: false,
+    };
+}
+
+enum Pointer {
+    Entered,
+    Exited,
+}
+
+/// Whether the pointer is over the row.
+struct Pointed(bool);
+
+impl Component for Pointed {
+    type Input = Line;
+    type Message = Pointer;
+
+    fn create(_input: &Line, _cx: &ComponentContext<Self>) -> Self {
+        Self(false)
+    }
+
+    fn update(&mut self, message: Pointer, _cx: &ComponentContext<Self>) {
+        self.0 = matches!(message, Pointer::Entered);
+    }
+
+    fn input_changed(&mut self, _input: &Line, _cx: &ComponentContext<Self>) {}
+
+    fn view(&self, line: &Line, cx: &mut ViewContext<Self>) -> View {
+        let look = line.look;
+
+        let (plate, run) = match line.selected {
+            Some(run) => (look.selected, run),
+            None if self.0 => (look.hovered, Run::ALONE),
+            None => (TRANSPARENT, Run::ALONE),
+        };
+
+        // Where the plate meets a neighbour's, it runs to the row's edge and
+        // stays square, so a run of selected rows reads as one block.
+        let (across, down) = look.inset;
+        let top = if run.above { 0.0 } else { down };
+        let bottom = if run.below { 0.0 } else { down };
+        let upper = if run.above { 0.0 } else { look.radius };
+        let lower = if run.below { 0.0 } else { look.radius };
+
+        // Under the cells rather than behind the row: inset, so it reads as a
+        // plate and not a stripe, with the cells still where the header's
+        // columns are.
+        let layered = Grid::new().children((
+            Border::new()
+                .margin(Thickness::new(across, top, across, bottom))
+                .corner_radius(CornerRadius::new(upper, upper, lower, lower))
+                .background(plate)
+                .content(View::empty()),
+            line.cells.clone(),
+        ));
+
+        // The background is always set, transparent at rest, so the whole
+        // row takes the pointer - the gaps between cells and around the
+        // plate included, or the highlight would flicker between rows.
+        let row = Border::new()
+            .min_height(look.row_height)
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .background(TRANSPARENT)
+            .on_pointer_entered(cx.callback(|_: PointerEventInfo| Pointer::Entered))
+            .on_pointer_exited(cx.callback(|_: PointerEventInfo| Pointer::Exited));
+
+        match &line.on_select {
+            Some(on_select) => {
+                let on_select = on_select.clone();
+                let index = line.index;
+
+                row.on_pointer_released(Callback::new(move |_: PointerEventInfo| {
+                    let _ = on_select.call(Some(index));
+                }))
+                .content(layered)
+            }
+            None => row.content(layered),
         }
-        None => row.content(cells),
     }
 }
 
 fn header_cell<T>(
     column: &ColumnSpec<T>,
-    width: f64,
     sort_state: Option<&SortState<String>>,
     on_sort: Option<&Callback<String>>,
     sort_indicator: Option<&Rc<dyn Fn(bool) -> View>>,
@@ -378,25 +596,34 @@ fn header_cell<T>(
                     .text(if state.descending { "▼" } else { "▲" })
                     .into(),
             };
-            StackPanel::new()
-                .orientation(Orientation::Horizontal)
-                .children((base, indicator))
+            // A grid rather than a horizontal stack: a stack gives the header
+            // only what it asks for, so a header that aligns its own content
+            // - right, or across two lines - was squeezed to its text and
+            // drifted left in the one column that was sorted. The first
+            // column takes the cell, the indicator what it needs, and an
+            // empty indicator nothing.
+            Grid::new()
+                .columns([GridLength::Star(1.0), GridLength::Auto])
+                .children((
+                    Border::new().grid_column(0).content(base),
+                    Border::new().grid_column(1).content(indicator),
+                ))
+                .into()
         }
         None => base,
     };
 
-    // Kept as a `Border` rather than collapsed to a bare view: padding and
-    // width are capabilities of the widget, and an erased node has neither.
-    let cell = Border::new()
-        .padding(Thickness::xy(
-            if column.flush {
-                0.0
-            } else {
-                CELL_HORIZONTAL_PADDING
-            },
-            HEADER_VERTICAL_PADDING,
-        ))
-        .width(width);
+    // Kept as a `Border` rather than collapsed to a bare view: padding is a
+    // capability of the widget, and an erased node has none. The width is the
+    // grid column's.
+    let cell = Border::new().padding(Thickness::xy(
+        if column.flush {
+            0.0
+        } else {
+            CELL_HORIZONTAL_PADDING
+        },
+        HEADER_VERTICAL_PADDING,
+    ));
 
     match (column.sortable, on_sort) {
         (true, Some(on_sort)) => {
@@ -425,7 +652,46 @@ fn width_of<T>(widths: &ColumnWidths, column: &ColumnSpec<T>) -> f64 {
         .max(column.min_width)
 }
 
-fn handle<T>(column: &ColumnSpec<T>, width: f64, on_resize: Callback<Resized>) -> View {
+/// The columns as the header and every row lay them out, and the least a
+/// row can be wide.
+///
+/// The header and the rows are separate grids, each finding its own share for
+/// the columns that [`fill`](ColumnSpec::fill); they agree because they are
+/// handed the same width. The least width stands in for a per-column minimum,
+/// which a reactor grid column cannot have: narrower than that, the row is
+/// laid out at it and overflows, the way a row of fixed columns always did.
+fn lengths<T>(columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> (Vec<GridLength>, f64) {
+    let lengths = columns
+        .iter()
+        .map(|column| {
+            if column.fill {
+                GridLength::Star(1.0)
+            } else {
+                GridLength::Pixel(width_of(widths, column))
+            }
+        })
+        .collect();
+
+    let least = columns
+        .iter()
+        .map(|column| {
+            if column.fill {
+                column.min_width
+            } else {
+                width_of(widths, column)
+            }
+        })
+        .sum();
+
+    (lengths, least)
+}
+
+fn handle<T>(
+    column: &ColumnSpec<T>,
+    width: f64,
+    rail: Color,
+    on_resize: Callback<Resized>,
+) -> View {
     let id = column.id;
     // The one place a closure is still the right shape: the handle reports a
     // width and the table turns it into a `Resized` for the column it belongs
@@ -436,16 +702,18 @@ fn handle<T>(column: &ColumnSpec<T>, width: f64, on_resize: Callback<Resized>) -
         let _ = on_resize.call(Resized { column: id, width });
     })
     .min(column.min_width)
-    .rail(HEADER_SEPARATOR_COLOR)
+    .rail(rail)
     .build()
 }
 
 fn row_view<T>(row: &T, columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> View {
     let cells: Vec<(String, View)> = columns
         .iter()
-        .map(|column| {
+        .enumerate()
+        .map(|(at, column)| {
             // The column renders whatever it likes, so what comes back is
-            // erased - wrap it in the thing that carries padding and width.
+            // erased - wrap it in the thing that carries padding and a place
+            // in the grid.
             let cell = Border::new()
                 .padding(Thickness::xy(
                     if column.flush {
@@ -455,15 +723,19 @@ fn row_view<T>(row: &T, columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> Vie
                     },
                     0.0,
                 ))
-                .width(width_of(widths, column))
+                .grid_column(at as i32)
                 .vertical_alignment(VerticalAlignment::Center)
                 .content((column.cell)(row));
 
-            (column.id.to_string(), cell)
+            (column.id.to_string(), cell.into())
         })
         .collect();
 
-    StackPanel::new()
-        .orientation(Orientation::Horizontal)
+    let (lengths, least) = lengths(columns, widths);
+
+    Grid::new()
+        .columns(lengths)
+        .min_width(least)
         .children((View::keyed_fragment(cells),))
+        .into()
 }
