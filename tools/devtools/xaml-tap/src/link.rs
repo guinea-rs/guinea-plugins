@@ -69,9 +69,14 @@ async fn run() {
 
     loop {
         let session = match key::read() {
-            Ok(secret) => connect_session::<peer::Client, _>(&endpoint, &key::handshake(secret), Inbound)
-                .await
-                .ok(),
+            Ok(secret) => connect_session::<peer::Client, _>(
+                &endpoint,
+                &key::handshake(secret),
+                guinea_devtools_protocol::schema(),
+                Inbound,
+            )
+            .await
+            .ok(),
             Err(_) => None,
         };
         let Some(session) = session else {

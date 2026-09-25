@@ -17,6 +17,13 @@ pub mod devtools_capnp {
     include!(concat!(env!("OUT_DIR"), "/devtools_capnp.rs"));
 }
 
+include!(concat!(env!("OUT_DIR"), "/schema_id.rs"));
+
+/// The schema both ends name in the handshake.
+pub fn schema() -> ogurpchik::auth::handshake::SchemaId {
+    ogurpchik::auth::handshake::SchemaId(DEVTOOLS_SCHEMA_ID)
+}
+
 use ogurpchik::endpoint::Endpoint;
 use serde::{Deserialize, Serialize};
 

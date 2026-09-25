@@ -98,9 +98,14 @@ async fn run(
         let session = match key::read() {
             Ok(secret) => {
                 let inbound = Inbound(Mutex::new(answers.clone()));
-                connect_session::<peer::Client, _>(&endpoint, &key::handshake(secret), inbound)
-                    .await
-                    .ok()
+                connect_session::<peer::Client, _>(
+                    &endpoint,
+                    &key::handshake(secret),
+                    guinea_devtools_protocol::schema(),
+                    inbound,
+                )
+                .await
+                .ok()
             }
             Err(_) => None,
         };

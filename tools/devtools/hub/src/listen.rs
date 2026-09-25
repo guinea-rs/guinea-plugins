@@ -105,7 +105,13 @@ async fn listen(out: Sender<Incoming>, queued: UnboundedReceiver<(u64, Command)>
             id,
             out: out.clone(),
         };
-        let accepted = accept_session::<peer::Client, _>(&listener, &mode, session).await;
+        let accepted = accept_session::<peer::Client, _>(
+            &listener,
+            &mode,
+            guinea_devtools_protocol::schema(),
+            session,
+        )
+        .await;
         let session = match accepted {
             Ok(session) => session,
             Err(report) => {
