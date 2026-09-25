@@ -17,8 +17,10 @@ use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
 
+use guinea_mark::Mark;
 use windows_reactor::{
-    Border, Callback, ChildrenControl, Color, Component, ComponentContext, ContentControl,
+    AutomationExt, Border, Callback, ChildrenControl, Color, Component, ComponentContext,
+    ContentControl,
     CornerRadius, Grid, GridChildExt, GridLength, HorizontalAlignment, IntoPayloadCallback,
     ItemsRepeater, LayoutControl, PointerEventInfo, Rectangle, ScrollBarVisibility, ScrollViewer,
     TextBlock, Thickness,
@@ -43,10 +45,11 @@ const TRANSPARENT: Color = Color {
     b: 0,
 };
 
-/// What each column is currently wide, by column id.
+/// What each column is currently wide, by the name of its mark.
 ///
 /// Plain data, and the whole point of it: the table draws with this and never
-/// writes to it. A drag is reported and the owner decides.
+/// writes to it. A drag is reported and the owner decides. By name rather than
+/// by the mark itself, so what is saved is a string that outlives the enum.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ColumnWidths(BTreeMap<&'static str, f64>);
 
@@ -70,6 +73,7 @@ impl ColumnWidths {
 /// A column boundary dragged to a new width.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Resized {
+    /// The name of the column's mark.
     pub column: &'static str,
     pub width: f64,
 }
@@ -120,8 +124,14 @@ impl Default for Look {
     }
 }
 
-pub struct ColumnSpec<T> {
-    pub id: &'static str,
+/// One column: what it is called, how it heads the table, and what it shows
+/// for a row.
+///
+/// `C` is the application's enum of columns. A column's mark is also its sort
+/// key and, by name, its key in [`ColumnWidths`] - and it is put on its header
+/// cell and on its cell in every row, where a test finds them.
+pub struct ColumnSpec<T, C> {
+    pub id: C,
     pub header: Rc<dyn Fn() -> View>,
     pub initial_width: f64,
     pub min_width: f64,
@@ -131,9 +141,9 @@ pub struct ColumnSpec<T> {
     pub cell: Rc<dyn Fn(&T) -> View>,
 }
 
-impl<T> ColumnSpec<T> {
+impl<T, C: Mark> ColumnSpec<T, C> {
     pub fn new(
-        id: &'static str,
+        id: C,
         header: impl Into<String>,
         initial_width: f64,
         cell: impl Fn(&T) -> View + 'static,
@@ -154,7 +164,7 @@ impl<T> ColumnSpec<T> {
     /// Use an arbitrary view as the column header instead of plain text. The
     /// factory is called on every draw, so it may depend on state.
     pub fn new_with_header(
-        id: &'static str,
+        id: C,
         header: impl Fn() -> View + 'static,
         initial_width: f64,
         cell: impl Fn(&T) -> View + 'static,
@@ -211,12 +221,12 @@ impl<T> ColumnSpec<T> {
 }
 
 /// A table being described. Nothing is drawn until [`build`](Table::build).
-pub struct Table<T> {
+pub struct Table<T, C> {
     rows: Vec<T>,
-    columns: Vec<ColumnSpec<T>>,
+    columns: Vec<ColumnSpec<T, C>>,
     widths: ColumnWidths,
     on_resize: Option<Callback<Resized>>,
-    sort: Option<(SortState<String>, Callback<String>)>,
+    sort: Option<(SortState<C>, Callback<C>)>,
     selection: Option<(Option<usize>, Callback<Option<usize>>)>,
     span: Option<Range<usize>>,
     sort_indicator: Option<Rc<dyn Fn(bool) -> View>>,
@@ -230,7 +240,10 @@ pub struct Table<T> {
 /// visible lines show and nothing else, where rows keyed by an id made the
 /// reactor reset the whole collection - blanking the body and losing the
 /// scroll position each time.
-pub fn table<T: 'static>(rows: Vec<T>, columns: Vec<ColumnSpec<T>>) -> Table<T> {
+pub fn table<T: 'static, C: Mark + Clone + PartialEq>(
+    rows: Vec<T>,
+    columns: Vec<ColumnSpec<T, C>>,
+) -> Table<T, C> {
     Table {
         widths: ColumnWidths::default(),
         rows,
@@ -244,7 +257,7 @@ pub fn table<T: 'static>(rows: Vec<T>, columns: Vec<ColumnSpec<T>>) -> Table<T> 
     }
 }
 
-impl<T: 'static> Table<T> {
+impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
     /// The widths to draw with. Without this the table uses what the columns
     /// declared, which is right for a table nobody can resize.
     pub fn widths(mut self, widths: &ColumnWidths) -> Self {
@@ -270,11 +283,9 @@ impl<T: 'static> Table<T> {
         self
     }
 
-    pub fn sort(
-        mut self,
-        state: SortState<String>,
-        on_sort: impl IntoPayloadCallback<String>,
-    ) -> Self {
+    /// Which column the rows are sorted by, and where a click on a sortable
+    /// header goes - with that column's mark.
+    pub fn sort(mut self, state: SortState<C>, on_sort: impl IntoPayloadCallback<C>) -> Self {
         self.sort = Some((state, on_sort.into_payload_callback()));
         self
     }
@@ -363,7 +374,7 @@ impl<T: 'static> Table<T> {
             };
 
             header_cells.push((
-                column.id.to_string(),
+                column.id.name().to_string(),
                 Border::new().grid_column(at as i32).content(cell).into(),
             ));
         }
@@ -428,9 +439,9 @@ const BUCKET: usize = 16;
 /// list scrolls a little beyond its last row, and the slack shrinks but never
 /// quite closes as the empty rows realize. That is what sets the bucket: at
 /// 64 the slack was a whole viewport of nothing, at 16 it is a few rows.
-fn rows_source<T: 'static>(
+fn rows_source<T: 'static, C: Mark>(
     rows: Vec<T>,
-    columns: Vec<ColumnSpec<T>>,
+    columns: Vec<ColumnSpec<T, C>>,
     widths: ColumnWidths,
     selection: Option<(Option<usize>, Callback<Option<usize>>)>,
     span: Option<Range<usize>>,
@@ -579,13 +590,13 @@ impl Component for Pointed {
     }
 }
 
-fn header_cell<T>(
-    column: &ColumnSpec<T>,
-    sort_state: Option<&SortState<String>>,
-    on_sort: Option<&Callback<String>>,
+fn header_cell<T, C: Mark + Clone + PartialEq>(
+    column: &ColumnSpec<T, C>,
+    sort_state: Option<&SortState<C>>,
+    on_sort: Option<&Callback<C>>,
     sort_indicator: Option<&Rc<dyn Fn(bool) -> View>>,
 ) -> View {
-    let active = sort_state.filter(|s| column.sortable && s.field_id.as_deref() == Some(column.id));
+    let active = sort_state.filter(|s| column.sortable && s.field_id.as_ref() == Some(&column.id));
 
     let base = (column.header)();
     let content = match active {
@@ -616,18 +627,20 @@ fn header_cell<T>(
     // Kept as a `Border` rather than collapsed to a bare view: padding is a
     // capability of the widget, and an erased node has none. The width is the
     // grid column's.
-    let cell = Border::new().padding(Thickness::xy(
-        if column.flush {
-            0.0
-        } else {
-            CELL_HORIZONTAL_PADDING
-        },
-        HEADER_VERTICAL_PADDING,
-    ));
+    let cell = Border::new()
+        .automation_id(column.id.name())
+        .padding(Thickness::xy(
+            if column.flush {
+                0.0
+            } else {
+                CELL_HORIZONTAL_PADDING
+            },
+            HEADER_VERTICAL_PADDING,
+        ));
 
     match (column.sortable, on_sort) {
         (true, Some(on_sort)) => {
-            let id = column.id.to_string();
+            let id = column.id.clone();
             let on_sort = on_sort.clone();
             // `on_tapped` is gone; a release over the cell is the same gesture
             // for a header, and the only one a `Border` still offers.
@@ -635,7 +648,7 @@ fn header_cell<T>(
                 // `false` means the segment that owns this table is not
                 // publishing, so the sort would land nowhere.
                 if !on_sort.call(id.clone()) {
-                    tracing::debug!(column = %id, "sort dropped: no active publication");
+                    tracing::debug!(column = id.name(), "sort dropped: no active publication");
                 }
             }))
             .content(content)
@@ -645,9 +658,9 @@ fn header_cell<T>(
 }
 
 /// What this column is drawn at: what it was dragged to, or what it declared.
-fn width_of<T>(widths: &ColumnWidths, column: &ColumnSpec<T>) -> f64 {
+fn width_of<T, C: Mark>(widths: &ColumnWidths, column: &ColumnSpec<T, C>) -> f64 {
     widths
-        .get(column.id)
+        .get(column.id.name())
         .unwrap_or(column.initial_width)
         .max(column.min_width)
 }
@@ -660,7 +673,10 @@ fn width_of<T>(widths: &ColumnWidths, column: &ColumnSpec<T>) -> f64 {
 /// handed the same width. The least width stands in for a per-column minimum,
 /// which a reactor grid column cannot have: narrower than that, the row is
 /// laid out at it and overflows, the way a row of fixed columns always did.
-fn lengths<T>(columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> (Vec<GridLength>, f64) {
+fn lengths<T, C: Mark>(
+    columns: &[ColumnSpec<T, C>],
+    widths: &ColumnWidths,
+) -> (Vec<GridLength>, f64) {
     let lengths = columns
         .iter()
         .map(|column| {
@@ -686,13 +702,13 @@ fn lengths<T>(columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> (Vec<GridLeng
     (lengths, least)
 }
 
-fn handle<T>(
-    column: &ColumnSpec<T>,
+fn handle<T, C: Mark>(
+    column: &ColumnSpec<T, C>,
     width: f64,
     rail: Color,
     on_resize: Callback<Resized>,
 ) -> View {
-    let id = column.id;
+    let id = column.id.name();
     // The one place a closure is still the right shape: the handle reports a
     // width and the table turns it into a `Resized` for the column it belongs
     // to, which is a mapping rather than a hand-off.
@@ -706,7 +722,7 @@ fn handle<T>(
     .build()
 }
 
-fn row_view<T>(row: &T, columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> View {
+fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], widths: &ColumnWidths) -> View {
     let cells: Vec<(String, View)> = columns
         .iter()
         .enumerate()
@@ -715,6 +731,7 @@ fn row_view<T>(row: &T, columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> Vie
             // erased - wrap it in the thing that carries padding and a place
             // in the grid.
             let cell = Border::new()
+                .automation_id(column.id.name())
                 .padding(Thickness::xy(
                     if column.flush {
                         0.0
@@ -727,7 +744,7 @@ fn row_view<T>(row: &T, columns: &[ColumnSpec<T>], widths: &ColumnWidths) -> Vie
                 .vertical_alignment(VerticalAlignment::Center)
                 .content((column.cell)(row));
 
-            (column.id.to_string(), cell.into())
+            (column.id.name().to_string(), cell.into())
         })
         .collect();
 
