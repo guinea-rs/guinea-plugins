@@ -527,7 +527,7 @@ pub struct Segment {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Installed {
     pub name: String,
-    /// Where `impl Feature` was written.
+    /// Where the feature's `#[installs]` function was written.
     #[serde(default)]
     pub declared: Option<Declared>,
 }

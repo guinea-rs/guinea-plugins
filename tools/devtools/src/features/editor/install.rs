@@ -1,29 +1,26 @@
-use guinea::feature::{Feature, FeatureInitContext};
-use guinea_core::feature::Bound;
-use guinea_macros::installs;
+use guinea::feature::FeatureInitContext;
+use guinea_macros::{feature, installs};
 
 use super::actor::EditorActor;
 use super::contracts::EditorChoice;
 use super::detect;
 use super::settings::EditorSettings;
 
-pub struct EditorFeature {
-    _choice: Bound<EditorChoice>,
+feature! {
+    pub EditorFeature {
+        exports { EditorChoice }
+    }
 }
 
 #[installs]
-impl Feature for EditorFeature {
-    type Exports = (EditorChoice,);
+fn editor(cx: &FeatureInitContext) -> anyhow::Result<EditorFeature> {
+    let settings = EditorSettings::new()?;
+    let seed = EditorChoice(detect::remembered(&settings.editor().get()));
 
-    fn install(cx: &FeatureInitContext, _params: &()) -> anyhow::Result<Self> {
-        let settings = EditorSettings::new()?;
-        let seed = EditorChoice(detect::remembered(&settings.editor().get()));
+    let (choice, _) = cx
+        .state::<EditorChoice>()
+        .seed(seed)
+        .driven_by(|push| EditorActor::new(push, settings));
 
-        let (choice, _) = cx
-            .state::<EditorChoice>()
-            .seed(seed)
-            .driven_by(|push| EditorActor::new(push, settings));
-
-        Ok(Self { _choice: choice })
-    }
+    Ok(EditorFeature(choice))
 }
