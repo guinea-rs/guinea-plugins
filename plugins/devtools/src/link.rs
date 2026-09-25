@@ -106,15 +106,7 @@ impl peer::Server for Inbound {
                 request,
                 event,
                 payload,
-            } => self.on_ui(request, move || {
-                let registered = guinea_core::remote::event(&event).ok_or_else(|| {
-                    format!(
-                        "no event is registered as {event:?} - these are: {:?}",
-                        guinea_core::remote::events()
-                    )
-                })?;
-                (registered.publish)(&payload)
-            }),
+            } => self.on_ui(request, move || guinea_core::remote::publish(&event, &payload)),
             other => {
                 tracing::debug!(?other, "devtools asked for something this link does not offer");
             }
