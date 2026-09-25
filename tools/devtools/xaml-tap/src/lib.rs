@@ -11,6 +11,7 @@
 mod generated;
 mod highlight;
 pub mod inject;
+mod input;
 mod inspect;
 mod link;
 mod perf;

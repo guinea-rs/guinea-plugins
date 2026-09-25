@@ -93,7 +93,8 @@ connected."
     tags(
         (name = "apps", description = "What connected, and what it is made of"),
         (name = "trace", description = "What the application did, record by record"),
-        (name = "native", description = "The backend's own elements, through an inspector")
+        (name = "native", description = "The backend's own elements, through an inspector"),
+        (name = "drive", description = "Doing things to the application: actions, events, clicks and keystrokes")
     )
 )]
 struct Api;

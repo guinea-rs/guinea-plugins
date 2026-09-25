@@ -1,8 +1,8 @@
 //! Every application that connected, and what it reported.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
-use guinea_devtools_protocol::{AppInfo, Capability, Report, Snapshot};
+use guinea_devtools_protocol::{Answer, AppInfo, Capability, Report, Snapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::chains::Chains;
@@ -48,6 +48,8 @@ pub struct Session {
     pub inspection: Inspection,
     /// Where its puffin profiler listens, while it is switched on.
     pub profiler: Option<String>,
+    /// What commands that carry a request came to, until someone takes them.
+    pub answers: HashMap<u64, Answer>,
     pub received: u64,
     pub connected: bool,
 }
@@ -210,6 +212,9 @@ impl Sessions {
                     Report::Profiler { at } => session.profiler = at,
                     Report::Refused { command, reason } => {
                         session.inspection.refused = Some((command, reason));
+                    }
+                    Report::Answered { request, answer } => {
+                        session.answers.insert(request, answer);
                     }
                 }
             }

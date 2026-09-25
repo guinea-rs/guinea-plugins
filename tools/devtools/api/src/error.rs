@@ -19,6 +19,11 @@ impl Failure {
     pub fn refused(what: impl std::fmt::Display) -> Self {
         Failure(StatusCode::CONFLICT, what.to_string())
     }
+
+    /// The application was asked and has not answered.
+    pub fn timed_out(what: impl std::fmt::Display) -> Self {
+        Failure(StatusCode::GATEWAY_TIMEOUT, what.to_string())
+    }
 }
 
 impl IntoResponse for Failure {

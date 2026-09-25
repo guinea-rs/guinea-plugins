@@ -65,6 +65,26 @@ pub enum Report {
     Profiler { at: Option<String> },
     /// A command could not be carried out.
     Refused { command: String, reason: String },
+    /// What a command that carries a `request` came to.
+    Answered { request: u64, answer: Answer },
+}
+
+/// What a command that carries a `request` came to.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Answer {
+    /// The action or event went out; `cause` is its point in the trace, and
+    /// what it set off is traced under it.
+    Acted { cause: u64 },
+    /// The element the target names, and where it is on the screen.
+    Found {
+        element: u64,
+        bounds: Option<native::Bounds>,
+    },
+    /// Done, with nothing to say.
+    Done,
+    /// Not done, and why.
+    Refused { reason: String },
 }
 
 /// One message from devtools, to a peer that listed what it needs.
@@ -92,6 +112,39 @@ pub enum Command {
     /// Needs [`Capability::Profiler`]. Switches the puffin profiler on or
     /// off; the application answers with [`Report::Profiler`].
     Profiler { on: bool },
+    /// Needs [`Capability::Act`]. The action the application registered as
+    /// `action`, decoded from `payload`, to the scope that answers it - under
+    /// window `root`, or the newest. Answered with [`Answer::Acted`].
+    Act {
+        request: u64,
+        root: Option<u64>,
+        action: String,
+        payload: String,
+    },
+    /// Needs [`Capability::Act`]. The event the application registered as
+    /// `event`, published on its global bus. Answered with [`Answer::Acted`].
+    Publish {
+        request: u64,
+        event: String,
+        payload: String,
+    },
+    /// Needs [`Capability::NativeInput`]. The element `target` names.
+    /// Answered with [`Answer::Found`].
+    NativeFind { request: u64, target: native::Target },
+    /// Needs [`Capability::NativeInput`]. Clicks the element `target` names.
+    NativeClick {
+        request: u64,
+        target: native::Target,
+        input: native::Input,
+    },
+    /// Needs [`Capability::NativeInput`]. Types `text` into the element
+    /// `target` names.
+    NativeType {
+        request: u64,
+        target: native::Target,
+        text: String,
+        input: native::Input,
+    },
 }
 
 impl Command {
@@ -104,6 +157,22 @@ impl Command {
             Command::NativeHighlight { .. } => Capability::NativeHighlight,
             Command::NativePerfCapture => Capability::NativePerf,
             Command::Profiler { .. } => Capability::Profiler,
+            Command::Act { .. } | Command::Publish { .. } => Capability::Act,
+            Command::NativeFind { .. } | Command::NativeClick { .. } | Command::NativeType { .. } => {
+                Capability::NativeInput
+            }
+        }
+    }
+
+    /// The request this command is answered under, when it is answered.
+    pub fn request(&self) -> Option<u64> {
+        match self {
+            Command::Act { request, .. }
+            | Command::Publish { request, .. }
+            | Command::NativeFind { request, .. }
+            | Command::NativeClick { request, .. }
+            | Command::NativeType { request, .. } => Some(*request),
+            _ => None,
         }
     }
 }
@@ -131,6 +200,13 @@ pub enum Capability {
     /// [`Report::Profiler`]: the puffin profiler, switched on from here and
     /// read over its own connection.
     Profiler,
+    /// [`Command::Act`] and [`Command::Publish`]: what the application lists
+    /// in [`AppInfo::actions`] and [`AppInfo::events`].
+    Act,
+    /// [`Command::NativeFind`], [`Command::NativeClick`] and
+    /// [`Command::NativeType`]: the backend's own elements, by the mark they
+    /// carry.
+    NativeInput,
     /// What a newer peer can do and this version of devtools cannot name.
     #[serde(other)]
     Unknown,
@@ -332,6 +408,12 @@ pub struct AppInfo {
     /// What this peer reports and which [`Command`]s it takes.
     #[serde(default)]
     pub capabilities: Vec<Capability>,
+    /// The actions a tool may send, by name.
+    #[serde(default)]
+    pub actions: Vec<String>,
+    /// The events a tool may publish, by name.
+    #[serde(default)]
+    pub events: Vec<String>,
 }
 
 impl AppInfo {

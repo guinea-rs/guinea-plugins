@@ -46,6 +46,44 @@ pub fn whole() -> Vec<Change> {
     })
 }
 
+/// The elements below `under` - or the whole tree - depth first, siblings in
+/// order: the order a test counts the elements that carry one mark in.
+pub fn in_order(under: Option<u64>) -> Vec<u64> {
+    with(|state| {
+        let mut children: HashMap<u64, Vec<&Element>> = HashMap::new();
+        for element in state.elements.values() {
+            children.entry(element.parent).or_default().push(element);
+        }
+        for siblings in children.values_mut() {
+            siblings.sort_by_key(|element| element.index);
+        }
+
+        let mut unseen: Vec<u64> = match under {
+            Some(parent) => children.get(&parent).map_or_else(Vec::new, |below| {
+                below.iter().rev().map(|element| element.handle).collect()
+            }),
+            None => {
+                let mut tops: Vec<&Element> = state
+                    .elements
+                    .values()
+                    .filter(|element| !state.elements.contains_key(&element.parent))
+                    .collect();
+                tops.sort_by_key(|element| (element.parent, element.index));
+                tops.iter().rev().map(|element| element.handle).collect()
+            }
+        };
+
+        let mut ordered = Vec::new();
+        while let Some(handle) = unseen.pop() {
+            ordered.push(handle);
+            if let Some(below) = children.get(&handle) {
+                unseen.extend(below.iter().rev().map(|element| element.handle));
+            }
+        }
+        ordered
+    })
+}
+
 /// The XAML roots - one per window or island - that hit tests start from.
 pub fn roots() -> Vec<InstanceHandle> {
     with(|state| state.roots.clone())

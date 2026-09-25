@@ -6,7 +6,10 @@ use std::cell::RefCell;
 use guinea_devtools_protocol::native::{Bounds, Enumeration, Property};
 use windows_core::{BSTR, IInspectable, Interface};
 
-use crate::bindings::{ClientToScreen, CoTaskMemFree, GetDpiForWindow, HWND, POINT, Point, ScreenToClient, UIElement};
+use crate::bindings::{
+    AutomationProperties, ClientToScreen, CoTaskMemFree, DependencyObject, GetDpiForWindow, HWND, POINT, Point,
+    ScreenToClient, UIElement,
+};
 use crate::diag::{
     EnumType, IS_PROPERTY_READ_ONLY, IS_VALUE_BINDING_EXPRESSION, IS_VALUE_HANDLE, IVisualTreeService, IXamlDiagnostics,
     IXamlDiagnostics2, InstanceHandle, PropertyChainSource, PropertyChainValue, RECT, SafeArray, free_safe_array, text,
@@ -270,6 +273,17 @@ impl Inspector {
         }
 
         Ok((Vec::new(), None))
+    }
+
+    /// The mark `element` carries - its `AutomationId` - when it has one.
+    pub fn mark(&self, element: InstanceHandle) -> Option<String> {
+        let mut raw = std::ptr::null_mut();
+        unsafe { self.diagnostics.GetIInspectableFromHandle(element, &mut raw).ok().ok()? };
+        let inspectable = unsafe { IInspectable::from_raw(raw) };
+        let object: DependencyObject = inspectable.cast().ok()?;
+
+        let mark = AutomationProperties::GetAutomationId(&object).ok()?;
+        (!mark.is_empty()).then_some(mark)
     }
 
     /// Where `element` is on the screen, and the window it sits in.

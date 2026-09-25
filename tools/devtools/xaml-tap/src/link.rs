@@ -9,10 +9,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use guinea_devtools_protocol::devtools_capnp::peer;
-use guinea_devtools_protocol::{AppInfo, Capability, Command, Report, key, wire};
+use guinea_devtools_protocol::{Answer, AppInfo, Capability, Command, Report, key, wire};
 use ogurpchik::rpc::connect_session;
 
-use crate::{highlight, inspect, perf, tree, ui};
+use crate::{highlight, input, inspect, perf, tree, ui};
 
 const RETRY: Duration = Duration::from_secs(1);
 const FLUSH: Duration = Duration::from_millis(50);
@@ -59,6 +59,7 @@ fn hello() -> AppInfo {
             Capability::NativeHitTest,
             Capability::NativeHighlight,
             Capability::NativePerf,
+            Capability::NativeInput,
         ],
         ..AppInfo::default()
     }
@@ -179,5 +180,36 @@ fn answer(command: Command) -> Result<Option<Report>, String> {
         // The tap reads someone else's XAML tree; it draws no frames of its
         // own, so there is nothing here to profile.
         Command::Profiler { .. } => Err("the XAML tap has no profiler".to_string()),
+        Command::NativeFind { request, target } => {
+            let found = input::find(&target).map(|(element, placed)| Answer::Found {
+                element,
+                bounds: placed.map(|(bounds, _)| bounds),
+            });
+            Ok(Some(answered(request, found)))
+        }
+        Command::NativeClick { request, target, input: how } => {
+            let clicked = input::click(&target, how).map(|()| Answer::Done);
+            Ok(Some(answered(request, clicked)))
+        }
+        Command::NativeType {
+            request,
+            target,
+            text,
+            input: how,
+        } => {
+            let typed = input::type_text(&target, &text, how).map(|()| Answer::Done);
+            Ok(Some(answered(request, typed)))
+        }
+        Command::Act { request, .. } | Command::Publish { request, .. } => Ok(Some(answered(
+            request,
+            Err("the XAML tap sends no actions: the application's devtools plugin does".to_string()),
+        ))),
+    }
+}
+
+fn answered(request: u64, outcome: Result<Answer, String>) -> Report {
+    Report::Answered {
+        request,
+        answer: outcome.unwrap_or_else(|reason| Answer::Refused { reason }),
     }
 }

@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use guinea_devtools_protocol::{Span, TraceBatch};
+use guinea_devtools_protocol::{Span, TraceBatch, TracePoint};
 
 /// How many records a session keeps before forgetting the oldest.
 pub const KEPT: usize = 50_000;
@@ -66,6 +66,48 @@ impl TraceLog {
             .into_iter()
             .flatten()
             .filter_map(|child| self.spans.get(child))
+    }
+
+    /// Everything `cause` set off, however far down, depth first and each
+    /// with how far below `cause` it is.
+    pub fn under(&self, cause: u64) -> Vec<(usize, &Span)> {
+        let mut unseen: Vec<(usize, u64)> = self
+            .children
+            .get(&cause)
+            .into_iter()
+            .flatten()
+            .rev()
+            .map(|child| (1, *child))
+            .collect();
+
+        let mut found = Vec::new();
+        while let Some((depth, id)) = unseen.pop() {
+            let Some(span) = self.spans.get(&id) else {
+                continue;
+            };
+            found.push((depth, span));
+            if let Some(children) = self.children.get(&id) {
+                unseen.extend(children.iter().rev().map(|child| (depth + 1, *child)));
+            }
+        }
+        found
+    }
+
+    /// Background work under `cause` that has neither settled nor been
+    /// cancelled yet.
+    pub fn unfinished(&self, cause: u64) -> usize {
+        self.under(cause)
+            .into_iter()
+            .filter(|(_, span)| matches!(span.point, TracePoint::Spawn { .. }))
+            .filter(|(_, span)| {
+                !self.children(span.id).any(|child| {
+                    matches!(
+                        child.point,
+                        TracePoint::Settled { .. } | TracePoint::Cancelled { .. }
+                    )
+                })
+            })
+            .count()
     }
 
     /// The oldest record kept.

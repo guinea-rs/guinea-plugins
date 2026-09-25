@@ -1,6 +1,7 @@
 //! Every route, and nothing else: what each one answers is the model's.
 
 mod apps;
+mod drive;
 mod native;
 mod trace;
 
@@ -14,6 +15,7 @@ pub fn router() -> OpenApiRouter<crate::State> {
         .merge(apps::router())
         .merge(trace::router())
         .merge(native::router())
+        .merge(drive::router())
 }
 
 /// The session `app` names: an id, or `latest` for the newest one still

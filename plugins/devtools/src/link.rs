@@ -11,7 +11,7 @@ use std::time::Duration;
 use futures::StreamExt;
 use futures::channel::mpsc::{Receiver, Sender, channel};
 use guinea_devtools_protocol::devtools_capnp::peer;
-use guinea_devtools_protocol::{AppInfo, Command, Report, key, wire};
+use guinea_devtools_protocol::{Answer, AppInfo, Command, Report, key, wire};
 use ogurpchik::rpc::connect_session;
 
 const QUEUE: usize = 64;
@@ -56,6 +56,24 @@ impl Inbound {
             let _ = reports.try_send(report);
         }
     }
+
+    /// Runs `act` on the UI thread, where scopes and the global bus live, and
+    /// answers `request` with the trace point it made or why it could not.
+    fn on_ui(&self, request: u64, act: impl FnOnce() -> Result<u64, String> + Send + 'static) {
+        let Ok(reports) = self.0.lock().map(|reports| reports.clone()) else {
+            return;
+        };
+
+        guinea_core::actor::invoke_on_ui(move || {
+            let answer = match act() {
+                Ok(cause) => Answer::Acted { cause },
+                Err(reason) => Answer::Refused { reason },
+            };
+
+            let mut reports = reports;
+            let _ = reports.try_send(Report::Answered { request, answer });
+        });
+    }
 }
 
 impl peer::Server for Inbound {
@@ -78,6 +96,25 @@ impl peer::Server for Inbound {
                 crate::profiler::stop();
                 self.answer(Report::Profiler { at: None });
             }
+            Command::Act {
+                request,
+                root,
+                action,
+                payload,
+            } => self.on_ui(request, move || guinea::devtools::act(root, &action, &payload)),
+            Command::Publish {
+                request,
+                event,
+                payload,
+            } => self.on_ui(request, move || {
+                let registered = guinea_core::remote::event(&event).ok_or_else(|| {
+                    format!(
+                        "no event is registered as {event:?} - these are: {:?}",
+                        guinea_core::remote::events()
+                    )
+                })?;
+                (registered.publish)(&payload)
+            }),
             other => {
                 tracing::debug!(?other, "devtools asked for something this link does not offer");
             }

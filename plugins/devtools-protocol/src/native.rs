@@ -89,6 +89,35 @@ pub struct Pass {
     pub took_us: u64,
 }
 
+/// An element named the way a test names it: by the mark it carries - its
+/// `AutomationId` on WinUI - and which of the elements that carry it, in
+/// tree order.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Target {
+    pub mark: String,
+    #[serde(default)]
+    pub nth: usize,
+    /// Only elements under the one that carries this mark - the row a button
+    /// is in.
+    #[serde(default)]
+    pub within: Option<String>,
+}
+
+/// How a click or a keystroke reaches the element.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Input {
+    /// The real pointer and keyboard, at the element's place on the screen:
+    /// what a user does, hit testing and all. Brings the window to the front
+    /// and moves the cursor.
+    #[default]
+    Pointer,
+    /// The element's automation pattern - invoke, toggle, set the value -
+    /// with no pointer and no focus change. Only for controls that have one:
+    /// a button does, a border with a click handler does not.
+    Automation,
+}
+
 /// A rectangle on the screen, in physical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Bounds {
