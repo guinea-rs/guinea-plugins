@@ -13,7 +13,7 @@ repository.workspace = true
 [dependencies]
 guinea.workspace = true
 guinea-core.workspace = true
-amethystate = { version = "0.22.0", features = ["redb", "json"] }
+amethystate = { version = "0.22.1", features = ["redb", "json"] }
 anyhow.workspace = true
 tracing.workspace = true
 
