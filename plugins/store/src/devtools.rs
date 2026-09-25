@@ -7,7 +7,9 @@ use std::sync::Arc;
 use amethystate::migration::{ComponentOutcome, NotMigrated};
 use amethystate::observability::resolve_field;
 use amethystate::store::{StoreLayout, StorePath};
-use amethystate::{MigrationReport, Store, StoreBackend, StoreEvent, StoreOp, SubscriptionKind};
+use amethystate::{
+    MigrationReport, Store, StoreBackend, StoreEvent, StoreOp, StoreSubscription, SubscriptionKind,
+};
 use guinea_core::devtools::{self, Panel, PanelGuard, PanelNode};
 use guinea_core::trace::{self, Point};
 
@@ -18,8 +20,7 @@ const VALUE_SHOWN: usize = 240;
 
 /// Devtools' view of one store, for as long as it is held.
 pub(crate) struct Watching {
-    store: Store,
-    subscription: u64,
+    _subscription: StoreSubscription,
     _panel: PanelGuard,
 }
 
@@ -46,16 +47,9 @@ impl Watching {
         });
 
         Self {
-            store: store.clone(),
-            subscription,
+            _subscription: subscription,
             _panel: panel,
         }
-    }
-}
-
-impl Drop for Watching {
-    fn drop(&mut self) {
-        self.store.unsubscribe(self.subscription);
     }
 }
 
