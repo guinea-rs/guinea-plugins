@@ -348,6 +348,7 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
                 sort_state.as_ref(),
                 on_sort.as_ref(),
                 sort_indicator.as_ref(),
+                look,
             );
 
             // Over the column's right edge, not beside it. A handle standing
@@ -595,6 +596,7 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
     sort_state: Option<&SortState<C>>,
     on_sort: Option<&Callback<C>>,
     sort_indicator: Option<&Rc<dyn Fn(bool) -> View>>,
+    look: Look,
 ) -> View {
     let active = sort_state.filter(|s| column.sortable && s.field_id.as_ref() == Some(&column.id));
 
@@ -627,33 +629,84 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
     // Kept as a `Border` rather than collapsed to a bare view: padding is a
     // capability of the widget, and an erased node has none. The width is the
     // grid column's.
-    let cell = Border::new()
-        .automation_id(column.id.name())
-        .padding(Thickness::xy(
-            if column.flush {
-                0.0
-            } else {
-                CELL_HORIZONTAL_PADDING
-            },
-            HEADER_VERTICAL_PADDING,
-        ));
+    let padding = Thickness::xy(
+        if column.flush {
+            0.0
+        } else {
+            CELL_HORIZONTAL_PADDING
+        },
+        HEADER_VERTICAL_PADDING,
+    );
 
     match (column.sortable, on_sort) {
-        (true, Some(on_sort)) => {
-            let id = column.id.clone();
-            let on_sort = on_sort.clone();
-            // `on_tapped` is gone; a release over the cell is the same gesture
-            // for a header, and the only one a `Border` still offers.
-            cell.on_pointer_released(Callback::new(move |_: PointerEventInfo| {
-                // `false` means the segment that owns this table is not
-                // publishing, so the sort would land nowhere.
-                if !on_sort.call(id.clone()) {
-                    tracing::debug!(column = id.name(), "sort dropped: no active publication");
+        (true, Some(on_sort)) => View::component::<PointedHeading<C>>(Heading {
+            content: Border::new().padding(padding).content(content),
+            column: column.id.clone(),
+            on_sort: on_sort.clone(),
+            look,
+        }),
+        _ => Border::new()
+            .automation_id(column.id.name())
+            .padding(padding)
+            .content(content),
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct Heading<C> {
+    content: View,
+    column: C,
+    on_sort: Callback<C>,
+    look: Look,
+}
+
+struct PointedHeading<C>(bool, std::marker::PhantomData<fn() -> C>);
+
+impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
+    type Input = Heading<C>;
+    type Message = Pointer;
+
+    fn create(_input: &Heading<C>, _cx: &ComponentContext<Self>) -> Self {
+        Self(false, std::marker::PhantomData)
+    }
+
+    fn update(&mut self, message: Pointer, _cx: &ComponentContext<Self>) {
+        self.0 = matches!(message, Pointer::Entered);
+    }
+
+    fn view(&self, heading: &Heading<C>, cx: &mut ViewContext<Self>) -> View {
+        let look = heading.look;
+        let plate = if self.0 { look.hovered } else { TRANSPARENT };
+        let (across, down) = look.inset;
+
+        let layered = Grid::new().children((
+            Border::new()
+                .margin(Thickness::new(across, down, across, down))
+                .corner_radius(CornerRadius::new(
+                    look.radius,
+                    look.radius,
+                    look.radius,
+                    look.radius,
+                ))
+                .background(plate)
+                .content(View::empty()),
+            heading.content.clone(),
+        ));
+
+        let column = heading.column.clone();
+        let on_sort = heading.on_sort.clone();
+
+        Border::new()
+            .automation_id(heading.column.name())
+            .background(TRANSPARENT)
+            .on_pointer_entered(cx.callback(|_: PointerEventInfo| Pointer::Entered))
+            .on_pointer_exited(cx.callback(|_: PointerEventInfo| Pointer::Exited))
+            .on_pointer_released(Callback::new(move |_: PointerEventInfo| {
+                if !on_sort.call(column.clone()) {
+                    tracing::debug!(column = column.name(), "sort dropped: no active publication");
                 }
             }))
-            .content(content)
-        }
-        _ => cell.content(content),
+            .content(layered)
     }
 }
 
