@@ -2246,7 +2246,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -2260,7 +2260,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2270,7 +2270,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "guinea-core",
  "guinea-meta-build",
@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2394,7 +2394,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.10.8"
+version = "0.10.9"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2407,7 +2407,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2420,7 +2420,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -2434,7 +2434,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.11.1"
+version = "0.11.2"
 
 [[package]]
 name = "guinea-meta"
@@ -2464,7 +2464,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2474,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2486,7 +2486,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "serde_json",
  "tracing",
@@ -2495,7 +2495,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "anyhow",
  "guinea-app",
