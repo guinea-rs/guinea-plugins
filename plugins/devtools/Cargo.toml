@@ -10,7 +10,7 @@ repository.workspace = true
 guinea.workspace = true
 guinea-core.workspace = true
 guinea-devtools-protocol = { path = "../devtools-protocol" }
-ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.6.1" }
+ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.6.2" }
 capnp = "0.27"
 compio = { version = "0.18.0", features = ["runtime", "time"] }
 futures = "0.3.32"

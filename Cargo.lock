@@ -1117,7 +1117,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-devtools"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "anyhow",
  "capnp",
@@ -1181,7 +1181,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -1221,7 +1221,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-window-state"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "anyhow",
  "guinea",
@@ -1268,7 +1268,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.10.5"
+version = "0.10.6"
 dependencies = [
  "guinea-mark",
  "tracing",
@@ -1658,8 +1658,8 @@ dependencies = [
 
 [[package]]
 name = "ogurpchik"
-version = "0.6.1"
-source = "git+https://github.com/uniproc-dev/oguRPChik?tag=v0.6.1#af53190cdcba89485c4446c32b7d2546a5ada43d"
+version = "0.6.2"
+source = "git+https://github.com/uniproc-dev/oguRPChik?tag=v0.6.2#85a13fccf31e49487508674d06f3849846bd33d1"
 dependencies = [
  "base64",
  "binrw",
