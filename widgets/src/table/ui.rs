@@ -354,7 +354,8 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
         // when the handles come and go with `on_resize`.
         let last = columns.len().saturating_sub(1);
         let reaches_right = columns.iter().any(|column| column.fill);
-        let mut header_cells: Vec<(String, View)> = Vec::with_capacity(columns.len());
+        let mut header_cells: Vec<(String, View)> = Vec::with_capacity(columns.len() * 2);
+        let mut handles: Vec<(String, View)> = Vec::with_capacity(columns.len());
         for (at, column) in columns.iter().enumerate() {
             let rounded = (
                 if at == 0 { corner_radius } else { 0.0 },
@@ -364,6 +365,7 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
                     0.0
                 },
             );
+            let railed = on_resize.is_some() && at != last && !column.fill;
 
             let cell = header_cell(
                 column,
@@ -372,36 +374,39 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
                 sort_indicator.as_ref(),
                 look.hovered,
                 rounded,
+                railed,
             );
+
+            header_cells.push((
+                column.id.name().to_string(),
+                Border::new().grid_column(at as i32).content(cell),
+            ));
 
             // Over the column's right edge, not beside it. A handle standing
             // in the row between two header cells took its width from the row,
             // and the body has no handles - so every header cell stood one
             // handle further right of its column than the last, and the values
             // stopped sitting under their headings.
-            let cell = match &on_resize {
-                Some(on_resize) if at != last && !column.fill => Grid::new()
-                    .children((
-                        cell,
-                        Border::new()
-                            .width(RESIZE_HANDLE_WIDTH)
-                            .horizontal_alignment(HorizontalAlignment::Right)
-                            .content(handle(
-                                column,
-                                width_of(&widths, column),
-                                look.separator,
-                                on_resize.clone(),
-                            )),
-                    ))
-                    .into(),
-                _ => cell,
-            };
-
-            header_cells.push((
-                column.id.name().to_string(),
-                Border::new().grid_column(at as i32).content(cell).into(),
-            ));
+            if let Some(on_resize) = &on_resize
+                && railed
+            {
+                handles.push((
+                    format!("{}/resize", column.id.name()),
+                    Border::new()
+                        .grid_column(at as i32)
+                        .width(RESIZE_HANDLE_WIDTH)
+                        .horizontal_alignment(HorizontalAlignment::Right)
+                        .margin(Thickness::new(0.0, 0.0, 0.5 - RESIZE_HANDLE_WIDTH / 2.0, 0.0))
+                        .content(handle(
+                            column,
+                            width_of(&widths, column),
+                            look.separator,
+                            on_resize.clone(),
+                        )),
+                ));
+            }
         }
+        header_cells.extend(handles);
 
         let (lengths, least) = lengths(&columns, &widths);
         let header = Grid::new()
@@ -621,6 +626,7 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
     sort_indicator: Option<&Rc<dyn Fn(bool) -> View>>,
     hovered: Color,
     rounded: (f64, f64),
+    railed: bool,
 ) -> View {
     let active = sort_state.filter(|s| column.sortable && s.field_id.as_ref() == Some(&column.id));
 
@@ -669,6 +675,7 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
             on_sort: on_sort.clone(),
             hovered,
             rounded,
+            railed,
         }),
         _ => Border::new()
             .automation_id(column.id.name())
@@ -684,6 +691,7 @@ struct Heading<C> {
     on_sort: Callback<C>,
     hovered: Color,
     rounded: (f64, f64),
+    railed: bool,
 }
 
 struct PointedHeading<C>(bool, std::marker::PhantomData<fn() -> C>);
@@ -703,9 +711,11 @@ impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
     fn view(&self, heading: &Heading<C>, cx: &mut ViewContext<Self>) -> View {
         let plate = if self.0 { heading.hovered } else { TRANSPARENT };
         let (left, right) = heading.rounded;
+        let rail = if heading.railed { 1.0 } else { 0.0 };
 
         let layered = Grid::new().children((
             Border::new()
+                .margin(Thickness::new(0.0, 0.0, rail, 0.0))
                 .corner_radius(CornerRadius::new(left, right, 0.0, 0.0))
                 .background(plate)
                 .content(View::empty()),
