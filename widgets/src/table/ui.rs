@@ -45,6 +45,10 @@ const TRANSPARENT: Color = Color {
     b: 0,
 };
 
+/// The automation id of the body's empty part, below the last row. A click
+/// there reports `None` to [`Table::selection`].
+pub const EMPTY_AREA: &str = "guinea-widgets.table.empty";
+
 /// What each column is currently wide, by the name of its mark.
 ///
 /// Plain data, and the whole point of it: the table draws with this and never
@@ -427,14 +431,33 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
         // the rows across only ever slid them out from under their headings.
         // A table too narrow for its columns is clipped instead, header and
         // rows alike.
+        let on_deselect = selection.as_ref().map(|(_, on_select)| on_select.clone());
+
+        let lines = ItemsRepeater::new()
+            .horizontal_alignment(HorizontalAlignment::Stretch)
+            .virtual_source(rows_source(rows, columns, widths, selection, span, look));
+
+        let content: View = match on_deselect {
+            Some(on_deselect) => Grid::new()
+                .children((
+                    Border::new()
+                        .automation_id(EMPTY_AREA)
+                        .background(TRANSPARENT)
+                        .horizontal_alignment(HorizontalAlignment::Stretch)
+                        .vertical_alignment(VerticalAlignment::Stretch)
+                        .on_pointer_released(Callback::new(move |_: PointerEventInfo| {
+                            let _ = on_deselect.call(None);
+                        }))
+                        .content(View::empty()),
+                    lines,
+                )),
+            None => lines.into(),
+        };
+
         let body = ScrollViewer::new()
             .horizontal_scroll_bar_visibility(ScrollBarVisibility::Disabled)
             .grid_row(2)
-            .content(
-                ItemsRepeater::new()
-                    .horizontal_alignment(HorizontalAlignment::Stretch)
-                    .virtual_source(rows_source(rows, columns, widths, selection, span, look)),
-            );
+            .content(content);
 
         Grid::new()
             .rows([GridLength::Auto, GridLength::Auto, GridLength::Star(1.0)])
