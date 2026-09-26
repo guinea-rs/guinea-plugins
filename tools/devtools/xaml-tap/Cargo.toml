@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 guinea-devtools-protocol = { path = "../../../plugins/devtools-protocol" }
-ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.6.2" }
+ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.6.3" }
 capnp = "0.27"
 compio = { version = "0.18.0", features = ["runtime", "time"] }
 tracing = "0.1"
