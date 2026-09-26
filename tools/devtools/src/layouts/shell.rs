@@ -15,10 +15,10 @@ pub struct Shell;
 
 impl Layout for Shell {
     type Params = crate::routes::ShellParams;
-    type Installs = (SessionsFeature, (LastTabFeature, EditorFeature));
+    type Installs = (SessionsFeature, LastTabFeature, EditorFeature);
 
     fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        Ok((ctx.install(&())?, (ctx.install(&())?, ctx.install(&())?)))
+        Ok((ctx.install(&())?, ctx.install(&())?, ctx.install(&())?))
     }
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
