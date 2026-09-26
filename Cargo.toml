@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.10.7"
+version = "0.10.8"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/uniproc-dev/guinea-plugins"
@@ -13,9 +13,9 @@ members = ["plugins/*", "widgets"]
 # written in the same sitting as the `guinea::app` change it needs. An
 # application consuming both from git must patch them to the same rev, or it
 # ends up with two copies of guinea and two incompatible `PluginBuilder`s.
-guinea = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.11.0" }
-guinea-core = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.11.0" }
-guinea-mark = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.11.0" }
+guinea = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.11.1" }
+guinea-core = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.11.1" }
+guinea-mark = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.11.1" }
 
 anyhow = "1.0.100"
 tracing = "0.1.44"
