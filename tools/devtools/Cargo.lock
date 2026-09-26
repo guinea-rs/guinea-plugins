@@ -2394,7 +2394,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.10.4"
+version = "0.10.5"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -3637,8 +3637,8 @@ dependencies = [
 
 [[package]]
 name = "ogurpchik"
-version = "0.6.0"
-source = "git+https://github.com/uniproc-dev/oguRPChik?tag=v0.6.0#dbad65acd38facc41d7b0c729770a5bfe90716ba"
+version = "0.6.1"
+source = "git+https://github.com/uniproc-dev/oguRPChik?tag=v0.6.1#af53190cdcba89485c4446c32b7d2546a5ada43d"
 dependencies = [
  "base64",
  "binrw",
