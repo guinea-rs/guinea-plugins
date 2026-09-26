@@ -231,6 +231,7 @@ pub struct Table<T, C> {
     span: Option<Range<usize>>,
     sort_indicator: Option<Rc<dyn Fn(bool) -> View>>,
     look: Look,
+    corner_radius: f64,
 }
 
 /// A table of `rows`, one per line, in the order given.
@@ -254,6 +255,7 @@ pub fn table<T: 'static, C: Mark + Clone + PartialEq>(
         span: None,
         sort_indicator: None,
         look: Look::default(),
+        corner_radius: 0.0,
     }
 }
 
@@ -268,6 +270,15 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
     /// What to paint around the content with. See [`Look`].
     pub fn look(mut self, look: Look) -> Self {
         self.look = look;
+        self
+    }
+
+    /// The radius of the corners of whatever the table sits in. A header
+    /// cell lit under the pointer rounds the table's corners it touches to
+    /// it: the first cell its top left, the last its top right when a column
+    /// fills the table to its right edge. Square by default.
+    pub fn corner_radius(mut self, radius: f64) -> Self {
+        self.corner_radius = radius;
         self
     }
 
@@ -331,6 +342,7 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
             span,
             sort_indicator,
             look,
+            corner_radius,
         } = self;
 
         let (sort_state, on_sort) = match sort {
@@ -341,14 +353,25 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
         // Keyed by column rather than positional, so a column is still itself
         // when the handles come and go with `on_resize`.
         let last = columns.len().saturating_sub(1);
+        let reaches_right = columns.iter().any(|column| column.fill);
         let mut header_cells: Vec<(String, View)> = Vec::with_capacity(columns.len());
         for (at, column) in columns.iter().enumerate() {
+            let rounded = (
+                if at == 0 { corner_radius } else { 0.0 },
+                if at == last && reaches_right {
+                    corner_radius
+                } else {
+                    0.0
+                },
+            );
+
             let cell = header_cell(
                 column,
                 sort_state.as_ref(),
                 on_sort.as_ref(),
                 sort_indicator.as_ref(),
-                look,
+                look.hovered,
+                rounded,
             );
 
             // Over the column's right edge, not beside it. A handle standing
@@ -596,7 +619,8 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
     sort_state: Option<&SortState<C>>,
     on_sort: Option<&Callback<C>>,
     sort_indicator: Option<&Rc<dyn Fn(bool) -> View>>,
-    look: Look,
+    hovered: Color,
+    rounded: (f64, f64),
 ) -> View {
     let active = sort_state.filter(|s| column.sortable && s.field_id.as_ref() == Some(&column.id));
 
@@ -643,7 +667,8 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
             content: Border::new().padding(padding).content(content),
             column: column.id.clone(),
             on_sort: on_sort.clone(),
-            look,
+            hovered,
+            rounded,
         }),
         _ => Border::new()
             .automation_id(column.id.name())
@@ -657,7 +682,8 @@ struct Heading<C> {
     content: View,
     column: C,
     on_sort: Callback<C>,
-    look: Look,
+    hovered: Color,
+    rounded: (f64, f64),
 }
 
 struct PointedHeading<C>(bool, std::marker::PhantomData<fn() -> C>);
@@ -675,19 +701,12 @@ impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
     }
 
     fn view(&self, heading: &Heading<C>, cx: &mut ViewContext<Self>) -> View {
-        let look = heading.look;
-        let plate = if self.0 { look.hovered } else { TRANSPARENT };
-        let (across, down) = look.inset;
+        let plate = if self.0 { heading.hovered } else { TRANSPARENT };
+        let (left, right) = heading.rounded;
 
         let layered = Grid::new().children((
             Border::new()
-                .margin(Thickness::new(across, down, across, down))
-                .corner_radius(CornerRadius::new(
-                    look.radius,
-                    look.radius,
-                    look.radius,
-                    look.radius,
-                ))
+                .corner_radius(CornerRadius::new(left, right, 0.0, 0.0))
                 .background(plate)
                 .content(View::empty()),
             heading.content.clone(),
