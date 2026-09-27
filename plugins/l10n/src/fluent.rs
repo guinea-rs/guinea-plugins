@@ -85,6 +85,10 @@ macro_rules! fluent_loader {
                 L10N_KEYS
             }
 
+            fn languages() -> &'static [&'static str] {
+                L10N_LANGUAGES
+            }
+
             fn value(&self, id: &str) -> ::std::option::Option<::std::string::String> {
                 ::std::option::Option::Some(self.get_raw(id, &Args::new()))
             }

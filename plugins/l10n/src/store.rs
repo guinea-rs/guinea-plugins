@@ -41,6 +41,12 @@ pub trait Localization: Clone + Default + 'static {
         &[]
     }
 
+    /// Every locale the application has, as tags: what a picker offers.
+    /// Empty for a resolver that does not say.
+    fn languages() -> &'static [&'static str] {
+        &[]
+    }
+
     /// What `id` reads as in these strings; `None` for a resolver that cannot
     /// be asked by name.
     fn value(&self, id: &str) -> Option<String> {
@@ -64,6 +70,9 @@ pub struct Key {
     pub text: &'static str,
     /// What it interpolates: `["name"]`.
     pub variables: &'static [&'static str],
+    /// What every other locale says for it, as written: `[("ru", "Процесс {
+    /// $name } завершён.")]`.
+    pub translations: &'static [(&'static str, &'static str)],
     /// The locales that have no translation for it.
     pub missing: &'static [&'static str],
 }

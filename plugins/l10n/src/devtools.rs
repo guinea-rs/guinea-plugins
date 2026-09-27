@@ -1,6 +1,10 @@
 //! What devtools see of the localisation: every message under the `.ftl` it
-//! is written in, with what it interpolates, what it reads as right now, and
-//! who has not translated it.
+//! is written in, with what it interpolates, what each language says for it,
+//! and who has not translated it.
+//!
+//! A file says which languages there are and which one the application shows
+//! (`languages`, `language`); each message carries its text under every
+//! language's tag, so devtools can show any of them beside its name.
 
 use guinea_core::devtools::{self, Panel, PanelGuard, PanelNode};
 
@@ -17,16 +21,14 @@ pub(crate) fn watch<S: Localization>() -> PanelGuard {
         Some(Panel {
             id: "guinea.l10n",
             title: "Localization",
-            nodes: files::<S>(keys),
+            nodes: files(keys, S::languages(), &L10n::<S>::current().tag()),
         })
     })
 }
 
 /// One node per `.ftl`, its messages under it, in the order the file has
 /// them.
-fn files<S: Localization>(keys: &'static [Key]) -> Vec<PanelNode> {
-    let strings = L10n::<S>::current();
-
+fn files(keys: &'static [Key], languages: &[&str], showing: &str) -> Vec<PanelNode> {
     let mut files: Vec<PanelNode> = Vec::new();
     for key in keys {
         let file = match files.iter_mut().find(|node| node.label == key.file) {
@@ -41,11 +43,8 @@ fn files<S: Localization>(keys: &'static [Key]) -> Vec<PanelNode> {
             }
         };
 
-        // Only a message that interpolates nothing can be asked for outright:
-        // a resolver handed no arguments answers with an error, not a string.
-        let value = key.variables.is_empty().then(|| strings.value(key.id)).flatten();
         let named = key.id.split('.').collect::<Vec<_>>();
-        put(&mut file.children, &named, message(key, value));
+        put(&mut file.children, &named, message(key, languages));
     }
 
     for file in &mut files {
@@ -56,6 +55,10 @@ fn files<S: Localization>(keys: &'static [Key]) -> Vec<PanelNode> {
             ("messages".to_string(), messages.to_string()),
             ("untranslated".to_string(), untranslated.to_string()),
         ];
+        if !languages.is_empty() {
+            file.properties.push(("languages".to_string(), languages.join(", ")));
+            file.properties.push(("language".to_string(), showing.to_string()));
+        }
     }
 
     files.sort_by(|one, other| one.label.cmp(&other.label));
@@ -113,6 +116,46 @@ fn untranslated(nodes: &[PanelNode]) -> usize {
         .sum()
 }
 
+/// The locale `key` was compiled from: the one that neither translated it
+/// nor is missing it.
+fn reference<'a>(key: &Key, languages: &[&'a str]) -> Option<&'a str> {
+    languages.iter().copied().find(|tag| {
+        !key.missing.contains(tag) && !key.translations.iter().any(|(done, _)| done == tag)
+    })
+}
+
+fn message(key: &Key, languages: &[&str]) -> PanelNode {
+    let mut properties = vec![("id".to_string(), key.id.to_string())];
+
+    let written = reference(key, languages)
+        .map(|tag| (tag, key.text))
+        .into_iter()
+        .chain(key.translations.iter().copied());
+    let mut texts: Vec<(&str, &str)> = written.collect();
+    texts.sort_by_key(|(tag, _)| languages.iter().position(|known| known == tag));
+    if texts.is_empty() {
+        properties.push(("source".to_string(), key.text.to_string()));
+    }
+    properties.extend(texts.into_iter().map(|(tag, text)| (tag.to_string(), text.to_string())));
+
+    if !key.variables.is_empty() {
+        properties.push(("takes".to_string(), key.variables.join(", ")));
+    }
+    if !key.missing.is_empty() {
+        properties.push(("missing".to_string(), key.missing.join(", ")));
+    }
+    if key.line > 0 {
+        properties.push(("at".to_string(), format!("{}:{}", key.file, key.line)));
+    }
+
+    PanelNode {
+        label: key.id.to_string(),
+        kind: if key.missing.is_empty() { "message" } else { "untranslated" }.to_string(),
+        properties,
+        children: Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,31 +188,33 @@ mod tests {
         assert_eq!(counted(&nodes), 3);
         assert_eq!(untranslated(&nodes), 1);
     }
-}
 
-fn message(key: &Key, value: Option<String>) -> PanelNode {
-    let mut properties = vec![
-        ("id".to_string(), key.id.to_string()),
-        ("source".to_string(), key.text.to_string()),
-    ];
+    #[test]
+    fn a_message_carries_its_text_in_every_language_and_a_file_names_them() {
+        static KEYS: &[Key] = &[Key {
+            id: "hello",
+            file: "main.ftl",
+            line: 1,
+            text: "Hello",
+            variables: &[],
+            translations: &[("ru", "Привет")],
+            missing: &["de"],
+        }];
 
-    if let Some(value) = value.filter(|value| value != key.text) {
-        properties.push(("now".to_string(), value));
-    }
-    if !key.variables.is_empty() {
-        properties.push(("takes".to_string(), key.variables.join(", ")));
-    }
-    if !key.missing.is_empty() {
-        properties.push(("missing".to_string(), key.missing.join(", ")));
-    }
-    if key.line > 0 {
-        properties.push(("at".to_string(), format!("{}:{}", key.file, key.line)));
-    }
+        let files = files(KEYS, &["de", "en", "ru"], "ru");
+        let file = &files[0];
+        let hello = &file.children[0];
 
-    PanelNode {
-        label: key.id.to_string(),
-        kind: if key.missing.is_empty() { "message" } else { "untranslated" }.to_string(),
-        properties,
-        children: Vec::new(),
+        assert!(file.properties.contains(&("languages".into(), "de, en, ru".into())));
+        assert!(file.properties.contains(&("language".into(), "ru".into())));
+        assert_eq!(
+            hello.properties[..3],
+            [
+                ("id".to_string(), "hello".to_string()),
+                ("en".to_string(), "Hello".to_string()),
+                ("ru".to_string(), "Привет".to_string()),
+            ]
+        );
+        assert_eq!(hello.kind, "untranslated");
     }
 }

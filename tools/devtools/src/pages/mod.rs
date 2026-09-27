@@ -1,8 +1,8 @@
+pub mod application;
 pub mod elements;
 pub mod graph;
 pub mod home;
 pub mod native;
-pub mod panels;
 pub mod trace;
 
 use crate::features::focus::contracts::Focus;

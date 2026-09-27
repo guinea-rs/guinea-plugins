@@ -274,19 +274,23 @@ pub fn locales(locales_dir: &Path) -> Vec<String> {
     tags
 }
 
-/// Which locales are missing each of `messages`, by reading every locale the
-/// way the reference one was read.
-fn missing_by_id(locales_dir: &Path, reference_locale: &str, messages: &[L10nMessage]) -> Vec<Vec<String>> {
-    let others: Vec<(String, Vec<String>)> = locales(locales_dir)
+/// What every other locale says for each of `messages`, as written, by
+/// reading every locale the way the reference one was read. A locale that
+/// left a message out is not in its list.
+fn translations_by_id(
+    locales_dir: &Path,
+    reference_locale: &str,
+    messages: &[L10nMessage],
+) -> Vec<Vec<(String, String)>> {
+    let others: Vec<(String, Vec<L10nMessage>)> = locales(locales_dir)
         .into_iter()
         .filter(|tag| tag != reference_locale)
         .map(|tag| {
-            let ids = locale_files(locales_dir, &tag)
+            let written = locale_files(locales_dir, &tag)
                 .iter()
                 .flat_map(|path| parse_messages(path))
-                .map(|message| message.id)
                 .collect();
-            (tag, ids)
+            (tag, written)
         })
         .collect();
 
@@ -295,26 +299,43 @@ fn missing_by_id(locales_dir: &Path, reference_locale: &str, messages: &[L10nMes
         .map(|message| {
             others
                 .iter()
-                .filter(|(_, ids)| !ids.contains(&message.id))
-                .map(|(tag, _)| tag.clone())
+                .filter_map(|(tag, written)| {
+                    written
+                        .iter()
+                        .find(|other| other.id == message.id)
+                        .map(|other| (tag.clone(), other.text.clone()))
+                })
                 .collect()
         })
         .collect()
 }
 
-/// The table devtools read: every message, where it is written, what it takes
-/// and which locales have not translated it yet.
-pub fn generate_l10n_keys(messages: &[L10nMessage], missing: &[Vec<String>], keys_path: &str) -> TokenStream {
+/// The table devtools read: every message, where it is written, what it takes,
+/// what each locale says for it and which have not translated it yet; and
+/// every locale there is.
+pub fn generate_l10n_keys(
+    messages: &[L10nMessage],
+    translations: &[Vec<(String, String)>],
+    reference_locale: &str,
+    languages: &[String],
+    keys_path: &str,
+) -> TokenStream {
     let keys_path: SynPath =
         syn::parse_str(keys_path).unwrap_or_else(|e| panic!("invalid keys_path {keys_path:?}: {e}"));
 
-    let entries = messages.iter().zip(missing).map(|(message, missing)| {
+    let entries = messages.iter().zip(translations).map(|(message, translated)| {
         let id = &message.id;
         let file = &message.file;
         let line = message.line;
         let text = &message.text;
         let variables = &message.variables;
-        let missing = missing.iter().map(String::as_str);
+        let tags = translated.iter().map(|(tag, _)| tag.as_str());
+        let texts = translated.iter().map(|(_, text)| text.as_str());
+        let missing = languages
+            .iter()
+            .filter(|tag| *tag != reference_locale)
+            .filter(|tag| !translated.iter().any(|(done, _)| done == *tag))
+            .map(String::as_str);
 
         quote! {
             #keys_path {
@@ -323,6 +344,7 @@ pub fn generate_l10n_keys(messages: &[L10nMessage], missing: &[Vec<String>], key
                 line: #line,
                 text: #text,
                 variables: &[#(#variables),*],
+                translations: &[#((#tags, #texts)),*],
                 missing: &[#(#missing),*],
             }
         }
@@ -331,13 +353,22 @@ pub fn generate_l10n_keys(messages: &[L10nMessage], missing: &[Vec<String>], key
     quote! {
         /// Every message of the reference locale, as `l10n` compiled it.
         pub static L10N_KEYS: &[#keys_path] = &[#(#entries),*];
+        /// Every locale the application has, the reference one among them.
+        pub static L10N_LANGUAGES: &[&str] = &[#(#languages),*];
     }
 }
 
 pub fn write_keys(locales_dir: &Path, reference_locale: &str, out_path: &Path) {
     let messages = parse_locale_messages(locales_dir, reference_locale);
-    let missing = missing_by_id(locales_dir, reference_locale, &messages);
-    let generated = generate_l10n_keys(&messages, &missing, "guinea_plugin_l10n::Key");
+    let translations = translations_by_id(locales_dir, reference_locale, &messages);
+    let languages = locales(locales_dir);
+    let generated = generate_l10n_keys(
+        &messages,
+        &translations,
+        reference_locale,
+        &languages,
+        "guinea_plugin_l10n::Key",
+    );
 
     fs::write(out_path, generated.to_string())
         .unwrap_or_else(|e| panic!("failed to write {}: {e}", out_path.display()));
@@ -521,10 +552,20 @@ mod tests {
         write_file(dir.path(), "ru/main.ftl", "kept = Оставлено\n");
 
         let messages = parse_locale_messages(dir.path(), "en");
-        let missing = missing_by_id(dir.path(), "en", &messages);
+        let translations = translations_by_id(dir.path(), "en", &messages);
+        let languages = locales(dir.path());
 
-        assert_eq!(locales(dir.path()), vec!["en".to_string(), "ru".to_string()]);
-        assert_eq!(missing, vec![Vec::<String>::new(), vec!["ru".to_string()]]);
+        assert_eq!(languages, vec!["en".to_string(), "ru".to_string()]);
+        assert_eq!(
+            translations,
+            vec![vec![("ru".to_string(), "Оставлено".to_string())], Vec::new()]
+        );
+
+        let generated =
+            generate_l10n_keys(&messages, &translations, "en", &languages, "crate::Key").to_string();
+        assert!(generated.contains("translations : & [(\"ru\" , \"Оставлено\")]"), "{generated}");
+        assert!(generated.contains("missing : & [\"ru\"]"), "{generated}");
+        assert!(generated.contains("L10N_LANGUAGES : & [& str] = & [\"en\" , \"ru\"]"), "{generated}");
     }
 
     #[test]

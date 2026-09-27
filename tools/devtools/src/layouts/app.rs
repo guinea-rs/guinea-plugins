@@ -8,10 +8,10 @@ use crate::features::editor::detect;
 use crate::features::focus::FocusFeature;
 use crate::features::focus::contracts::Focus;
 use crate::features::tab::contracts::{LastTab, Opened};
+use crate::pages::application::Application;
 use crate::pages::elements::Elements;
 use crate::pages::graph::Graphs;
 use crate::pages::native::Native;
-use crate::pages::panels::Panels;
 use crate::pages::trace::Traces;
 use crate::routes::Route;
 use crate::features::sessions::contracts::Live;
@@ -20,7 +20,7 @@ use crate::theme;
 #[derive(Default)]
 pub struct App;
 
-const TABS: [&str; 5] = ["Elements", "Graph", "Trace", "Panels", "Native"];
+const TABS: [&str; 5] = ["Elements", "Graph", "Trace", "Application", "Native"];
 
 /// The tab titled `title` for `app`, or the first one for a title no tab has.
 pub fn tab_named(title: &str, app: u64) -> Route {
@@ -33,7 +33,7 @@ fn tab(index: usize, app: u64) -> Route {
         0 => Route::Elements { app },
         1 => Route::Graphs { app },
         2 => Route::Traces { app },
-        3 => Route::Panels { app },
+        3 => Route::Application { app },
         _ => Route::Native { app },
     }
 }
@@ -57,7 +57,7 @@ impl Layout for App {
             cx.child_is::<Elements>(),
             cx.child_is::<Graphs>(),
             cx.child_is::<Traces>(),
-            cx.child_is::<Panels>(),
+            cx.child_is::<Application>(),
             cx.child_is::<Native>(),
         ];
         let open = current.iter().position(|on| *on).unwrap_or(0);

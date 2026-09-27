@@ -1,6 +1,5 @@
 //! What devtools see of the store: every change as a trace point under what
-//! caused it, and a panel with the files, the migrations and the keys - as a
-//! tree and as a list.
+//! caused it, and a panel with the files, the migrations and the keys.
 
 use std::sync::Arc;
 
@@ -38,7 +37,7 @@ impl Watching {
         let reader = store.clone();
         let panel = devtools::contribute_to_app(move || {
             let mut nodes = fixed.clone();
-            nodes.extend(keys(&reader));
+            nodes.push(keys(&reader));
             Some(Panel {
                 id: "guinea.store",
                 title: "Store",
@@ -191,35 +190,25 @@ fn migrations(report: &MigrationReport) -> PanelNode {
     all
 }
 
-/// The keys twice over: nested by level, and as one list of whole paths.
-fn keys(store: &Store) -> [PanelNode; 2] {
-    let mut tree = node("Keys as a tree", "store");
-    let mut flat = node("Keys as a list", "store");
+/// The keys, nested by level; each knows its whole path.
+fn keys(store: &Store) -> PanelNode {
+    let mut tree = node("Keys", "store");
     let listed = match store.scan_prefix(StorePath::root()) {
         Ok(listed) => listed,
         Err(error) => {
-            let unreadable = vec![("unreadable".into(), format!("{error:?}"))];
-            tree.properties = unreadable.clone();
-            flat.properties = unreadable;
-            return [tree, flat];
+            tree.properties = vec![("unreadable".into(), format!("{error:?}"))];
+            return tree;
         }
     };
-    let mut about = vec![("count".to_string(), listed.len().to_string())];
+    tree.properties = vec![("count".to_string(), listed.len().to_string())];
     if listed.len() > KEYS_SHOWN {
-        about.push(("shown".into(), format!("the first {KEYS_SHOWN}")));
+        tree.properties.push(("shown".into(), format!("the first {KEYS_SHOWN}")));
     }
-    tree.properties = about.clone();
-    flat.properties = about;
     for (path, bytes) in listed.iter().take(KEYS_SHOWN) {
         let levels: Vec<String> = path.segments().map(|level| level.as_str().to_string()).collect();
-        let leaf = value(store, path, bytes);
-        flat.children.push(PanelNode {
-            label: path.to_string(),
-            ..leaf.clone()
-        });
-        insert(&mut tree.children, &levels, leaf);
+        insert(&mut tree.children, &levels, value(store, path, bytes));
     }
-    [tree, flat]
+    tree
 }
 
 fn value(store: &Store, path: &StorePath, bytes: &[u8]) -> PanelNode {
@@ -332,18 +321,16 @@ mod tests {
         let panels = devtools::app_panels();
         let panel = panels.iter().find(|p| p.id == "guinea.store").expect("offered");
         let sections: Vec<&str> = panel.nodes.iter().map(|n| n.label.as_str()).collect();
-        assert_eq!(sections, ["Files", "Migrations", "Keys as a tree", "Keys as a list"]);
-        for keys in &panel.nodes[2..] {
-            let greeting = &keys.children[0];
-            assert_eq!(greeting.label, "greeting");
-            assert!(
-                greeting
-                    .properties
-                    .contains(&("value".to_string(), "\"hello\"".to_string())),
-                "{:?}",
-                greeting.properties
-            );
-        }
+        assert_eq!(sections, ["Files", "Migrations", "Keys"]);
+        let greeting = &panel.nodes[2].children[0];
+        assert_eq!(greeting.label, "greeting");
+        assert!(
+            greeting
+                .properties
+                .contains(&("value".to_string(), "\"hello\"".to_string())),
+            "{:?}",
+            greeting.properties
+        );
 
         drop(watching);
         assert!(devtools::app_panels().is_empty());

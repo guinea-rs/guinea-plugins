@@ -138,7 +138,7 @@ impl Page for Traces {
             }
             Some(Go::Link(target @ Target::Key(_))) => {
                 show.emit(Show(target));
-                nav.to(Route::Panels { app });
+                nav.to(Route::Application { app });
             }
         }
     }
