@@ -13,6 +13,7 @@
 
 use super::*;
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
@@ -20,11 +21,10 @@ use std::rc::Rc;
 use guinea_mark::Mark;
 use windows_reactor::{
     AutomationExt, Border, Callback, ChildrenControl, Color, Component, ComponentContext,
-    ContentControl,
-    CornerRadius, Grid, GridChildExt, GridLength, HorizontalAlignment, IntoPayloadCallback,
-    ItemsRepeater, LayoutControl, PointerEventInfo, Rectangle, ScrollBarVisibility, ScrollViewer,
-    TextBlock, Thickness,
-    VerticalAlignment, View, ViewContext, VirtualSource,
+    ContentControl, CornerRadius, Grid, GridChildExt, GridLength, HorizontalAlignment,
+    IntoPayloadCallback, ItemsRepeater, LayoutControl, PointerEventInfo, Rectangle,
+    ScrollBarVisibility, ScrollViewer, TextBlock, Thickness, VerticalAlignment, View, ViewContext,
+    VirtualSource,
 };
 
 use crate::resize::{RESIZE_HANDLE_WIDTH, resize_handle};
@@ -80,6 +80,39 @@ pub struct Resized {
     /// The name of the column's mark.
     pub column: &'static str,
     pub width: f64,
+}
+
+/// The order the columns are drawn in, by the names of their marks.
+///
+/// Plain data, like [`ColumnWidths`]: the table draws with it, and a header
+/// dragged along the row is reported as [`Reordered`] for the owner to apply.
+/// The first column the table was given stays first whatever this says; a
+/// column this does not name keeps its place after the ones it does.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ColumnOrder(Vec<&'static str>);
+
+impl ColumnOrder {
+    /// An order read back from wherever it was kept.
+    pub fn new(names: Vec<&'static str>) -> Self {
+        Self(names)
+    }
+
+    pub fn names(&self) -> &[&'static str] {
+        &self.0
+    }
+
+    /// Applies a move. What a page's `update` calls when [`Reordered`]
+    /// arrives.
+    pub fn apply(&mut self, moved: Reordered) {
+        self.0 = moved.order;
+    }
+}
+
+/// A header dragged past its neighbour: every column, by the name of its
+/// mark, in the order they now go.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reordered {
+    pub order: Vec<&'static str>,
 }
 
 /// How the table paints what is not content: the rows' height, the plate
@@ -230,6 +263,8 @@ pub struct Table<T, C> {
     columns: Vec<ColumnSpec<T, C>>,
     widths: ColumnWidths,
     on_resize: Option<Callback<Resized>>,
+    order: ColumnOrder,
+    on_reorder: Option<Callback<Reordered>>,
     sort: Option<(SortState<C>, Callback<C>)>,
     selection: Option<(Option<usize>, Callback<Option<usize>>)>,
     span: Option<Range<usize>>,
@@ -254,6 +289,8 @@ pub fn table<T: 'static, C: Mark + Clone + PartialEq>(
         rows,
         columns,
         on_resize: None,
+        order: ColumnOrder::default(),
+        on_reorder: None,
         sort: None,
         selection: None,
         span: None,
@@ -295,6 +332,23 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
     /// beats wrapping it in a closure that calls it and throws the answer away.
     pub fn on_resize(mut self, on_resize: impl IntoPayloadCallback<Resized>) -> Self {
         self.on_resize = Some(on_resize.into_payload_callback());
+        self
+    }
+
+    /// The order to draw the columns in. Without it they go in the order they
+    /// were given.
+    pub fn order(mut self, order: &ColumnOrder) -> Self {
+        self.order = order.clone();
+        self
+    }
+
+    /// Where a header dragged along the row goes. With it, a header held down
+    /// and moved past the middle of its neighbour trades places with it, and
+    /// a press that moved is not a click, so it does not sort. The first
+    /// column does not move, and neither does one that fills - its width is
+    /// what the others leave, so there is no middle to pass.
+    pub fn on_reorder(mut self, on_reorder: impl IntoPayloadCallback<Reordered>) -> Self {
+        self.on_reorder = Some(on_reorder.into_payload_callback());
         self
     }
 
@@ -341,6 +395,8 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
             columns,
             widths,
             on_resize,
+            order,
+            on_reorder,
             sort,
             selection,
             span,
@@ -354,28 +410,53 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
             None => (None, None),
         };
 
+        let placed = placed(&columns, &order);
+        let slots = slots(&placed);
+
         // Keyed by column rather than positional, so a column is still itself
-        // when the handles come and go with `on_resize`.
+        // when the handles come and go with `on_resize`. And kept in the order
+        // the columns were given, whatever order they are drawn in: a move
+        // changes which grid column a cell stands in, never which child it
+        // is, so the header being dragged is not rebuilt under the pointer.
         let last = columns.len().saturating_sub(1);
         let reaches_right = columns.iter().any(|column| column.fill);
         let mut header_cells: Vec<(String, View)> = Vec::with_capacity(columns.len() * 2);
         let mut handles: Vec<(String, View)> = Vec::with_capacity(columns.len());
         for (at, column) in columns.iter().enumerate() {
+            let slot = slots[at];
             let rounded = (
-                if at == 0 { corner_radius } else { 0.0 },
-                if at == last && reaches_right {
+                if slot == 0 { corner_radius } else { 0.0 },
+                if slot == last && reaches_right {
                     corner_radius
                 } else {
                     0.0
                 },
             );
-            let railed = on_resize.is_some() && at != last && !column.fill;
+            let railed = on_resize.is_some() && slot != last && !column.fill;
+
+            let moving = on_reorder
+                .as_ref()
+                .filter(|_| slot != 0 && !column.fill)
+                .map(|on_reorder| {
+                    let beside = |slot: usize| {
+                        let neighbour = &columns[placed[slot]];
+                        (slot != 0 && !neighbour.fill).then(|| width_of(&widths, neighbour))
+                    };
+                    Moving {
+                        order: placed.iter().map(|&at| columns[at].id.name()).collect(),
+                        at: slot,
+                        left: beside(slot - 1),
+                        right: (slot < last).then(|| beside(slot + 1)).flatten(),
+                        on_reorder: on_reorder.clone(),
+                    }
+                });
 
             let cell = header_cell(
                 column,
                 sort_state.as_ref(),
                 on_sort.as_ref(),
                 sort_indicator.as_ref(),
+                moving,
                 look.hovered,
                 rounded,
                 railed,
@@ -383,7 +464,7 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
 
             header_cells.push((
                 column.id.name().to_string(),
-                Border::new().grid_column(at as i32).content(cell),
+                Border::new().grid_column(slot as i32).content(cell),
             ));
 
             // Over the column's right edge, not beside it. A handle standing
@@ -397,10 +478,15 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
                 handles.push((
                     format!("{}/resize", column.id.name()),
                     Border::new()
-                        .grid_column(at as i32)
+                        .grid_column(slot as i32)
                         .width(RESIZE_HANDLE_WIDTH)
                         .horizontal_alignment(HorizontalAlignment::Right)
-                        .margin(Thickness::new(0.0, 0.0, 0.5 - RESIZE_HANDLE_WIDTH / 2.0, 0.0))
+                        .margin(Thickness::new(
+                            0.0,
+                            0.0,
+                            0.5 - RESIZE_HANDLE_WIDTH / 2.0,
+                            0.0,
+                        ))
                         .content(handle(
                             column,
                             width_of(&widths, column),
@@ -412,17 +498,14 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
         }
         header_cells.extend(handles);
 
-        let (lengths, least) = lengths(&columns, &widths);
+        let (lengths, least) = lengths(&columns, &placed, &widths);
         let header = Grid::new()
-            .columns(lengths)
+            .columns(lengths.clone())
             .min_width(least)
             .grid_row(0)
             .children((View::keyed_fragment(header_cells),));
 
-        let separator = Rectangle::new()
-            .fill(look.rule)
-            .height(1.0)
-            .grid_row(1);
+        let separator = Rectangle::new().fill(look.rule).height(1.0).grid_row(1);
 
         // No horizontal scrolling. Allowed to scroll across, the viewer
         // measures the rows as wide as they like, and a column that fills
@@ -433,24 +516,28 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
         // rows alike.
         let on_deselect = selection.as_ref().map(|(_, on_select)| on_select.clone());
 
+        let laid = Laid {
+            slots,
+            lengths,
+            least,
+        };
         let lines = ItemsRepeater::new()
             .horizontal_alignment(HorizontalAlignment::Stretch)
-            .virtual_source(rows_source(rows, columns, widths, selection, span, look));
+            .virtual_source(rows_source(rows, columns, laid, selection, span, look));
 
         let content: View = match on_deselect {
-            Some(on_deselect) => Grid::new()
-                .children((
-                    Border::new()
-                        .automation_id(EMPTY_AREA)
-                        .background(TRANSPARENT)
-                        .horizontal_alignment(HorizontalAlignment::Stretch)
-                        .vertical_alignment(VerticalAlignment::Stretch)
-                        .on_pointer_released(Callback::new(move |_: PointerEventInfo| {
-                            let _ = on_deselect.call(None);
-                        }))
-                        .content(View::empty()),
-                    lines,
-                )),
+            Some(on_deselect) => Grid::new().children((
+                Border::new()
+                    .automation_id(EMPTY_AREA)
+                    .background(TRANSPARENT)
+                    .horizontal_alignment(HorizontalAlignment::Stretch)
+                    .vertical_alignment(VerticalAlignment::Stretch)
+                    .on_pointer_released(Callback::new(move |_: PointerEventInfo| {
+                        let _ = on_deselect.call(None);
+                    }))
+                    .content(View::empty()),
+                lines,
+            )),
             None => lines.into(),
         };
 
@@ -494,7 +581,7 @@ const BUCKET: usize = 16;
 fn rows_source<T: 'static, C: Mark>(
     rows: Vec<T>,
     columns: Vec<ColumnSpec<T, C>>,
-    widths: ColumnWidths,
+    laid: Laid,
     selection: Option<(Option<usize>, Callback<Option<usize>>)>,
     span: Option<Range<usize>>,
     look: Look,
@@ -503,6 +590,7 @@ fn rows_source<T: 'static, C: Mark>(
     let claimed = len.next_multiple_of(BUCKET);
     let rows = Rc::new(rows);
     let columns = Rc::new(columns);
+    let laid = Rc::new(laid);
     let (selected, on_select) = match selection {
         Some((at, callback)) => (at, Some(callback)),
         None => (None, None),
@@ -517,7 +605,7 @@ fn rows_source<T: 'static, C: Mark>(
         |index| index,
         move |index| match rows.get(index) {
             Some(row) => View::component::<Pointed>(Line {
-                cells: row_view(row, &columns, &widths),
+                cells: row_view(row, &columns, &laid),
                 index,
                 selected: painted
                     .as_ref()
@@ -642,11 +730,13 @@ impl Component for Pointed {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn header_cell<T, C: Mark + Clone + PartialEq>(
     column: &ColumnSpec<T, C>,
     sort_state: Option<&SortState<C>>,
     on_sort: Option<&Callback<C>>,
     sort_indicator: Option<&Rc<dyn Fn(bool) -> View>>,
+    moving: Option<Moving>,
     hovered: Color,
     rounded: (f64, f64),
     railed: bool,
@@ -690,48 +780,111 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
         HEADER_VERTICAL_PADDING,
     );
 
-    match (column.sortable, on_sort) {
-        (true, Some(on_sort)) => View::component::<PointedHeading<C>>(Heading {
-            content: Border::new().padding(padding).content(content),
-            column: column.id.clone(),
-            on_sort: on_sort.clone(),
-            hovered,
-            rounded,
-            railed,
-        }),
-        _ => Border::new()
+    let sorts = on_sort.filter(|_| column.sortable).cloned();
+    if sorts.is_none() && moving.is_none() {
+        return Border::new()
             .automation_id(column.id.name())
             .padding(padding)
-            .content(content),
+            .content(content);
     }
+
+    View::component::<PointedHeading<C>>(Heading {
+        content: Border::new().padding(padding).content(content),
+        column: column.id.clone(),
+        on_sort: sorts,
+        moving,
+        hovered,
+        rounded,
+        railed,
+    })
 }
+
+/// How far a pressed header has to travel before the press is a drag and not
+/// a click.
+const DRAG_THRESHOLD: f64 = 4.0;
 
 #[derive(Clone, PartialEq)]
 struct Heading<C> {
     content: View,
     column: C,
-    on_sort: Callback<C>,
+    on_sort: Option<Callback<C>>,
+    moving: Option<Moving>,
     hovered: Color,
     rounded: (f64, f64),
     railed: bool,
 }
 
-struct PointedHeading<C>(bool, std::marker::PhantomData<fn() -> C>);
+/// What a header needs to be dragged along the row: every column in the order
+/// drawn, its own slot among them, how wide the neighbours it may trade
+/// places with are - `None` for one it may not pass - and where a move goes.
+#[derive(Clone, PartialEq)]
+struct Moving {
+    order: Vec<&'static str>,
+    at: usize,
+    left: Option<f64>,
+    right: Option<f64>,
+    on_reorder: Callback<Reordered>,
+}
+
+impl Moving {
+    /// The move `delta` from where the drag started calls for, if any: the
+    /// order after it, and how far the header's own place moved with it.
+    fn step(&self, delta: f64) -> Option<(Vec<&'static str>, f64)> {
+        let (to, shift) = match (self.left, self.right) {
+            (_, Some(right)) if delta > right / 2.0 => (self.at + 1, right),
+            (Some(left), _) if delta < -left / 2.0 => (self.at - 1, -left),
+            _ => return None,
+        };
+
+        let mut order = self.order.clone();
+        order.swap(self.at, to);
+        Some((order, shift))
+    }
+}
+
+/// A drag in progress, shared with the pointer callbacks, which run between
+/// renders and have to see what the one before them did.
+#[derive(Default)]
+struct Drag {
+    /// Where in the window the header's place began when pressed, moved on
+    /// by every trade since.
+    anchor: Cell<Option<f64>>,
+    /// The press has travelled far enough to be a drag.
+    moved: Cell<bool>,
+    /// The slot a trade was last reported from. Until the table draws the
+    /// header in its new slot the pointer keeps moving against the old one,
+    /// and would report the same trade again.
+    sent_from: Cell<Option<usize>>,
+}
+
+struct PointedHeading<C> {
+    hovered: bool,
+    drag: Rc<Drag>,
+    _column: std::marker::PhantomData<fn() -> C>,
+}
 
 impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
     type Input = Heading<C>;
     type Message = Pointer;
 
     fn create(_input: &Heading<C>, _cx: &ComponentContext<Self>) -> Self {
-        Self(false, std::marker::PhantomData)
+        Self {
+            hovered: false,
+            drag: Rc::default(),
+            _column: std::marker::PhantomData,
+        }
     }
 
     fn update(&mut self, message: Pointer, _cx: &ComponentContext<Self>) {
-        self.0 = matches!(message, Pointer::Entered);
+        self.hovered = matches!(message, Pointer::Entered);
     }
 
     fn view(&self, heading: &Heading<C>, cx: &mut ViewContext<Self>) -> View {
-        let plate = if self.0 { heading.hovered } else { TRANSPARENT };
+        let plate = if self.hovered {
+            heading.hovered
+        } else {
+            TRANSPARENT
+        };
         let (left, right) = heading.rounded;
         let rail = if heading.railed { 1.0 } else { 0.0 };
 
@@ -746,15 +899,58 @@ impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
 
         let column = heading.column.clone();
         let on_sort = heading.on_sort.clone();
+        let released = self.drag.clone();
 
-        Border::new()
+        let cell = Border::new()
             .automation_id(heading.column.name())
             .background(TRANSPARENT)
             .on_pointer_entered(cx.callback(|_: PointerEventInfo| Pointer::Entered))
             .on_pointer_exited(cx.callback(|_: PointerEventInfo| Pointer::Exited))
             .on_pointer_released(Callback::new(move |_: PointerEventInfo| {
-                if !on_sort.call(column.clone()) {
-                    tracing::debug!(column = column.name(), "sort dropped: no active publication");
+                released.anchor.set(None);
+                if released.moved.replace(false) {
+                    return;
+                }
+                if let Some(on_sort) = &on_sort
+                    && !on_sort.call(column.clone())
+                {
+                    tracing::debug!(
+                        column = column.name(),
+                        "sort dropped: no active publication"
+                    );
+                }
+            }));
+
+        let Some(moving) = heading.moving.clone() else {
+            return cell.content(layered);
+        };
+
+        let pressed = self.drag.clone();
+        let dragged = self.drag.clone();
+        cell.capture_pointer_on_press(true)
+            .on_pointer_pressed(Callback::new(move |info: PointerEventInfo| {
+                pressed.anchor.set(Some(info.window_x));
+                pressed.moved.set(false);
+                pressed.sent_from.set(None);
+            }))
+            .on_pointer_moved(Callback::new(move |info: PointerEventInfo| {
+                let Some(anchor) = dragged.anchor.get().filter(|_| info.is_left_button_pressed)
+                else {
+                    return;
+                };
+                let delta = info.window_x - anchor;
+                if delta.abs() > DRAG_THRESHOLD {
+                    dragged.moved.set(true);
+                }
+                if !dragged.moved.get() || dragged.sent_from.get() == Some(moving.at) {
+                    return;
+                }
+
+                if let Some((order, shift)) = moving.step(delta)
+                    && moving.on_reorder.call(Reordered { order })
+                {
+                    dragged.anchor.set(Some(anchor + shift));
+                    dragged.sent_from.set(Some(moving.at));
                 }
             }))
             .content(layered)
@@ -779,10 +975,12 @@ fn width_of<T, C: Mark>(widths: &ColumnWidths, column: &ColumnSpec<T, C>) -> f64
 /// laid out at it and overflows, the way a row of fixed columns always did.
 fn lengths<T, C: Mark>(
     columns: &[ColumnSpec<T, C>],
+    placed: &[usize],
     widths: &ColumnWidths,
 ) -> (Vec<GridLength>, f64) {
-    let lengths = columns
+    let lengths = placed
         .iter()
+        .map(|&at| &columns[at])
         .map(|column| {
             if column.fill {
                 GridLength::Star(1.0)
@@ -826,7 +1024,42 @@ fn handle<T, C: Mark>(
     .build()
 }
 
-fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], widths: &ColumnWidths) -> View {
+/// Which column is drawn in each slot, left to right, by its index among the
+/// columns given: the first one always first, the rest as `order` names them,
+/// and the ones it does not name after those, as they were given.
+fn placed<T, C: Mark>(columns: &[ColumnSpec<T, C>], order: &ColumnOrder) -> Vec<usize> {
+    let mut placed: Vec<usize> = (0..columns.len()).collect();
+    if let Some((_, rest)) = placed.split_first_mut() {
+        rest.sort_by_key(|&at| {
+            let name = columns[at].id.name();
+            order
+                .names()
+                .iter()
+                .position(|named| *named == name)
+                .unwrap_or(usize::MAX)
+        });
+    }
+    placed
+}
+
+/// The slot each column is drawn in, by its index among the columns given.
+fn slots(placed: &[usize]) -> Vec<usize> {
+    let mut slots = vec![0; placed.len()];
+    for (slot, &at) in placed.iter().enumerate() {
+        slots[at] = slot;
+    }
+    slots
+}
+
+/// Where each column stands and how wide the grid's columns are, worked out
+/// once for the header and every row.
+struct Laid {
+    slots: Vec<usize>,
+    lengths: Vec<GridLength>,
+    least: f64,
+}
+
+fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], laid: &Laid) -> View {
     let cells: Vec<(String, View)> = columns
         .iter()
         .enumerate()
@@ -844,7 +1077,7 @@ fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], widths: &ColumnWi
                     },
                     0.0,
                 ))
-                .grid_column(at as i32)
+                .grid_column(laid.slots[at] as i32)
                 .vertical_alignment(VerticalAlignment::Center)
                 .content((column.cell)(row));
 
@@ -852,10 +1085,94 @@ fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], widths: &ColumnWi
         })
         .collect();
 
-    let (lengths, least) = lengths(columns, widths);
-
     Grid::new()
-        .columns(lengths)
-        .min_width(least)
+        .columns(laid.lengths.clone())
+        .min_width(laid.least)
         .children((View::keyed_fragment(cells),))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum Col {
+        Name,
+        Size,
+        Kind,
+        Date,
+    }
+
+    impl Mark for Col {
+        fn name(&self) -> &'static str {
+            match self {
+                Col::Name => "Name",
+                Col::Size => "Size",
+                Col::Kind => "Kind",
+                Col::Date => "Date",
+            }
+        }
+    }
+
+    fn columns() -> Vec<ColumnSpec<(), Col>> {
+        [Col::Name, Col::Size, Col::Kind, Col::Date]
+            .into_iter()
+            .map(|id| ColumnSpec::new(id, id.name(), 100.0, |_: &()| View::empty()))
+            .collect()
+    }
+
+    fn moving(at: usize, left: Option<f64>, right: Option<f64>) -> Moving {
+        Moving {
+            order: vec!["Name", "Size", "Kind", "Date"],
+            at,
+            left,
+            right,
+            on_reorder: Callback::new(|_: Reordered| {}),
+        }
+    }
+
+    #[test]
+    fn with_no_order_the_columns_go_as_given() {
+        assert_eq!(placed(&columns(), &ColumnOrder::default()), [0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn the_order_places_every_column_but_the_first() {
+        let order = ColumnOrder::new(vec!["Date", "Name", "Kind", "Size"]);
+        assert_eq!(placed(&columns(), &order), [0, 3, 2, 1]);
+    }
+
+    #[test]
+    fn a_column_the_order_does_not_name_goes_after_the_named() {
+        let order = ColumnOrder::new(vec!["Kind", "Gone"]);
+        assert_eq!(placed(&columns(), &order), [0, 2, 1, 3]);
+    }
+
+    #[test]
+    fn slots_are_where_each_column_was_placed() {
+        assert_eq!(slots(&[0, 3, 1, 2]), [0, 2, 3, 1]);
+    }
+
+    #[test]
+    fn a_header_trades_places_past_half_its_neighbour() {
+        let middle = moving(2, Some(80.0), Some(60.0));
+        assert_eq!(middle.step(29.0), None);
+        assert_eq!(
+            middle.step(31.0),
+            Some((vec!["Name", "Size", "Date", "Kind"], 60.0))
+        );
+        assert_eq!(middle.step(-39.0), None);
+        assert_eq!(
+            middle.step(-41.0),
+            Some((vec!["Name", "Kind", "Size", "Date"], -80.0))
+        );
+    }
+
+    #[test]
+    fn a_header_does_not_pass_a_neighbour_it_may_not() {
+        let second = moving(1, None, Some(60.0));
+        assert_eq!(second.step(-500.0), None);
+        let last = moving(3, Some(60.0), None);
+        assert_eq!(last.step(500.0), None);
+    }
 }
