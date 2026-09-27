@@ -18,7 +18,8 @@ use lines::{Go, Line, row, row_height, sentence};
 use streams::Open;
 
 use crate::components;
-use crate::features::editor::contracts::EditorChoice;
+use crate::components::source;
+use crate::features::editor::contracts::{Editor, EditorChoice};
 use crate::features::focus::contracts::{Focus, Show};
 use crate::features::trace::TraceFeature;
 use crate::features::trace::contracts::{Filter, Freeze, OpenStream, Select, Toggle, TraceState};
@@ -77,7 +78,7 @@ impl Page for Traces {
                     .size_range(320.0..=720.0)
                     .default_size(460.0)
                     .frame(components::side())
-                    .show(ui, |ui| detail(ui, record, &mut go))
+                    .show(ui, |ui| detail(ui, record, editor.0, &mut go))
                     .inner;
                 if closed {
                     go = Some(Go::Close);
@@ -236,7 +237,7 @@ fn list(ui: &mut egui::Ui, session: &Session, view: &TraceState, query: &Query, 
 }
 
 /// One record, whole; whether it was closed.
-fn detail(ui: &mut egui::Ui, record: &Record, go: &mut Option<Go>) -> bool {
+fn detail(ui: &mut egui::Ui, record: &Record, editor: Editor, go: &mut Option<Go>) -> bool {
     let closed = components::head(ui, |ui| {
         ui.horizontal_wrapped(|ui| sentence(ui, &record.row.words, go));
 
@@ -247,6 +248,13 @@ fn detail(ui: &mut egui::Ui, record: &Record, go: &mut Option<Go>) -> bool {
                 ui.label(components::dim(format!("took {took}")));
             }
         });
+
+        if let Some(written) = &record.written {
+            ui.horizontal(|ui| {
+                ui.label(components::dim("written at"));
+                source::link(ui, written, editor);
+            });
+        }
     });
 
     let height = row_height(ui);

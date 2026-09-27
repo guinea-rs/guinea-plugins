@@ -278,6 +278,7 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
             level,
             target,
             text: logged,
+            ..
         } => vec![text(format!("{} {target}: {logged}", level.to_lowercase()))],
         TracePoint::Note { text: note } => vec![text(note.clone())],
     }

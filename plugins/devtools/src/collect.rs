@@ -159,6 +159,7 @@ fn point(point: &Point) -> TracePoint {
             level: level.to_string(),
             target: target.to_string(),
             text: text.clone(),
+            written: None,
         },
         Point::Note(text) => TracePoint::Note { text: text.clone() },
     }

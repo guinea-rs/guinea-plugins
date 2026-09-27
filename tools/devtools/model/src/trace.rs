@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 
-use guinea_devtools_protocol::{Span, TracePoint};
+use guinea_devtools_protocol::{Declared, Span, TracePoint};
 use serde::{Deserialize, Serialize};
 
 use crate::clock::Clock;
@@ -366,6 +366,9 @@ pub struct Record {
     /// Whether the tree of consequences stopped at [`TREE_LIMIT`] records or
     /// [`DEPTH_LIMIT`] levels.
     pub cut: bool,
+    /// The line that wrote it, for a log that said.
+    #[serde(default)]
+    pub written: Option<Declared>,
 }
 
 pub fn record(reading: Reading, id: u64, query: &Query) -> Option<Record> {
@@ -381,6 +384,10 @@ pub fn record(reading: Reading, id: u64, query: &Query) -> Option<Record> {
         origins: origins(reading, span, query),
         set_off,
         cut: walk.cut,
+        written: match &span.point {
+            TracePoint::Log { written, .. } => written.clone(),
+            _ => None,
+        },
     })
 }
 

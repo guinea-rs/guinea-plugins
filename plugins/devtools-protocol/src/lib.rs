@@ -321,6 +321,9 @@ pub enum TracePoint {
         level: String,
         target: String,
         text: String,
+        /// The line that logged it, when the event said.
+        #[serde(default)]
+        written: Option<Declared>,
     },
     Note { text: String },
 }
@@ -391,6 +394,7 @@ impl TracePoint {
                 level,
                 target,
                 text,
+                ..
             } => format!("{level} {target}: {text}"),
             TracePoint::Note { text } => text.clone(),
         }
