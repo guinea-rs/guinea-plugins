@@ -2195,6 +2195,7 @@ dependencies = [
 [[package]]
 name = "guicons"
 version = "0.6.0"
+source = "git+https://github.com/uniproc-dev/guicons?rev=44b5d06#44b5d06e102053dda123e681f70fb443c45d5430"
 dependencies = [
  "egui",
  "guicons-macros",
@@ -2203,6 +2204,7 @@ dependencies = [
 [[package]]
 name = "guicons-core"
 version = "0.6.0"
+source = "git+https://github.com/uniproc-dev/guicons?rev=44b5d06#44b5d06e102053dda123e681f70fb443c45d5430"
 dependencies = [
  "dunce",
  "petgraph",
@@ -2215,6 +2217,7 @@ dependencies = [
 [[package]]
 name = "guicons-macros"
 version = "0.6.0"
+source = "git+https://github.com/uniproc-dev/guicons?rev=44b5d06#44b5d06e102053dda123e681f70fb443c45d5430"
 dependencies = [
  "guicons-core",
  "guicons-net",
@@ -2226,6 +2229,7 @@ dependencies = [
 [[package]]
 name = "guicons-net"
 version = "0.6.0"
+source = "git+https://github.com/uniproc-dev/guicons?rev=44b5d06#44b5d06e102053dda123e681f70fb443c45d5430"
 dependencies = [
  "dirs",
  "guicons-core",
@@ -2247,6 +2251,7 @@ dependencies = [
 [[package]]
 name = "guinea"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -2261,6 +2266,7 @@ dependencies = [
 [[package]]
 name = "guinea-app"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2271,6 +2277,7 @@ dependencies = [
 [[package]]
 name = "guinea-codegen"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "guinea-core",
  "guinea-meta-build",
@@ -2286,6 +2293,7 @@ dependencies = [
 [[package]]
 name = "guinea-core"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2395,7 +2403,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.10.19"
+version = "0.10.20"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2409,6 +2417,7 @@ dependencies = [
 [[package]]
 name = "guinea-eframe"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2422,6 +2431,7 @@ dependencies = [
 [[package]]
 name = "guinea-macros"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -2436,6 +2446,7 @@ dependencies = [
 [[package]]
 name = "guinea-mark"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 
 [[package]]
 name = "guinea-meta"
@@ -2454,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.10.19"
+version = "0.10.20"
 dependencies = [
  "anyhow",
  "guinea",
@@ -2475,6 +2486,7 @@ dependencies = [
 [[package]]
 name = "guinea-route-dsl"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2485,6 +2497,7 @@ dependencies = [
 [[package]]
 name = "guinea-router"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2497,6 +2510,7 @@ dependencies = [
 [[package]]
 name = "guinea-trace"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "serde_json",
  "tracing",
@@ -2506,6 +2520,7 @@ dependencies = [
 [[package]]
 name = "guinea-winui"
 version = "0.12.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
 dependencies = [
  "anyhow",
  "guinea-app",

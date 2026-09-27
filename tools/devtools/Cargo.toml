@@ -13,9 +13,9 @@ members = ["model", "api", "hub", "mcp", "xaml-tap"]
 guinea-devtools-model = { path = "model" }
 guinea-devtools-api = { path = "api" }
 guinea-devtools-hub = { path = "hub" }
-guinea = { path = "../../../guinea/crates/guinea", default-features = false, features = ["eframe"] }
-guinea-core = { path = "../../../guinea/crates/guinea-core" }
-guinea-macros = { path = "../../../guinea/crates/guinea-macros" }
+guinea = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.12.0", default-features = false, features = ["eframe"] }
+guinea-core = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.12.0" }
+guinea-macros = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.12.0" }
 guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
 guinea-plugin-store = { path = "../../plugins/store" }
 guinea-plugin-single-instance = { path = "../../plugins/single-instance" }
@@ -24,7 +24,7 @@ serde = { version = "1", features = ["derive"] }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
 egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
-guicons = { path = "../../../guicons/crates/guicons", default-features = false, features = ["macros", "egui"] }
+guicons = { git = "https://github.com/uniproc-dev/guicons", rev = "44b5d06", default-features = false, features = ["macros", "egui"] }
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
 inventory = "0.3"
@@ -37,9 +37,3 @@ guinea-xaml-tap = { path = "xaml-tap" }
 
 [build-dependencies]
 winresource = "0.1"
-
-# The store plugin depends on guinea from git; this keeps one guinea in the
-# build, the one next door.
-[patch."https://github.com/uniproc-dev/guinea"]
-guinea = { path = "../../../guinea/crates/guinea" }
-guinea-core = { path = "../../../guinea/crates/guinea-core" }
