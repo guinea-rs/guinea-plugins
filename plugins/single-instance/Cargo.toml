@@ -1,0 +1,18 @@
+[package]
+name = "guinea-plugin-single-instance"
+description = "Keeps one copy of an application running per user"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+guinea.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
