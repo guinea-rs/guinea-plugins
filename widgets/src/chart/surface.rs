@@ -81,6 +81,14 @@ impl Surface {
         }
     }
 
+    /// Lets the surface and its hold on the device go, for a chart that is off
+    /// screen, and forgets the size, so that data arriving meanwhile draws
+    /// nothing until the image is laid out again.
+    pub fn release(&mut self) {
+        self.drawn = None;
+        self.metrics = None;
+    }
+
     /// Says the image is a new one, which has no surface on it yet.
     pub fn detached(&mut self) {
         if let Some(drawn) = self.drawn.as_mut() {

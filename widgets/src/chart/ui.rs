@@ -13,9 +13,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use windows_reactor::{
-    Border, Callback, ChildrenControl, Color, CompositionHostEvent, ContentControl,
-    ElementObservation, ElementRef, Grid, Image, IntoPayloadCallback, PointerEventInfo, Stretch,
-    View,
+    Border, Callback, ChildrenControl, Color, Component, ComponentContext, CompositionHostEvent,
+    ContentControl, ElementObservation, ElementRef, Grid, Image, IntoPayloadCallback,
+    PointerEventInfo, Stretch, View, ViewContext,
 };
 
 use super::hover::hover_at;
@@ -140,9 +140,11 @@ impl Chart {
     /// `on_hover` takes what every reactor widget takes: a plain closure, or a
     /// `Callback` a segment already made with `cx.on(..)`.
     pub fn view(&self, on_hover: impl IntoPayloadCallback<Option<HoverInfo>>) -> View {
-        let surface = Grid::new().element_ref(&self.host).children((Image::new()
-            .element_ref(&self.image)
-            .stretch(Stretch::Fill),));
+        let surface = View::component::<Mount>(Mounted {
+            host: self.host.clone(),
+            image: self.image.clone(),
+            surface: self.surface.clone(),
+        });
 
         let on_hover = on_hover.into_payload_callback();
         let moved_over = self.series.clone();
@@ -173,5 +175,43 @@ impl Chart {
                 let _ = on_hover.call(None);
             }))
             .content(surface)
+    }
+}
+
+/// The chart's image while it is on screen. Taken off, it lets the surface
+/// go, and the shared device with it once no other chart holds it - the page
+/// keeps the [`Chart`], so nothing else would.
+#[derive(Clone)]
+struct Mounted {
+    host: ElementRef<Grid>,
+    image: ElementRef<Image>,
+    surface: Rc<RefCell<Surface>>,
+}
+
+impl PartialEq for Mounted {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.surface, &other.surface)
+    }
+}
+
+struct Mount;
+
+impl Component for Mount {
+    type Input = Mounted;
+    type Message = ();
+
+    fn create(_input: &Mounted, _cx: &ComponentContext<Self>) -> Self {
+        Self
+    }
+
+    fn view(&self, mounted: &Mounted, cx: &mut ViewContext<Self>) -> View {
+        let surface = mounted.surface.clone();
+        cx.use_effect("surface", (), move || {
+            Some(Box::new(move || surface.borrow_mut().release()))
+        });
+
+        Grid::new().element_ref(&mounted.host).children((Image::new()
+            .element_ref(&mounted.image)
+            .stretch(Stretch::Fill),))
     }
 }
