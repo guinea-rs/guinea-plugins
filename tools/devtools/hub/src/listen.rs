@@ -75,6 +75,15 @@ async fn listen(out: Sender<Incoming>, queued: UnboundedReceiver<(u64, Command)>
     let remotes = Remotes::default();
     compio::runtime::spawn(deliver(remotes.clone(), queued)).detach();
 
+    let endpoint = guinea_devtools_protocol::endpoint();
+    let listener = match endpoint.listen().await {
+        Ok(listener) => listener,
+        Err(report) => {
+            let _ = out.send(Incoming::Failed(format!("{endpoint}: {report:?}")));
+            return;
+        }
+    };
+
     let secret = match key::create() {
         Ok(secret) => secret,
         Err(error) => {
@@ -84,15 +93,6 @@ async fn listen(out: Sender<Incoming>, queued: UnboundedReceiver<(u64, Command)>
     };
 
     let mode = key::handshake(secret);
-
-    let endpoint = guinea_devtools_protocol::endpoint();
-    let listener = match endpoint.listen().await {
-        Ok(listener) => listener,
-        Err(report) => {
-            let _ = out.send(Incoming::Failed(format!("{endpoint}: {report:?}")));
-            return;
-        }
-    };
     let _ = out.send(Incoming::Listening(endpoint.to_string()));
 
     let mut next = 1;

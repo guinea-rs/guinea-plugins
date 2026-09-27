@@ -10,6 +10,8 @@ mod theme;
 use clap::Parser;
 use guinea::app::GuineaApp;
 use guinea::eframe::run;
+use guinea_devtools_protocol::IDENTIFIER;
+use guinea_plugin_single_instance::SingleInstancePlugin;
 use routes::Route;
 
 /// Looks inside running guinea applications.
@@ -37,6 +39,11 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     if arguments.headless {
+        let Some(_instance) = guinea_plugin_single_instance::claim(IDENTIFIER)? else {
+            println!("guinea devtools are already running");
+            return Ok(());
+        };
+
         let hub = guinea_devtools_hub::Hub::start();
         let access = guinea_devtools_hub::serve(hub)?;
         println!("guinea devtools, without a window: {}", access.url);
@@ -49,10 +56,11 @@ fn main() -> anyhow::Result<()> {
     let app = GuineaApp::new()
         .meta(guinea::app::AppMeta::new(
             "guinea devtools",
-            "dev.uniproc.guinea.devtools",
+            IDENTIFIER,
             env!("CARGO_PKG_VERSION"),
             "uniproc",
         ))
+        .plugin(SingleInstancePlugin::new())
         .plugin(
             guinea_plugin_store::StorePlugin::for_app("guinea-devtools", "settings")
                 .backend(amethystate::store::builder::Backend::Json),

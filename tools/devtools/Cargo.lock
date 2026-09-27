@@ -2322,6 +2322,7 @@ dependencies = [
  "guinea-devtools-model",
  "guinea-devtools-protocol",
  "guinea-macros",
+ "guinea-plugin-single-instance",
  "guinea-plugin-store",
  "guinea-xaml-tap",
  "inventory",
@@ -2449,6 +2450,15 @@ dependencies = [
  "serde",
  "toml 0.8.23",
  "winresource",
+]
+
+[[package]]
+name = "guinea-plugin-single-instance"
+version = "0.10.15"
+dependencies = [
+ "anyhow",
+ "guinea",
+ "tracing",
 ]
 
 [[package]]

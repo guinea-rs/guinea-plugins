@@ -33,6 +33,10 @@ pub fn endpoint() -> Endpoint {
     Endpoint::for_service("guinea", "devtools").expect("a valid, constant service name")
 }
 
+/// Devtools' application identifier, which their single-instance lock is
+/// named after.
+pub const IDENTIFIER: &str = "dev.uniproc.guinea.devtools";
+
 /// One message from an application.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
