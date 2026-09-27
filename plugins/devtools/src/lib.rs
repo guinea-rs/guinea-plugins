@@ -15,6 +15,7 @@
 //! atomic load per tick.
 
 mod collect;
+mod launch;
 mod link;
 mod profiler;
 
@@ -30,6 +31,7 @@ use guinea_devtools_protocol::{AppInfo, Capability, Report};
 
 pub struct DevToolsPlugin {
     every_ms: u64,
+    launch: bool,
 }
 
 impl Default for DevToolsPlugin {
@@ -40,12 +42,23 @@ impl Default for DevToolsPlugin {
 
 impl DevToolsPlugin {
     pub fn new() -> Self {
-        Self { every_ms: 250 }
+        Self {
+            every_ms: 250,
+            launch: false,
+        }
     }
 
     /// How often a snapshot is taken. 250 ms unless said otherwise.
     pub fn every(mut self, millis: u64) -> Self {
         self.every_ms = millis.max(16);
+        self
+    }
+
+    /// Starts devtools when they are not running, once, as the application
+    /// starts. The binary is `GUINEA_DEVTOOLS_BIN`, or `guinea-devtools` from
+    /// the `PATH`. Off unless asked for.
+    pub fn launch(mut self, on: bool) -> Self {
+        self.launch = on;
         self
     }
 }
@@ -81,7 +94,7 @@ impl Plugin for DevToolsPlugin {
         }));
 
         let connected = Arc::new(AtomicBool::new(false));
-        let mut outbox = link::spawn(info.clone(), connected.clone());
+        let mut outbox = link::spawn(info.clone(), connected.clone(), self.launch);
         let started = Instant::now();
 
         let traces = Rc::new(RefCell::new(collect::Traces::default()));

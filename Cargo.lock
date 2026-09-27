@@ -1174,6 +1174,7 @@ dependencies = [
  "guinea",
  "guinea-core",
  "guinea-devtools-protocol",
+ "guinea-plugin-single-instance",
  "ogurpchik",
  "puffin_http",
  "tracing",
@@ -1205,6 +1206,16 @@ dependencies = [
  "syn 2.0.119",
  "tempfile",
  "walkdir",
+]
+
+[[package]]
+name = "guinea-plugin-single-instance"
+version = "0.10.15"
+dependencies = [
+ "anyhow",
+ "guinea",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

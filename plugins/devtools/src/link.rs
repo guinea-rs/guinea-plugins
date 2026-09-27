@@ -30,14 +30,15 @@ impl Outbox {
 }
 
 /// Starts the link. `connected` is true while devtools are there, so that
-/// nothing is collected for nobody.
-pub fn spawn(info: Arc<Mutex<AppInfo>>, connected: Arc<AtomicBool>) -> Outbox {
+/// nothing is collected for nobody. With `launch`, the first attempt that
+/// finds nobody starts devtools.
+pub fn spawn(info: Arc<Mutex<AppInfo>>, connected: Arc<AtomicBool>, launch: bool) -> Outbox {
     let (sender, receiver) = channel(QUEUE);
     let answers = sender.clone();
     let spawned = std::thread::Builder::new()
         .name("guinea-devtools".into())
         .spawn(move || match compio::runtime::Runtime::new() {
-            Ok(runtime) => runtime.block_on(run(info, connected, receiver, answers)),
+            Ok(runtime) => runtime.block_on(run(info, connected, launch, receiver, answers)),
             Err(error) => tracing::warn!(%error, "the devtools link has no runtime"),
         });
     if let Err(error) = spawned {
@@ -119,6 +120,7 @@ impl peer::Server for Inbound {
 async fn run(
     info: Arc<Mutex<AppInfo>>,
     connected: Arc<AtomicBool>,
+    mut launch: bool,
     mut reports: Receiver<Report>,
     answers: Sender<Report>,
 ) {
@@ -139,6 +141,9 @@ async fn run(
             Err(_) => None,
         };
         let Some(session) = session else {
+            if std::mem::take(&mut launch) {
+                crate::launch::start();
+            }
             if !idle(&mut reports).await {
                 return;
             }
