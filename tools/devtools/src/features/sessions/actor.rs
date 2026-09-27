@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use guinea_core::actor::Context;
+use guinea_core::actor::Cx;
 use guinea_core::feature::Push;
 use guinea_devtools_hub::Hub;
 use guinea_macros::{actor, handler};
@@ -37,7 +37,7 @@ actor! {
 }
 
 #[handler]
-fn listen(this: &mut SessionsActor, ctx: Context<SessionsActor, Listen>) {
+fn listen(this: &mut SessionsActor, _: Listen, cx: Cx) {
     if this.changes.is_some() {
         return;
     }
@@ -56,15 +56,15 @@ fn listen(this: &mut SessionsActor, ctx: Context<SessionsActor, Listen>) {
 
     let changes = Arc::new(Mutex::new(changes));
     this.changes = Some(changes.clone());
-    ctx.spawn_bg::<Changed, _>(wait(changes));
+    cx.spawn_bg::<Changed, _>(wait(changes));
 }
 
 #[handler]
-fn changed(this: &mut SessionsActor, ctx: Context<SessionsActor, Changed>) {
+fn changed(this: &mut SessionsActor, _: Changed, cx: Cx) {
     this.push.send(Change::Changed);
 
     if let Some(changes) = this.changes.clone() {
-        ctx.spawn_bg::<Changed, _>(wait(changes));
+        cx.spawn_bg::<Changed, _>(wait(changes));
     }
 }
 

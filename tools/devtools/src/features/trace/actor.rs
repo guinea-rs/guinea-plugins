@@ -1,4 +1,3 @@
-use guinea_core::actor::Context;
 use guinea_core::feature::Push;
 use guinea_macros::{actor, handler};
 
@@ -24,23 +23,19 @@ actor! {
 }
 
 #[handler]
-fn open_stream(this: &mut TraceActor, ctx: Context<TraceActor, OpenStream>) {
-    let stream = ctx.msg.0;
+fn open_stream(this: &mut TraceActor, OpenStream(stream): OpenStream) {
     let _ = this.settings.stream().set(stream.to_string());
     this.push.send(Change::Stream(stream));
 }
 
 #[handler]
-fn filter(this: &mut TraceActor, ctx: Context<TraceActor, Filter>) {
-    let query = ctx.msg.0;
+fn filter(this: &mut TraceActor, Filter(query): Filter) {
     let _ = this.settings.query().set(query.clone());
     this.push.send(Change::Query(query));
 }
 
 #[handler]
-fn toggle(this: &mut TraceActor, ctx: Context<TraceActor, Toggle>) {
-    let kind = ctx.msg.0;
-
+fn toggle(this: &mut TraceActor, Toggle(kind): Toggle) {
     let mut hidden = this.settings.hidden().get();
     match hidden.iter().position(|named| named == kind.name()) {
         Some(at) => {
@@ -54,11 +49,11 @@ fn toggle(this: &mut TraceActor, ctx: Context<TraceActor, Toggle>) {
 }
 
 #[handler]
-fn freeze(this: &mut TraceActor, ctx: Context<TraceActor, Freeze>) {
-    this.push.send(Change::Freeze(ctx.msg.0));
+fn freeze(this: &mut TraceActor, Freeze(kept): Freeze) {
+    this.push.send(Change::Freeze(kept));
 }
 
 #[handler]
-fn select(this: &mut TraceActor, ctx: Context<TraceActor, Select>) {
-    this.push.send(Change::Select(ctx.msg.0));
+fn select(this: &mut TraceActor, Select(selected): Select) {
+    this.push.send(Change::Select(selected));
 }

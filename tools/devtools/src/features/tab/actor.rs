@@ -1,4 +1,3 @@
-use guinea_core::actor::Context;
 use guinea_core::feature::Push;
 use guinea_macros::{actor, handler};
 
@@ -24,8 +23,8 @@ actor! {
 }
 
 #[handler]
-fn opened(this: &mut LastTabActor, ctx: Context<LastTabActor, Opened>) {
-    let title = ctx.msg.0.to_string();
+fn opened(this: &mut LastTabActor, Opened(title): Opened) {
+    let title = title.to_string();
     let _ = this.settings.tab().set(title.clone());
     this.push.send(title);
 }

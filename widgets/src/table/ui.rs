@@ -674,7 +674,6 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
                     Border::new().grid_column(0).content(base),
                     Border::new().grid_column(1).content(indicator),
                 ))
-                .into()
         }
         None => base,
     };
@@ -849,7 +848,7 @@ fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], widths: &ColumnWi
                 .vertical_alignment(VerticalAlignment::Center)
                 .content((column.cell)(row));
 
-            (column.id.name().to_string(), cell.into())
+            (column.id.name().to_string(), cell)
         })
         .collect();
 
@@ -859,5 +858,4 @@ fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], widths: &ColumnWi
         .columns(lengths)
         .min_width(least)
         .children((View::keyed_fragment(cells),))
-        .into()
 }

@@ -1,4 +1,3 @@
-use guinea_core::actor::Context;
 use guinea_core::feature::Push;
 use guinea_macros::{actor, handler};
 
@@ -22,11 +21,11 @@ actor! {
 }
 
 #[handler]
-fn select(this: &mut NativeActor, ctx: Context<NativeActor, Select>) {
-    this.push.send(Changed::Selected(ctx.msg.0));
+fn select(this: &mut NativeActor, Select(selected): Select) {
+    this.push.send(Changed::Selected(selected));
 }
 
 #[handler]
-fn picking(this: &mut NativeActor, ctx: Context<NativeActor, Picking>) {
-    this.push.send(Changed::Picking(ctx.msg.0));
+fn picking(this: &mut NativeActor, Picking(on): Picking) {
+    this.push.send(Changed::Picking(on));
 }

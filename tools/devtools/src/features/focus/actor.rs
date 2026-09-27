@@ -1,4 +1,3 @@
-use guinea_core::actor::Context;
 use guinea_core::feature::Push;
 use guinea_macros::{actor, handler};
 
@@ -22,6 +21,6 @@ actor! {
 }
 
 #[handler]
-fn show(this: &mut FocusActor, ctx: Context<FocusActor, Show>) {
-    this.push.send(Change::Show(ctx.msg.0));
+fn show(this: &mut FocusActor, Show(target): Show) {
+    this.push.send(Change::Show(target));
 }

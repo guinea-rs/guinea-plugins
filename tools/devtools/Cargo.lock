@@ -2250,8 +2250,8 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -2265,8 +2265,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2276,8 +2276,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "guinea-core",
  "guinea-meta-build",
@@ -2292,8 +2292,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2416,8 +2416,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2430,8 +2430,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -2445,8 +2445,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 
 [[package]]
 name = "guinea-meta"
@@ -2485,8 +2485,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2496,8 +2496,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2509,8 +2509,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "serde_json",
  "tracing",
@@ -2519,8 +2519,8 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.12.0"
-source = "git+https://github.com/uniproc-dev/guinea?tag=v0.12.0#be6e257397bae81dae6331ad14b286520d036988"
+version = "0.13.0"
+source = "git+https://github.com/uniproc-dev/guinea?tag=v0.13.0#0c3c9111708586284113526da6d5eec3d85f153d"
 dependencies = [
  "anyhow",
  "guinea-app",

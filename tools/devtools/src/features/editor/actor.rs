@@ -1,4 +1,3 @@
-use guinea_core::actor::Context;
 use guinea_core::feature::Push;
 use guinea_macros::{actor, handler};
 
@@ -24,8 +23,7 @@ actor! {
 }
 
 #[handler]
-fn pick_editor(this: &mut EditorActor, ctx: Context<EditorActor, PickEditor>) {
-    let picked = ctx.msg.0;
+fn pick_editor(this: &mut EditorActor, PickEditor(picked): PickEditor) {
     let _ = this.settings.editor().set(picked.key().to_string());
     this.push.send(picked);
 }
