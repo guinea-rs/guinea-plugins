@@ -10,7 +10,7 @@ publish = false
 guinea-devtools-api = { path = "../api" }
 guinea-devtools-model = { path = "../model" }
 guinea-devtools-protocol = { path = "../../../plugins/devtools-protocol" }
-ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.6.4" }
+ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.7.0" }
 capnp = "0.27"
 compio = { version = "0.18.0", features = ["runtime"] }
 futures = "0.3"

@@ -132,7 +132,7 @@ async fn run(
                 connect_session::<peer::Client, _>(
                     &endpoint,
                     &key::handshake(secret),
-                    guinea_devtools_protocol::schema(),
+                    guinea_devtools_protocol::PROTOCOL,
                     inbound,
                 )
                 .await

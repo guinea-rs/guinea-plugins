@@ -17,13 +17,14 @@ pub mod devtools_capnp {
     include!(concat!(env!("OUT_DIR"), "/devtools_capnp.rs"));
 }
 
-include!(concat!(env!("OUT_DIR"), "/schema_id.rs"));
+/// The protocol both ends name in the handshake: the id of
+/// `schema/devtools.capnp` and a version kept by hand. Something added - a
+/// field with a default, a variant nobody older is sent - bumps the minor;
+/// anything an older peer would misread bumps the major, and peers of
+/// different majors refuse each other.
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 1, 0, 0);
 
-/// The schema both ends name in the handshake.
-pub fn schema() -> ogurpchik::auth::handshake::SchemaId {
-    ogurpchik::auth::handshake::SchemaId(DEVTOOLS_SCHEMA_ID)
-}
-
+use ogurpchik::auth::handshake::Protocol;
 use ogurpchik::endpoint::Endpoint;
 use serde::{Deserialize, Serialize};
 
