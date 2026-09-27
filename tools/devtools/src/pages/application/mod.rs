@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use guinea::eframe::{Page, PageCx};
 use guinea::feature::FeatureInitContext;
-use guinea_devtools_model::panels::{self, Line, Listed, Place};
+use guinea_devtools_model::panels::{self, Entry, Line, Listed, Place};
 use guinea_devtools_protocol::Node;
 
 use crate::components;
@@ -21,8 +21,10 @@ use crate::features::sessions::contracts::Live;
 /// feature's, which remembers them.
 #[derive(Default)]
 pub struct Application {
-    /// The rows a click closed; every other row is open.
+    /// The rows of the open section a click closed; every other row is open.
     closed: HashSet<Place>,
+    /// The panels and folders of the side list a click closed.
+    folded: HashSet<Entry>,
     /// The language picked; `None` reads messages in the one the application
     /// shows.
     language: Option<String>,
@@ -105,7 +107,7 @@ impl Page for Application {
             .size_range(160.0..=360.0)
             .default_size(220.0)
             .frame(components::side())
-            .show(ui, |ui| sections(ui, &listed, &section_place, &mut self.closed))
+            .show(ui, |ui| sections(ui, &listed, &section_place, &mut self.folded))
             .inner;
         if let Some(place) = chosen {
             dispatch.emit(Open(place.panel));
@@ -155,24 +157,36 @@ impl Page for Application {
     }
 }
 
-/// The panels with their sections; the section clicked, if any.
+/// The panels with their sections, in folders where their names are paths;
+/// the section clicked, if any. A click on a panel or a folder folds it.
 fn sections(
     ui: &mut egui::Ui,
     listed: &[Listed],
     open: &Place,
-    closed: &mut HashSet<Place>,
+    folded: &mut HashSet<Entry>,
 ) -> Option<Place> {
-    let lines = panels::sections(listed, closed, Some(open));
-    let clicked = show(ui, &lines, Some(open), None, closed)?;
-
-    if clicked.path.is_empty() {
-        if !closed.remove(&clicked) {
-            closed.insert(clicked);
+    let rows = panels::sections(listed, folded, Some(open));
+    let answer = tree::show(ui, rows.len(), None, |ui, index| {
+        let row = &rows[index];
+        tree::Line {
+            depth: row.depth,
+            branch: row.branch,
+            open: row.open,
+            selected: matches!(&row.entry, Entry::Section(place) if place == open),
+            text: components::line(ui, &row.words),
         }
-        return None;
-    }
+    });
 
-    Some(clicked)
+    let clicked = answer.toggled.or(answer.clicked)?;
+    match &rows[clicked].entry {
+        Entry::Section(place) => Some(place.clone()),
+        entry => {
+            if !folded.remove(entry) {
+                folded.insert(entry.clone());
+            }
+            None
+        }
+    }
 }
 
 /// The languages messages can be read in; `picked` becomes the one chosen.

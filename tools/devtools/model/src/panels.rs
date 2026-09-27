@@ -140,44 +140,112 @@ fn property<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
         .map(|(_, value)| value.as_str())
 }
 
+/// What a row of the side list stands for.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Entry {
+    Panel(String),
+    /// The sections of a panel whose names start with `prefix`: `pages/`.
+    Folder { panel: String, prefix: String },
+    Section(Place),
+}
+
+/// One row of the side list.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Side {
+    pub depth: usize,
+    pub entry: Entry,
+    pub branch: bool,
+    pub open: bool,
+    pub words: Vec<Word>,
+}
+
 /// Every panel as a row with its sections under it: what the side list
-/// shows. A panel in `closed` hides its sections, except the one `open` is.
-pub fn sections(listed: &[Listed], closed: &HashSet<Place>, open: Option<&Place>) -> Vec<Line> {
-    let mut lines = Vec::new();
+/// shows. A section named like a path, `pages/processes.ftl`, sits in a
+/// folder of its own. A row in `closed` hides what is under it, except on
+/// the way to the section `open` is.
+pub fn sections(listed: &[Listed], closed: &HashSet<Entry>, open: Option<&Place>) -> Vec<Side> {
+    let mut rows = Vec::new();
 
     for listed in listed {
-        let place = Place {
-            panel: listed.key.clone(),
-            path: Vec::new(),
-        };
+        let entry = Entry::Panel(listed.key.clone());
         let branch = !listed.panel.nodes.is_empty();
-        let shown = branch && (leads_to(&place, open) || !closed.contains(&place));
-        lines.push(Line {
+        let holds_open = open.is_some_and(|open| open.panel == listed.key);
+        let shown = branch && (holds_open || !closed.contains(&entry));
+        rows.push(Side {
             depth: 0,
-            place,
+            entry,
             branch,
             open: shown,
             words: vec![Word::new(&listed.title, Tone::Accent)],
         });
-        if !shown {
-            continue;
-        }
-
-        for (index, section) in listed.panel.nodes.iter().enumerate() {
-            lines.push(Line {
-                depth: 1,
-                place: Place {
-                    panel: listed.key.clone(),
-                    path: vec![index],
-                },
-                branch: false,
-                open: false,
-                words: vec![Word::new(&section.label, Tone::Plain)],
-            });
+        if shown {
+            folder(&mut rows, listed, "", 1, closed, open);
         }
     }
 
-    lines
+    rows
+}
+
+/// The sections of `listed` under `prefix`, and the folders their names
+/// make below it, in the order the sections come.
+fn folder(
+    rows: &mut Vec<Side>,
+    listed: &Listed,
+    prefix: &str,
+    depth: usize,
+    closed: &HashSet<Entry>,
+    open: Option<&Place>,
+) {
+    let mut seen: Vec<&str> = Vec::new();
+
+    for (index, section) in listed.panel.nodes.iter().enumerate() {
+        let Some(rest) = section.label.strip_prefix(prefix) else {
+            continue;
+        };
+
+        let Some((name, _)) = rest.split_once('/') else {
+            rows.push(Side {
+                depth,
+                entry: Entry::Section(Place {
+                    panel: listed.key.clone(),
+                    path: vec![index],
+                }),
+                branch: false,
+                open: false,
+                words: vec![Word::new(rest, Tone::Plain)],
+            });
+            continue;
+        };
+        if seen.contains(&name) {
+            continue;
+        }
+        seen.push(name);
+
+        let inner = format!("{prefix}{name}/");
+        let holds_open = open.is_some_and(|open| {
+            open.panel == listed.key
+                && open
+                    .path
+                    .first()
+                    .and_then(|at| listed.panel.nodes.get(*at))
+                    .is_some_and(|section| section.label.starts_with(&inner))
+        });
+        let entry = Entry::Folder {
+            panel: listed.key.clone(),
+            prefix: inner.clone(),
+        };
+        let shown = holds_open || !closed.contains(&entry);
+        rows.push(Side {
+            depth,
+            entry,
+            branch: true,
+            open: shown,
+            words: vec![Word::new(name, Tone::Plain)],
+        });
+        if shown {
+            folder(rows, listed, &inner, depth + 1, closed, open);
+        }
+    }
 }
 
 /// The nodes of one section, top to bottom, the section itself left out.
@@ -346,16 +414,18 @@ mod tests {
             .collect()
     }
 
+    fn sides(rows: &[Side]) -> Vec<(usize, String)> {
+        rows.iter()
+            .map(|row| (row.depth, crate::words::text(&row.words)))
+            .collect()
+    }
+
     #[test]
     fn the_side_list_is_the_panels_with_their_sections() {
         let listed = application();
-        let store = Place {
-            panel: "guinea.store".into(),
-            path: Vec::new(),
-        };
 
         assert_eq!(
-            shown(&sections(&listed, &HashSet::new(), None)),
+            sides(&sections(&listed, &HashSet::new(), None)),
             [
                 (0, "Store".to_string()),
                 (1, "Keys".to_string()),
@@ -364,7 +434,7 @@ mod tests {
             ]
         );
 
-        let closed = HashSet::from([store]);
+        let closed = HashSet::from([Entry::Panel("guinea.store".into())]);
         assert_eq!(sections(&listed, &closed, None).len(), 3);
 
         let keys = Place {
@@ -372,6 +442,47 @@ mod tests {
             path: vec![0],
         };
         assert_eq!(sections(&listed, &closed, Some(&keys)).len(), 4, "the open section stays in view");
+    }
+
+    #[test]
+    fn a_section_named_like_a_path_sits_in_its_folder() {
+        let files = ["layouts/shell.ftl", "pages/processes.ftl", "pages/wsl.ftl", "taskmgr.ftl"];
+        let listed = vec![Listed {
+            key: "guinea.l10n".into(),
+            title: "Localization".into(),
+            panel: Panel {
+                id: "guinea.l10n".into(),
+                title: "Localization".into(),
+                nodes: files.iter().map(|file| node(file, "file", &[], vec![])).collect(),
+            },
+        }];
+
+        assert_eq!(
+            sides(&sections(&listed, &HashSet::new(), None)),
+            [
+                (0, "Localization".to_string()),
+                (1, "layouts".to_string()),
+                (2, "shell.ftl".to_string()),
+                (1, "pages".to_string()),
+                (2, "processes.ftl".to_string()),
+                (2, "wsl.ftl".to_string()),
+                (1, "taskmgr.ftl".to_string()),
+            ]
+        );
+
+        let pages = Entry::Folder {
+            panel: "guinea.l10n".into(),
+            prefix: "pages/".into(),
+        };
+        let closed = HashSet::from([pages]);
+        assert_eq!(sections(&listed, &closed, None).len(), 5);
+
+        let wsl = Place {
+            panel: "guinea.l10n".into(),
+            path: vec![2],
+        };
+        let rows = sections(&listed, &closed, Some(&wsl));
+        assert!(rows.iter().any(|row| row.entry == Entry::Section(wsl.clone())), "the open section stays in view");
     }
 
     #[test]
