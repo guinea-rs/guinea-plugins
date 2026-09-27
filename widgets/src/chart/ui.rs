@@ -1,9 +1,8 @@
-//! The chart widget: a canvas the page owns, and a pointer over it.
+//! The chart widget: an image the page owns, and a pointer over it.
 //!
-//! This used to be 250 lines of composition plumbing - a graphics device, a
-//! drawing surface, a sprite visual, an attach/resize/detach dance against a
-//! host element - because there was nothing to do it for us. `windows-canvas`
-//! has a `reactor` feature now, and all of that is one call.
+//! The image shows a surface on the device every chart on the thread shares
+//! (see `surface`), drawn when the data moves or the image changes size. The
+//! grid around it reports that size.
 //!
 //! What is left is what was ours to begin with: when to redraw, and where the
 //! pointer is. Both live on [`Chart`], which the page keeps as a field - a
@@ -13,14 +12,16 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use windows_canvas::{Invalidator, canvas_invalidated};
 use windows_reactor::{
-    Border, Callback, Color, ContentControl, IntoPayloadCallback, PointerEventInfo, View,
+    Border, Callback, ChildrenControl, Color, CompositionHostEvent, ContentControl,
+    ElementObservation, ElementRef, Grid, Image, IntoPayloadCallback, PointerEventInfo, Stretch,
+    View,
 };
 
 use super::hover::hover_at;
 use super::model::{ChartRevision, HoverInfo, LineChartOptions, Series, chart_revision};
 use super::paint;
+use super::surface::{Metrics, Surface};
 
 /// A line chart, and what it needs between draws.
 ///
@@ -36,7 +37,10 @@ pub struct Chart {
     /// Where the pointer was last seen, or `None` when it is away.
     pointer: Rc<Cell<Option<f32>>>,
     drawn: Cell<Option<ChartRevision>>,
-    invalidator: Invalidator,
+    host: ElementRef<Grid>,
+    image: ElementRef<Image>,
+    surface: Rc<RefCell<Surface>>,
+    _sized: ElementObservation,
 }
 
 impl Default for Chart {
@@ -47,13 +51,54 @@ impl Default for Chart {
 
 impl Chart {
     pub fn new() -> Self {
+        let series = Rc::new(RefCell::new(Vec::new()));
+        let options = Rc::new(RefCell::new(LineChartOptions::default()));
+        let width = Rc::new(Cell::new(0.0));
+        let host = ElementRef::new();
+        let image = ElementRef::new();
+        let surface = Rc::new(RefCell::new(Surface::new(image.clone())));
+
+        let sized = host.observe_composition_host({
+            let series = series.clone();
+            let options = options.clone();
+            let measured = width.clone();
+            let surface = surface.clone();
+
+            move |event| {
+                let (metrics, rebound) = match event {
+                    CompositionHostEvent::Ready {
+                        width, height, scale, ..
+                    } => (Metrics::new(width, height, scale), true),
+                    CompositionHostEvent::Metrics {
+                        width,
+                        height,
+                        scale,
+                    } => (Metrics::new(width, height, scale), false),
+                };
+                measured.set(metrics.width);
+
+                let mut surface = surface.borrow_mut();
+                if rebound {
+                    surface.detached();
+                }
+                if surface.resize(metrics) || rebound {
+                    surface.draw(|session, device, size| {
+                        paint::render(session, device, size, &series.borrow(), &options.borrow());
+                    });
+                }
+            }
+        });
+
         Self {
-            series: Rc::new(RefCell::new(Vec::new())),
-            options: Rc::new(RefCell::new(LineChartOptions::default())),
-            width: Rc::new(Cell::new(0.0)),
+            series,
+            options,
+            width,
             pointer: Rc::new(Cell::new(None)),
             drawn: Cell::new(None),
-            invalidator: Invalidator::new(),
+            host,
+            image,
+            surface,
+            _sized: sized,
         }
     }
 
@@ -71,7 +116,11 @@ impl Chart {
 
         if self.drawn.get() != Some(revision) {
             self.drawn.set(Some(revision));
-            self.invalidator.invalidate();
+
+            let (series, options) = (self.series.borrow(), self.options.borrow());
+            self.surface.borrow_mut().draw(|session, device, size| {
+                paint::render(session, device, size, &series, &options);
+            });
         }
     }
 
@@ -91,15 +140,9 @@ impl Chart {
     /// `on_hover` takes what every reactor widget takes: a plain closure, or a
     /// `Callback` a segment already made with `cx.on(..)`.
     pub fn view(&self, on_hover: impl IntoPayloadCallback<Option<HoverInfo>>) -> View {
-        let painting = self.series.clone();
-        let options = self.options.clone();
-        let measured = self.width.clone();
-
-        let surface = canvas_invalidated(&self.invalidator, move |draw| {
-            measured.set(draw.width);
-            paint::render(draw, &painting.borrow(), &options.borrow());
-            Ok(())
-        });
+        let surface = Grid::new().element_ref(&self.host).children((Image::new()
+            .element_ref(&self.image)
+            .stretch(Stretch::Fill),));
 
         let on_hover = on_hover.into_payload_callback();
         let moved_over = self.series.clone();

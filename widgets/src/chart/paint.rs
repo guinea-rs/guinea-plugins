@@ -1,10 +1,9 @@
 //! Turning a chart into strokes and fills. Nothing here knows where the
 //! surface came from or how it reaches the screen.
 
-// `DrawContext` moved here with the reactor rewrite: the canvas crate owns the
-// Reactor bridge now, rather than the reactor owning a canvas feature.
 use windows_canvas::{
-    Brush, ColorF, DrawContext, GpuDevice, Path, PathBuilder, Rect, Result as CanvasResult, Vector2,
+    Brush, ColorF, DrawingSession, GpuDevice, Path, PathBuilder, Rect, Result as CanvasResult,
+    Vector2,
 };
 
 use super::bounds;
@@ -19,10 +18,13 @@ const GRID_TARGET_SPACING_Y: f32 = 40.0;
 pub(super) const BACKGROUND_TOP: ColorF = hex(0x1c1e26);
 const BORDER_WIDTH: f32 = 1.0;
 
-pub(super) fn render(draw: &DrawContext<'_>, series: &[Series], options: &LineChartOptions) {
-    draw.clear(ColorF::TRANSPARENT);
-
-    let (width, height) = (draw.width, draw.height);
+pub(super) fn render(
+    draw: &DrawingSession<'_>,
+    device: &GpuDevice,
+    (width, height): (f32, f32),
+    series: &[Series],
+    options: &LineChartOptions,
+) {
     if width <= 0.0 || height <= 0.0 {
         tracing::warn!(width, height, "line_chart: draw surface has zero size, skipping this frame");
         return;
@@ -60,7 +62,6 @@ pub(super) fn render(draw: &DrawContext<'_>, series: &[Series], options: &LineCh
         Vector2 { x, y }
     };
 
-    let device = draw.device();
     for s in series {
         if s.points.len() < 2 {
             tracing::trace!(points = s.points.len(), "line_chart: series has fewer than 2 points, skipping");
@@ -87,7 +88,7 @@ pub(super) fn render(draw: &DrawContext<'_>, series: &[Series], options: &LineCh
     }
 }
 
-fn draw_backdrop(draw: &DrawContext<'_>, width: f32, height: f32, background: ColorF) {
+fn draw_backdrop(draw: &DrawingSession<'_>, width: f32, height: f32, background: ColorF) {
     let rect = Rect::from_xywh(0.0, 0.0, width, height);
     match draw.create_solid_brush(background) {
         Ok(brush) => draw.fill_rect(&rect, &brush),
@@ -95,7 +96,7 @@ fn draw_backdrop(draw: &DrawContext<'_>, width: f32, height: f32, background: Co
     }
 }
 
-fn draw_grid(draw: &DrawContext<'_>, brush: &Brush, width: f32, height: f32) {
+fn draw_grid(draw: &DrawingSession<'_>, brush: &Brush, width: f32, height: f32) {
     let cols = (width / GRID_TARGET_SPACING_X).ceil().max(1.0) as u32;
     let rows = (height / GRID_TARGET_SPACING_Y).ceil().max(1.0) as u32;
     for row in 1..rows {

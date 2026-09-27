@@ -14,6 +14,8 @@ mod model;
 #[cfg(feature = "winui")]
 mod paint;
 #[cfg(feature = "winui")]
+mod surface;
+#[cfg(feature = "winui")]
 mod ui;
 
 #[cfg(feature = "winui")]
