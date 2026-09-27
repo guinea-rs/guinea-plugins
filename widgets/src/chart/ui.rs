@@ -67,7 +67,10 @@ impl Chart {
             move |event| {
                 let (metrics, rebound) = match event {
                     CompositionHostEvent::Ready {
-                        width, height, scale, ..
+                        width,
+                        height,
+                        scale,
+                        ..
                     } => (Metrics::new(width, height, scale), true),
                     CompositionHostEvent::Metrics {
                         width,
@@ -164,11 +167,7 @@ impl Chart {
                 pointer_on_move.set(Some(at));
                 // Dropped when the segment that drew this chart is no longer
                 // publishing; the readout then simply stays where it was.
-                let _ = hover_on_move.call(hover_at(
-                    &moved_over.borrow(),
-                    at,
-                    width_on_move.get(),
-                ));
+                let _ = hover_on_move.call(hover_at(&moved_over.borrow(), at, width_on_move.get()));
             }))
             .on_pointer_exited(Callback::new(move |_: PointerEventInfo| {
                 pointer_on_exit.set(None);
@@ -210,8 +209,10 @@ impl Component for Mount {
             Some(Box::new(move || surface.borrow_mut().release()))
         });
 
-        Grid::new().element_ref(&mounted.host).children((Image::new()
-            .element_ref(&mounted.image)
-            .stretch(Stretch::Fill),))
+        Grid::new()
+            .element_ref(&mounted.host)
+            .children((Image::new()
+                .element_ref(&mounted.image)
+                .stretch(Stretch::Fill),))
     }
 }

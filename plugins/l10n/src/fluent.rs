@@ -33,7 +33,12 @@ macro_rules! fluent_loader {
         }
 
         #[derive(Default)]
-        struct Args(::std::collections::HashMap<::std::borrow::Cow<'static, str>, fluent_bundle::FluentValue<'static>>);
+        struct Args(
+            ::std::collections::HashMap<
+                ::std::borrow::Cow<'static, str>,
+                fluent_bundle::FluentValue<'static>,
+            >,
+        );
 
         impl Args {
             fn new() -> Self {

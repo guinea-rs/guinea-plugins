@@ -17,7 +17,12 @@ pub struct SortState<SID> {
 }
 
 pub trait TableDataBuilder<T, VM, GID = String> {
-    fn build_tree(&mut self, items: &[T], expanded: &HashSet<GID>, out: &mut Vec<TableNode<VM, GID>>);
+    fn build_tree(
+        &mut self,
+        items: &[T],
+        expanded: &HashSet<GID>,
+        out: &mut Vec<TableNode<VM, GID>>,
+    );
 }
 
 pub struct TableFlowState<T, VM, ID, GID, SID> {
@@ -88,7 +93,11 @@ where
         mark_dead: impl Fn(&mut VM),
     ) {
         self.tree_buffer.clear();
-        builder.build_tree(&self.last_items, &self.expanded_groups, &mut self.tree_buffer);
+        builder.build_tree(
+            &self.last_items,
+            &self.expanded_groups,
+            &mut self.tree_buffer,
+        );
         sorter(&mut self.tree_buffer, &self.sort);
         self.apply_selection_stability(get_id, mark_dead);
 
@@ -96,12 +105,19 @@ where
         flatten_to_target(&mut self.tree_buffer, target);
     }
 
-    fn apply_selection_stability(&mut self, get_id: impl Fn(&VM) -> ID, mark_dead: impl Fn(&mut VM)) {
+    fn apply_selection_stability(
+        &mut self,
+        get_id: impl Fn(&VM) -> ID,
+        mark_dead: impl Fn(&mut VM),
+    ) {
         let Some(sel_id) = &self.selected_id else {
             return;
         };
 
-        let current_pos = self.tree_buffer.iter().position(|n| get_id(&n.vm) == *sel_id);
+        let current_pos = self
+            .tree_buffer
+            .iter()
+            .position(|n| get_id(&n.vm) == *sel_id);
 
         if let Some(pos) = current_pos {
             self.last_known_vm = Some(self.tree_buffer[pos].vm.clone());
@@ -163,7 +179,12 @@ mod tests {
 
     struct FlatBuilder;
     impl TableDataBuilder<Row, Row, String> for FlatBuilder {
-        fn build_tree(&mut self, items: &[Row], _expanded: &HashSet<String>, out: &mut Vec<TableNode<Row, String>>) {
+        fn build_tree(
+            &mut self,
+            items: &[Row],
+            _expanded: &HashSet<String>,
+            out: &mut Vec<TableNode<Row, String>>,
+        ) {
             out.extend(items.iter().cloned().map(|vm| TableNode {
                 vm,
                 group_id: None,
@@ -178,19 +199,36 @@ mod tests {
     fn no_sort(_nodes: &mut [TableNode<Row, String>], _sort: &SortState<String>) {}
 
     fn state() -> TableFlowState<Row, Row, u32, String, String> {
-        TableFlowState::new(SortState { field_id: None, descending: false })
+        TableFlowState::new(SortState {
+            field_id: None,
+            descending: false,
+        })
     }
 
     #[test]
     fn flattens_in_build_order_with_no_selection() {
         let mut flow = state();
         flow.set_items(vec![
-            Row { id: 1, name: "a".into(), dead: false },
-            Row { id: 2, name: "b".into(), dead: false },
+            Row {
+                id: 1,
+                name: "a".into(),
+                dead: false,
+            },
+            Row {
+                id: 2,
+                name: "b".into(),
+                dead: false,
+            },
         ]);
 
         let mut target = Vec::new();
-        flow.update_view_model(&mut target, &mut FlatBuilder, no_sort, |r| r.id, |r| r.dead = true);
+        flow.update_view_model(
+            &mut target,
+            &mut FlatBuilder,
+            no_sort,
+            |r| r.id,
+            |r| r.dead = true,
+        );
 
         assert_eq!(target.iter().map(|r| r.id).collect::<Vec<_>>(), vec![1, 2]);
     }
@@ -199,52 +237,125 @@ mod tests {
     fn selection_freezes_position_across_reorder() {
         let mut flow = state();
         flow.set_items(vec![
-            Row { id: 1, name: "a".into(), dead: false },
-            Row { id: 2, name: "b".into(), dead: false },
-            Row { id: 3, name: "c".into(), dead: false },
+            Row {
+                id: 1,
+                name: "a".into(),
+                dead: false,
+            },
+            Row {
+                id: 2,
+                name: "b".into(),
+                dead: false,
+            },
+            Row {
+                id: 3,
+                name: "c".into(),
+                dead: false,
+            },
         ]);
 
         let mut target = Vec::new();
-        flow.update_view_model(&mut target, &mut FlatBuilder, no_sort, |r| r.id, |r| r.dead = true);
+        flow.update_view_model(
+            &mut target,
+            &mut FlatBuilder,
+            no_sort,
+            |r| r.id,
+            |r| r.dead = true,
+        );
         flow.select(3, 2); // id 3 is currently at index 2
 
         // Items reordered upstream - id 3 now comes first.
         flow.set_items(vec![
-            Row { id: 3, name: "c".into(), dead: false },
-            Row { id: 1, name: "a".into(), dead: false },
-            Row { id: 2, name: "b".into(), dead: false },
+            Row {
+                id: 3,
+                name: "c".into(),
+                dead: false,
+            },
+            Row {
+                id: 1,
+                name: "a".into(),
+                dead: false,
+            },
+            Row {
+                id: 2,
+                name: "b".into(),
+                dead: false,
+            },
         ]);
 
         let mut target = Vec::new();
-        flow.update_view_model(&mut target, &mut FlatBuilder, no_sort, |r| r.id, |r| r.dead = true);
+        flow.update_view_model(
+            &mut target,
+            &mut FlatBuilder,
+            no_sort,
+            |r| r.id,
+            |r| r.dead = true,
+        );
 
-        assert_eq!(target[2].id, 3, "selected row spliced back to its frozen index");
+        assert_eq!(
+            target[2].id, 3,
+            "selected row spliced back to its frozen index"
+        );
     }
 
     #[test]
     fn selection_of_removed_row_becomes_a_ghost_at_its_frozen_index() {
         let mut flow = state();
         flow.set_items(vec![
-            Row { id: 1, name: "a".into(), dead: false },
-            Row { id: 2, name: "b".into(), dead: false },
+            Row {
+                id: 1,
+                name: "a".into(),
+                dead: false,
+            },
+            Row {
+                id: 2,
+                name: "b".into(),
+                dead: false,
+            },
         ]);
 
         let mut target = Vec::new();
-        flow.update_view_model(&mut target, &mut FlatBuilder, no_sort, |r| r.id, |r| r.dead = true);
+        flow.update_view_model(
+            &mut target,
+            &mut FlatBuilder,
+            no_sort,
+            |r| r.id,
+            |r| r.dead = true,
+        );
         flow.select(2, 1);
 
         // A refresh while id 2 is still present and selected - this is what
         // captures `last_known_vm`, the data the ghost row will later reuse.
         let mut target = Vec::new();
-        flow.update_view_model(&mut target, &mut FlatBuilder, no_sort, |r| r.id, |r| r.dead = true);
+        flow.update_view_model(
+            &mut target,
+            &mut FlatBuilder,
+            no_sort,
+            |r| r.id,
+            |r| r.dead = true,
+        );
 
         // id 2 disappears upstream.
-        flow.set_items(vec![Row { id: 1, name: "a".into(), dead: false }]);
+        flow.set_items(vec![Row {
+            id: 1,
+            name: "a".into(),
+            dead: false,
+        }]);
 
         let mut target = Vec::new();
-        flow.update_view_model(&mut target, &mut FlatBuilder, no_sort, |r| r.id, |r| r.dead = true);
+        flow.update_view_model(
+            &mut target,
+            &mut FlatBuilder,
+            no_sort,
+            |r| r.id,
+            |r| r.dead = true,
+        );
 
-        assert_eq!(target.len(), 2, "a ghost row stands in for the removed selection");
+        assert_eq!(
+            target.len(),
+            2,
+            "a ghost row stands in for the removed selection"
+        );
         assert!(target[1].dead, "ghost row is marked dead, not a live row");
         assert_eq!(target[1].id, 2, "ghost keeps the last-known row's data");
     }

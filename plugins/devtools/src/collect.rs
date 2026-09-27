@@ -8,13 +8,14 @@ use guinea::app::actors::app_actors;
 use guinea::app::installed_plugins;
 use guinea::devtools::{self, RouterView};
 use guinea::timers::{TimerInfo, running};
+use guinea_core::actor::event_bus::GlobalEventBus;
 use guinea_core::actor::registry::ActorSnapshot;
 use guinea_core::actor::shape;
-use guinea_core::actor::event_bus::GlobalEventBus;
 use guinea_core::trace::{self, Bus, Cause, Point, Trace};
 use guinea_devtools_protocol::{
     Actor, BusKind, BusSubscription, Channel, Declared, End, Flow, Handled, Installed, Listener,
-    Node, Panel, ReducerState, Root, Segment, Snapshot, Span, StoreOp, Timer, TraceBatch, TracePoint,
+    Node, Panel, ReducerState, Root, Segment, Snapshot, Span, StoreOp, Timer, TraceBatch,
+    TracePoint,
 };
 
 /// How many records wait for the next batch before new ones are dropped.
@@ -133,7 +134,9 @@ fn point(point: &Point) -> TracePoint {
             root: root.clone(),
             to: to.clone(),
         },
-        Point::Tick { timer } => TracePoint::Tick { timer: Some(*timer) },
+        Point::Tick { timer } => TracePoint::Tick {
+            timer: Some(*timer),
+        },
         Point::Store {
             op,
             path,
@@ -198,14 +201,20 @@ fn actor(snapshot: &ActorSnapshot, root: Option<u64>, segments: &[usize]) -> Act
             .iter()
             .map(|handles| Handled {
                 message: (handles.message)().to_string(),
-                edges: handles
-                    .edges
-                    .map(|edges| edges.iter().map(flow).collect()),
+                edges: handles.edges.map(|edges| edges.iter().map(flow).collect()),
                 declared: handles.declared.map(place),
             })
             .collect(),
-        publishes: shape.publishes.iter().map(|name| name().to_string()).collect(),
-        subscribes: shape.subscribes.iter().map(|name| name().to_string()).collect(),
+        publishes: shape
+            .publishes
+            .iter()
+            .map(|name| name().to_string())
+            .collect(),
+        subscribes: shape
+            .subscribes
+            .iter()
+            .map(|name| name().to_string())
+            .collect(),
         declared: shape.declared.map(place),
     }
 }
@@ -256,8 +265,17 @@ pub fn snapshot(started: Instant) -> Collected {
         .into_iter()
         .map(|router| {
             let id = router.root.get();
-            let segments: Vec<usize> = router.segments.iter().map(|segment| segment.scope).collect();
-            scopes.extend(segments.iter().enumerate().map(|(depth, key)| (*key, id, depth)));
+            let segments: Vec<usize> = router
+                .segments
+                .iter()
+                .map(|segment| segment.scope)
+                .collect();
+            scopes.extend(
+                segments
+                    .iter()
+                    .enumerate()
+                    .map(|(depth, key)| (*key, id, depth)),
+            );
 
             for snapshot in &router.actors {
                 note_crate(&mut crate_dirs, snapshot);
@@ -317,23 +335,25 @@ fn note_crate(crate_dirs: &mut Vec<&'static str>, snapshot: &ActorSnapshot) {
 /// Where a log line was written. The file is the workspace's, relative, so it
 /// is looked for above every crate seen, once per file until more crates are.
 fn written(file: &'static str, line: u32) -> Declared {
-    let found = CRATE_DIRS.with_borrow(|crate_dirs| WRITTEN.with_borrow_mut(|written| {
-        let (tried, found) = written.entry(file).or_insert((usize::MAX, None));
-        if found.is_none() && *tried != crate_dirs.len() {
-            *found = crate_dirs.iter().find_map(|crate_dir| {
-                shape::Declared {
-                    file,
-                    line,
-                    column: 1,
-                    crate_dir,
-                }
-                .path()
-                .map(|path| path.display().to_string())
-            });
-            *tried = crate_dirs.len();
-        }
-        found.clone()
-    }));
+    let found = CRATE_DIRS.with_borrow(|crate_dirs| {
+        WRITTEN.with_borrow_mut(|written| {
+            let (tried, found) = written.entry(file).or_insert((usize::MAX, None));
+            if found.is_none() && *tried != crate_dirs.len() {
+                *found = crate_dirs.iter().find_map(|crate_dir| {
+                    shape::Declared {
+                        file,
+                        line,
+                        column: 1,
+                        crate_dir,
+                    }
+                    .path()
+                    .map(|path| path.display().to_string())
+                });
+                *tried = crate_dirs.len();
+            }
+            found.clone()
+        })
+    });
 
     Declared {
         found: found.is_some(),
@@ -475,7 +495,10 @@ mod tests {
 
     #[test]
     fn a_type_keeps_its_module_and_loses_the_crate() {
-        assert_eq!(short("processes_core::metrics::contracts::Metrics"), "contracts::Metrics");
+        assert_eq!(
+            short("processes_core::metrics::contracts::Metrics"),
+            "contracts::Metrics"
+        );
         assert_eq!(short("tabs::Tabs"), "tabs::Tabs");
         assert_eq!(short("Plain"), "Plain");
         assert_eq!(short("a::b::List<c::Recent>"), "b::List<c::Recent>");
@@ -500,7 +523,10 @@ mod tests {
         let batch = traces.borrow_mut().take();
         let kinds: Vec<&str> = batch.spans.iter().map(|span| span.point.kind()).collect();
         assert_eq!(kinds, ["action", "push"]);
-        assert!(batch.spans[0].took.is_some(), "the action ended inside the batch");
+        assert!(
+            batch.spans[0].took.is_some(),
+            "the action ended inside the batch"
+        );
         assert_eq!(batch.spans[1].parent, Some(batch.spans[0].id));
     }
 

@@ -11,7 +11,10 @@ pub struct RingSeries {
 
 impl RingSeries {
     pub fn new(capacity: usize) -> Self {
-        Self { capacity: capacity.max(1), points: VecDeque::with_capacity(capacity) }
+        Self {
+            capacity: capacity.max(1),
+            points: VecDeque::with_capacity(capacity),
+        }
     }
 
     pub fn push(&mut self, point: (u64, f32)) {
@@ -93,7 +96,10 @@ mod tests {
 
         // Wrapped, so the halves are genuinely split - the interesting case.
         let (front, back) = ring.as_slices();
-        assert!(!front.is_empty() && !back.is_empty(), "expected a wrapped ring");
+        assert!(
+            !front.is_empty() && !back.is_empty(),
+            "expected a wrapped ring"
+        );
 
         let joined: Vec<_> = front.iter().chain(back).copied().collect();
         assert_eq!(ring.clone().into_points(), joined);

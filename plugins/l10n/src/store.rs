@@ -89,7 +89,11 @@ impl<S: Clone + Default + 'static> L10n<S> {
     }
 
     pub fn current() -> S {
-        GlobalScope::instance().binding::<Strings<S>>().get().0.clone()
+        GlobalScope::instance()
+            .binding::<Strings<S>>()
+            .get()
+            .0
+            .clone()
     }
 
     pub fn subscribe(callback: impl Fn(S) + 'static) -> Subscription {

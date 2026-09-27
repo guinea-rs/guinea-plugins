@@ -47,7 +47,12 @@ fn listen() -> anyhow::Result<Server> {
     for port in PORTS {
         let at = format!("127.0.0.1:{port}");
         match puffin_http::Server::new(&at) {
-            Ok(server) => return Ok(Server { at, _server: server }),
+            Ok(server) => {
+                return Ok(Server {
+                    at,
+                    _server: server,
+                });
+            }
             Err(error) => last = Some(error),
         }
     }

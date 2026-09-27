@@ -159,7 +159,7 @@ pub fn generate_l10n_accessors(
     let methods = messages.iter().map(|msg| {
         let method_name = format_ident!("{}", msg.id.replace(['-', '.'], "_"));
         let id = &msg.id;
-        
+
         let params = msg.variables.iter().map(|v| {
             let param = format_ident!("{}", v);
             quote! { #param: impl Into<#fluent_value_path<'static>> }
@@ -225,7 +225,9 @@ fn discover_locale_files(locales_dir: &Path, reference_locale: &str) -> Vec<std:
         !files.is_empty(),
         "no `.ftl` files found for locale {reference_locale:?} under {} - expected either {} or {}/**/*.ftl",
         locales_dir.display(),
-        locales_dir.join(format!("{reference_locale}.ftl")).display(),
+        locales_dir
+            .join(format!("{reference_locale}.ftl"))
+            .display(),
         locales_dir.join(reference_locale).display(),
     );
 
@@ -261,10 +263,14 @@ pub fn locales(locales_dir: &Path) -> Vec<String> {
         .filter_map(|entry| {
             let path = entry.path();
             if path.is_dir() {
-                return path.file_name().map(|name| name.to_string_lossy().into_owned());
+                return path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned());
             }
             if path.extension().is_some_and(|extension| extension == "ftl") {
-                return path.file_stem().map(|stem| stem.to_string_lossy().into_owned());
+                return path
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned());
             }
             None
         })
@@ -320,35 +326,38 @@ pub fn generate_l10n_keys(
     languages: &[String],
     keys_path: &str,
 ) -> TokenStream {
-    let keys_path: SynPath =
-        syn::parse_str(keys_path).unwrap_or_else(|e| panic!("invalid keys_path {keys_path:?}: {e}"));
+    let keys_path: SynPath = syn::parse_str(keys_path)
+        .unwrap_or_else(|e| panic!("invalid keys_path {keys_path:?}: {e}"));
 
-    let entries = messages.iter().zip(translations).map(|(message, translated)| {
-        let id = &message.id;
-        let file = &message.file;
-        let line = message.line;
-        let text = &message.text;
-        let variables = &message.variables;
-        let tags = translated.iter().map(|(tag, _)| tag.as_str());
-        let texts = translated.iter().map(|(_, text)| text.as_str());
-        let missing = languages
-            .iter()
-            .filter(|tag| *tag != reference_locale)
-            .filter(|tag| !translated.iter().any(|(done, _)| done == *tag))
-            .map(String::as_str);
+    let entries = messages
+        .iter()
+        .zip(translations)
+        .map(|(message, translated)| {
+            let id = &message.id;
+            let file = &message.file;
+            let line = message.line;
+            let text = &message.text;
+            let variables = &message.variables;
+            let tags = translated.iter().map(|(tag, _)| tag.as_str());
+            let texts = translated.iter().map(|(_, text)| text.as_str());
+            let missing = languages
+                .iter()
+                .filter(|tag| *tag != reference_locale)
+                .filter(|tag| !translated.iter().any(|(done, _)| done == *tag))
+                .map(String::as_str);
 
-        quote! {
-            #keys_path {
-                id: #id,
-                file: #file,
-                line: #line,
-                text: #text,
-                variables: &[#(#variables),*],
-                translations: &[#((#tags, #texts)),*],
-                missing: &[#(#missing),*],
+            quote! {
+                #keys_path {
+                    id: #id,
+                    file: #file,
+                    line: #line,
+                    text: #text,
+                    variables: &[#(#variables),*],
+                    translations: &[#((#tags, #texts)),*],
+                    missing: &[#(#missing),*],
+                }
             }
-        }
-    });
+        });
 
     quote! {
         /// Every message of the reference locale, as `l10n` compiled it.
@@ -414,7 +423,8 @@ mod tests {
 
     fn write_ftl(content: &str) -> tempfile::NamedTempFile {
         let mut file = tempfile::NamedTempFile::new().expect("failed to create temp .ftl file");
-        file.write_all(content.as_bytes()).expect("failed to write .ftl content");
+        file.write_all(content.as_bytes())
+            .expect("failed to write .ftl content");
         file
     }
 
@@ -440,7 +450,10 @@ mod tests {
     fn plain_message_has_no_variables() {
         let file = write_ftl("hello-world = Hello, World!\n");
         let messages = parse_messages(file.path());
-        assert_eq!(messages, vec![message("hello-world", &[], 1, "Hello, World!")]);
+        assert_eq!(
+            messages,
+            vec![message("hello-world", &[], 1, "Hello, World!")]
+        );
     }
 
     #[test]
@@ -449,7 +462,12 @@ mod tests {
         let messages = parse_messages(file.path());
         assert_eq!(
             messages,
-            vec![message("welcome", &["userName"], 1, "Welcome, { $userName }.")]
+            vec![message(
+                "welcome",
+                &["userName"],
+                1,
+                "Welcome, { $userName }."
+            )]
         );
     }
 
@@ -458,7 +476,10 @@ mod tests {
         let file = write_ftl("first = One\n\nsecond =\n    Over two\n    lines\n");
         let messages = parse_messages(file.path());
 
-        let second = messages.iter().find(|message| message.id == "second").expect("second");
+        let second = messages
+            .iter()
+            .find(|message| message.id == "second")
+            .expect("second");
         assert_eq!(second.line, 3);
         assert_eq!(second.text, "Over two lines");
     }
@@ -471,7 +492,10 @@ mod tests {
         let messages = parse_messages(file.path());
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].id, "emails");
-        assert_eq!(messages[0].variables, vec!["count".to_string(), "sender".to_string()]);
+        assert_eq!(
+            messages[0].variables,
+            vec!["count".to_string(), "sender".to_string()]
+        );
     }
 
     #[test]
@@ -499,7 +523,12 @@ mod tests {
 
     #[test]
     fn generates_one_param_per_variable_in_first_seen_order() {
-        let messages = vec![message("emails", &["count", "sender"], 1, "{ $count } from { $sender }")];
+        let messages = vec![message(
+            "emails",
+            &["count", "sender"],
+            1,
+            "{ $count } from { $sender }",
+        )];
         let generated = generate_l10n_accessors(
             &messages,
             "crate::l10n::L10n",
@@ -526,7 +555,10 @@ mod tests {
         write_file(dir.path(), "ru.ftl", "hello-world = Привет, мир!\n");
 
         let messages = parse_locale_messages(dir.path(), "en");
-        assert_eq!(messages, vec![message("hello-world", &[], 1, "Hello, World!")]);
+        assert_eq!(
+            messages,
+            vec![message("hello-world", &[], 1, "Hello, World!")]
+        );
     }
 
     #[test]
@@ -542,13 +574,20 @@ mod tests {
             .map(|message| (message.id.as_str(), message.file.as_str()))
             .collect();
 
-        assert_eq!(named, vec![("goodbye", "extra.ftl"), ("hello-world", "main.ftl")]);
+        assert_eq!(
+            named,
+            vec![("goodbye", "extra.ftl"), ("hello-world", "main.ftl")]
+        );
     }
 
     #[test]
     fn a_locale_that_left_a_message_out_is_named_as_missing_it() {
         let dir = tempfile::tempdir().unwrap();
-        write_file(dir.path(), "en/main.ftl", "kept = Kept\nleft-out = Left out\n");
+        write_file(
+            dir.path(),
+            "en/main.ftl",
+            "kept = Kept\nleft-out = Left out\n",
+        );
         write_file(dir.path(), "ru/main.ftl", "kept = Оставлено\n");
 
         let messages = parse_locale_messages(dir.path(), "en");
@@ -558,14 +597,24 @@ mod tests {
         assert_eq!(languages, vec!["en".to_string(), "ru".to_string()]);
         assert_eq!(
             translations,
-            vec![vec![("ru".to_string(), "Оставлено".to_string())], Vec::new()]
+            vec![
+                vec![("ru".to_string(), "Оставлено".to_string())],
+                Vec::new()
+            ]
         );
 
         let generated =
-            generate_l10n_keys(&messages, &translations, "en", &languages, "crate::Key").to_string();
-        assert!(generated.contains("translations : & [(\"ru\" , \"Оставлено\")]"), "{generated}");
+            generate_l10n_keys(&messages, &translations, "en", &languages, "crate::Key")
+                .to_string();
+        assert!(
+            generated.contains("translations : & [(\"ru\" , \"Оставлено\")]"),
+            "{generated}"
+        );
         assert!(generated.contains("missing : & [\"ru\"]"), "{generated}");
-        assert!(generated.contains("L10N_LANGUAGES : & [& str] = & [\"en\" , \"ru\"]"), "{generated}");
+        assert!(
+            generated.contains("L10N_LANGUAGES : & [& str] = & [\"en\" , \"ru\"]"),
+            "{generated}"
+        );
     }
 
     #[test]

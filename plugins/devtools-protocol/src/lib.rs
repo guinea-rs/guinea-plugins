@@ -135,7 +135,10 @@ pub enum Command {
     },
     /// Needs [`Capability::NativeInput`]. The element `target` names.
     /// Answered with [`Answer::Found`].
-    NativeFind { request: u64, target: native::Target },
+    NativeFind {
+        request: u64,
+        target: native::Target,
+    },
     /// Needs [`Capability::NativeInput`]. Clicks the element `target` names.
     NativeClick {
         request: u64,
@@ -163,9 +166,9 @@ impl Command {
             Command::NativePerfCapture => Capability::NativePerf,
             Command::Profiler { .. } => Capability::Profiler,
             Command::Act { .. } | Command::Publish { .. } => Capability::Act,
-            Command::NativeFind { .. } | Command::NativeClick { .. } | Command::NativeType { .. } => {
-                Capability::NativeInput
-            }
+            Command::NativeFind { .. }
+            | Command::NativeClick { .. }
+            | Command::NativeType { .. } => Capability::NativeInput,
         }
     }
 
@@ -273,9 +276,17 @@ impl StoreOp {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TracePoint {
-    Action { message: String },
-    Send { actor: String, message: String },
-    Handle { actor: String, message: String },
+    Action {
+        message: String,
+    },
+    Send {
+        actor: String,
+        message: String,
+    },
+    Handle {
+        actor: String,
+        message: String,
+    },
     /// An actor started background work. `actor_id` is its id in
     /// [`Snapshot::actors`], so a task sits where its actor does.
     Spawn {
@@ -300,10 +311,22 @@ pub enum TracePoint {
         output: String,
         took_us: u64,
     },
-    Publish { event: String, bus: BusKind, subscribers: usize },
-    Deliver { event: String, bus: BusKind },
-    Push { reducer: String },
-    Navigate { root: String, to: String },
+    Publish {
+        event: String,
+        bus: BusKind,
+        subscribers: usize,
+    },
+    Deliver {
+        event: String,
+        bus: BusKind,
+    },
+    Push {
+        reducer: String,
+    },
+    Navigate {
+        root: String,
+        to: String,
+    },
     /// A timer fired; `timer` is its id in [`Snapshot::timers`].
     Tick {
         #[serde(default)]
@@ -316,7 +339,10 @@ pub enum TracePoint {
         outside: bool,
     },
     /// A page or layout drew itself, and how long that took.
-    Render { segment: String, took_us: u64 },
+    Render {
+        segment: String,
+        took_us: u64,
+    },
     /// An ordinary `tracing` event; `level` as tracing spells it, `INFO`.
     Log {
         level: String,
@@ -326,7 +352,9 @@ pub enum TracePoint {
         #[serde(default)]
         written: Option<Declared>,
     },
-    Note { text: String },
+    Note {
+        text: String,
+    },
 }
 
 impl TracePoint {
@@ -362,7 +390,10 @@ impl TracePoint {
                 output,
                 took_us,
                 ..
-            } => format!("{actor} has its {output} after {:.1} ms", *took_us as f64 / 1000.0),
+            } => format!(
+                "{actor} has its {output} after {:.1} ms",
+                *took_us as f64 / 1000.0
+            ),
             TracePoint::Cancelled {
                 actor,
                 output,

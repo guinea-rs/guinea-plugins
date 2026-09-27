@@ -88,8 +88,14 @@ impl Plugin for DevToolsPlugin {
             trace_epoch_ms: guinea_core::trace::started_at()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |since| since.as_millis() as u64),
-            actions: guinea_core::remote::actions().iter().map(|name| name.to_string()).collect(),
-            events: guinea_core::remote::events().iter().map(|name| name.to_string()).collect(),
+            actions: guinea_core::remote::actions()
+                .iter()
+                .map(|name| name.to_string())
+                .collect(),
+            events: guinea_core::remote::events()
+                .iter()
+                .map(|name| name.to_string())
+                .collect(),
             ..info
         }));
 

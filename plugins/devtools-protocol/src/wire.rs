@@ -67,7 +67,10 @@ mod tests {
                         name: "Root".into(),
                         mark: "Processes".into(),
                     }),
-                    Change::Removed { handle: 3, parent: 1 },
+                    Change::Removed {
+                        handle: 3,
+                        parent: 1,
+                    },
                 ],
             },
             Report::NativeProperties {
@@ -127,7 +130,10 @@ mod tests {
             panic!("a hello");
         };
 
-        assert_eq!(info.capabilities, [Capability::Snapshot, Capability::Unknown]);
+        assert_eq!(
+            info.capabilities,
+            [Capability::Snapshot, Capability::Unknown]
+        );
     }
 
     #[test]

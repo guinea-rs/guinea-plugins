@@ -56,8 +56,10 @@ fn files(keys: &'static [Key], languages: &[&str], showing: &str) -> Vec<PanelNo
             ("untranslated".to_string(), untranslated.to_string()),
         ];
         if !languages.is_empty() {
-            file.properties.push(("languages".to_string(), languages.join(", ")));
-            file.properties.push(("language".to_string(), showing.to_string()));
+            file.properties
+                .push(("languages".to_string(), languages.join(", ")));
+            file.properties
+                .push(("language".to_string(), showing.to_string()));
         }
     }
 
@@ -79,7 +81,10 @@ fn put(nodes: &mut Vec<PanelNode>, named: &[&str], message: PanelNode) {
         return;
     }
 
-    let group = match nodes.iter().position(|node| node.label == *step && node.kind == "group") {
+    let group = match nodes
+        .iter()
+        .position(|node| node.label == *step && node.kind == "group")
+    {
         Some(at) => &mut nodes[at],
         None => {
             nodes.push(PanelNode {
@@ -136,7 +141,11 @@ fn message(key: &Key, languages: &[&str]) -> PanelNode {
     if texts.is_empty() {
         properties.push(("source".to_string(), key.text.to_string()));
     }
-    properties.extend(texts.into_iter().map(|(tag, text)| (tag.to_string(), text.to_string())));
+    properties.extend(
+        texts
+            .into_iter()
+            .map(|(tag, text)| (tag.to_string(), text.to_string())),
+    );
 
     if !key.variables.is_empty() {
         properties.push(("takes".to_string(), key.variables.join(", ")));
@@ -150,7 +159,12 @@ fn message(key: &Key, languages: &[&str]) -> PanelNode {
 
     PanelNode {
         label: key.id.to_string(),
-        kind: if key.missing.is_empty() { "message" } else { "untranslated" }.to_string(),
+        kind: if key.missing.is_empty() {
+            "message"
+        } else {
+            "untranslated"
+        }
+        .to_string(),
         properties,
         children: Vec::new(),
     }
@@ -172,15 +186,25 @@ mod tests {
     fn a_dotted_id_nests_and_a_plain_one_does_not() {
         let mut nodes = Vec::new();
         put(&mut nodes, &["menu", "file", "open"], leaf("", "message"));
-        put(&mut nodes, &["menu", "file", "save"], leaf("", "untranslated"));
+        put(
+            &mut nodes,
+            &["menu", "file", "save"],
+            leaf("", "untranslated"),
+        );
         put(&mut nodes, &["app-title"], leaf("", "message"));
 
-        let menu = nodes.iter().find(|node| node.label == "menu").expect("menu");
+        let menu = nodes
+            .iter()
+            .find(|node| node.label == "menu")
+            .expect("menu");
         let file = &menu.children[0];
 
         assert_eq!(file.label, "file");
         assert_eq!(
-            file.children.iter().map(|node| node.label.as_str()).collect::<Vec<_>>(),
+            file.children
+                .iter()
+                .map(|node| node.label.as_str())
+                .collect::<Vec<_>>(),
             ["open", "save"]
         );
         assert_eq!(nodes[1].label, "app-title");
@@ -205,7 +229,10 @@ mod tests {
         let file = &files[0];
         let hello = &file.children[0];
 
-        assert!(file.properties.contains(&("languages".into(), "de, en, ru".into())));
+        assert!(
+            file.properties
+                .contains(&("languages".into(), "de, en, ru".into()))
+        );
         assert!(file.properties.contains(&("language".into(), "ru".into())));
         assert_eq!(
             hello.properties[..3],

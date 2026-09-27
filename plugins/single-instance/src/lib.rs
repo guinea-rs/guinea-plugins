@@ -54,13 +54,24 @@ pub fn path(identifier: &str) -> io::Result<PathBuf> {
 
     let file = format!("{}.lock", sanitized(identifier));
     base.map(|base| base.join("guinea").join("instances").join(file))
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no per-user directory for the instance lock"))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "no per-user directory for the instance lock",
+            )
+        })
 }
 
 fn sanitized(identifier: &str) -> String {
     identifier
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -147,7 +158,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let path = dir.path().join("app.lock");
 
-        let first = claim_at(path.clone()).expect("claim").expect("the first copy");
+        let first = claim_at(path.clone())
+            .expect("claim")
+            .expect("the first copy");
         assert!(claim_at(path.clone()).expect("claim").is_none());
         assert!(matches!(try_claim(&path), Ok(None)));
 
@@ -157,6 +170,9 @@ mod tests {
 
     #[test]
     fn an_identifier_becomes_a_file_name() {
-        assert_eq!(sanitized("dev.uniproc/guinea devtools"), "dev.uniproc_guinea_devtools");
+        assert_eq!(
+            sanitized("dev.uniproc/guinea devtools"),
+            "dev.uniproc_guinea_devtools"
+        );
     }
 }

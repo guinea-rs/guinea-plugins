@@ -119,7 +119,10 @@ pub enum Dragging {
     /// moment of the press. The width comes in the message because `update`
     /// is not handed the input, and by the time a move arrives the press is
     /// the only thing that knew it.
-    Pressed { window_x: f64, current: f64 },
+    Pressed {
+        window_x: f64,
+        current: f64,
+    },
     Released,
 }
 
@@ -259,19 +262,23 @@ impl Component for Handle {
             // handle's own margin follows `current` every render, so its own
             // local coordinate origin moves out from under the drag on every
             // frame. `window_x` does not move with it.
-            .on_pointer_pressed(cx.callback(move |info: PointerEventInfo| Dragging::Pressed {
-                window_x: info.window_x,
-                current,
-            }))
+            .on_pointer_pressed(
+                cx.callback(move |info: PointerEventInfo| Dragging::Pressed {
+                    window_x: info.window_x,
+                    current,
+                }),
+            )
             .on_pointer_released(cx.callback(|_: PointerEventInfo| Dragging::Released))
-            .on_pointer_moved(windows_reactor::Callback::new(move |info: PointerEventInfo| {
-                if info.is_left_button_pressed {
-                    let delta = info.window_x - start_window_x;
-                    // Dropped when whoever owns the width is not publishing;
-                    // the handle then simply does not move.
-                    let _ = on_resize.call((start_current + delta).clamp(min, max));
-                }
-            }))
+            .on_pointer_moved(windows_reactor::Callback::new(
+                move |info: PointerEventInfo| {
+                    if info.is_left_button_pressed {
+                        let delta = info.window_x - start_window_x;
+                        // Dropped when whoever owns the width is not publishing;
+                        // the handle then simply does not move.
+                        let _ = on_resize.call((start_current + delta).clamp(min, max));
+                    }
+                },
+            ))
             .content(layered)
     }
 }

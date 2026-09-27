@@ -53,8 +53,7 @@ impl Watching {
 }
 
 fn changed(event: &StoreEvent) {
-    if !trace::is_observed_anywhere()
-        && !tracing::enabled!(target: "guinea", tracing::Level::DEBUG)
+    if !trace::is_observed_anywhere() && !tracing::enabled!(target: "guinea", tracing::Level::DEBUG)
     {
         return;
     }
@@ -75,13 +74,7 @@ fn changed(event: &StoreEvent) {
 
 /// The declared field at `path`: `Settings.theme`.
 fn field(path: &StorePath) -> Option<String> {
-    resolve_field(path).map(|meta| {
-        format!(
-            "{}.{}",
-            bare(meta.struct_type_name),
-            meta.field_name
-        )
-    })
+    resolve_field(path).map(|meta| format!("{}.{}", bare(meta.struct_type_name), meta.field_name))
 }
 
 fn bare(type_name: &str) -> &str {
@@ -142,7 +135,11 @@ fn migrations(report: &MigrationReport) -> PanelNode {
         .components
         .iter()
         .map(|component| {
-            let prefixes: Vec<String> = component.prefixes.iter().map(StorePath::to_string).collect();
+            let prefixes: Vec<String> = component
+                .prefixes
+                .iter()
+                .map(StorePath::to_string)
+                .collect();
             let label = if prefixes.is_empty() {
                 "(root)".to_string()
             } else {
@@ -178,7 +175,10 @@ fn migrations(report: &MigrationReport) -> PanelNode {
                     .map_or((0, 0), |diff| (diff.added.len(), diff.removed.len()));
                 properties.push((
                     format!("drift at {}", nagging.prefix),
-                    format!("{added} added, {removed} removed, {} moved", nagging.moved.len()),
+                    format!(
+                        "{added} added, {removed} removed, {} moved",
+                        nagging.moved.len()
+                    ),
                 ));
             }
             PanelNode {
@@ -202,10 +202,14 @@ fn keys(store: &Store) -> PanelNode {
     };
     tree.properties = vec![("count".to_string(), listed.len().to_string())];
     if listed.len() > KEYS_SHOWN {
-        tree.properties.push(("shown".into(), format!("the first {KEYS_SHOWN}")));
+        tree.properties
+            .push(("shown".into(), format!("the first {KEYS_SHOWN}")));
     }
     for (path, bytes) in listed.iter().take(KEYS_SHOWN) {
-        let levels: Vec<String> = path.segments().map(|level| level.as_str().to_string()).collect();
+        let levels: Vec<String> = path
+            .segments()
+            .map(|level| level.as_str().to_string())
+            .collect();
         insert(&mut tree.children, &levels, value(store, path, bytes));
     }
     tree
@@ -222,7 +226,10 @@ fn value(store: &Store, path: &StorePath, bytes: &[u8]) -> PanelNode {
         ("path".to_string(), path.to_string()),
     ];
     if let Some(meta) = resolve_field(path) {
-        properties.push(("field".into(), format!("{}.{}", meta.struct_type_name, meta.field_name)));
+        properties.push((
+            "field".into(),
+            format!("{}.{}", meta.struct_type_name, meta.field_name),
+        ));
         properties.push(("type".into(), meta.value_type_name.to_string()));
     }
     PanelNode {
@@ -275,13 +282,24 @@ mod tests {
             ..node(String::new(), "value")
         };
         insert(&mut nodes, &["app".into()], leaf("{\"language\":\"ru\"}"));
-        insert(&mut nodes, &["app".into(), "language".into()], leaf("\"ru\""));
-        insert(&mut nodes, &["app".into(), "theme".into()], leaf("\"dark\""));
+        insert(
+            &mut nodes,
+            &["app".into(), "language".into()],
+            leaf("\"ru\""),
+        );
+        insert(
+            &mut nodes,
+            &["app".into(), "theme".into()],
+            leaf("\"dark\""),
+        );
         insert(&mut nodes, &["window".into()], leaf("{}"));
 
         assert_eq!(nodes.len(), 2);
         assert_eq!(nodes[0].label, "app");
-        assert_eq!(nodes[0].kind, "group", "a key with keys under it reads as a group");
+        assert_eq!(
+            nodes[0].kind, "group",
+            "a key with keys under it reads as a group"
+        );
         assert_eq!(nodes[0].properties[0].1, "{\"language\":\"ru\"}");
         let names: Vec<&str> = nodes[0].children.iter().map(|n| n.label.as_str()).collect();
         assert_eq!(names, ["language", "theme"]);
@@ -319,7 +337,10 @@ mod tests {
         );
 
         let panels = devtools::app_panels();
-        let panel = panels.iter().find(|p| p.id == "guinea.store").expect("offered");
+        let panel = panels
+            .iter()
+            .find(|p| p.id == "guinea.store")
+            .expect("offered");
         let sections: Vec<&str> = panel.nodes.iter().map(|n| n.label.as_str()).collect();
         assert_eq!(sections, ["Files", "Migrations", "Keys"]);
         let greeting = &panel.nodes[2].children[0];

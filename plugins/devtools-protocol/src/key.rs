@@ -21,7 +21,12 @@ pub fn path() -> io::Result<PathBuf> {
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
     };
     base.map(|base| base.join("guinea").join("devtools.key"))
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no per-user directory for the devtools key"))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "no per-user directory for the devtools key",
+            )
+        })
 }
 
 /// Makes a fresh key, replacing any earlier one. For devtools.
@@ -42,7 +47,10 @@ pub fn read() -> io::Result<Vec<u8>> {
     if secret.len() == LEN {
         Ok(secret)
     } else {
-        Err(io::Error::new(io::ErrorKind::InvalidData, "the devtools key has the wrong length"))
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the devtools key has the wrong length",
+        ))
     }
 }
 

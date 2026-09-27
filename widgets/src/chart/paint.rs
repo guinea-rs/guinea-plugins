@@ -26,7 +26,11 @@ pub(super) fn render(
     options: &LineChartOptions,
 ) {
     if width <= 0.0 || height <= 0.0 {
-        tracing::warn!(width, height, "line_chart: draw surface has zero size, skipping this frame");
+        tracing::warn!(
+            width,
+            height,
+            "line_chart: draw surface has zero size, skipping this frame"
+        );
         return;
     }
 
@@ -64,7 +68,10 @@ pub(super) fn render(
 
     for s in series {
         if s.points.len() < 2 {
-            tracing::trace!(points = s.points.len(), "line_chart: series has fewer than 2 points, skipping");
+            tracing::trace!(
+                points = s.points.len(),
+                "line_chart: series has fewer than 2 points, skipping"
+            );
             continue;
         }
 
@@ -101,11 +108,21 @@ fn draw_grid(draw: &DrawingSession<'_>, brush: &Brush, width: f32, height: f32) 
     let rows = (height / GRID_TARGET_SPACING_Y).ceil().max(1.0) as u32;
     for row in 1..rows {
         let y = height * (row as f32 / rows as f32);
-        draw.draw_line(Vector2 { x: 0.0, y }, Vector2 { x: width, y }, brush, GRID_LINE_WIDTH);
+        draw.draw_line(
+            Vector2 { x: 0.0, y },
+            Vector2 { x: width, y },
+            brush,
+            GRID_LINE_WIDTH,
+        );
     }
     for col in 1..cols {
         let x = width * (col as f32 / cols as f32);
-        draw.draw_line(Vector2 { x, y: 0.0 }, Vector2 { x, y: height }, brush, GRID_LINE_WIDTH);
+        draw.draw_line(
+            Vector2 { x, y: 0.0 },
+            Vector2 { x, y: height },
+            brush,
+            GRID_LINE_WIDTH,
+        );
     }
 }
 
@@ -116,12 +133,21 @@ fn build_path(
     height: f32,
     filled: bool,
 ) -> CanvasResult<Path> {
-    let screen_points: Vec<Vector2> = series.points.iter().map(|&(t, v)| to_screen(t, v)).collect();
+    let screen_points: Vec<Vector2> = series
+        .points
+        .iter()
+        .map(|&(t, v)| to_screen(t, v))
+        .collect();
     let first = screen_points[0];
 
     let builder = PathBuilder::new(device)?;
     let mut figure = if filled {
-        builder.begin(Vector2 { x: first.x, y: height }).line_to(first)
+        builder
+            .begin(Vector2 {
+                x: first.x,
+                y: height,
+            })
+            .line_to(first)
     } else {
         builder.begin_hollow(first)
     };
@@ -132,7 +158,12 @@ fn build_path(
         let next = screen_points[i + 1];
         figure = match series.interpolation {
             Interpolation::Linear => figure.line_to(next),
-            Interpolation::Step => figure.line_to(Vector2 { x: next.x, y: prev.y }).line_to(next),
+            Interpolation::Step => figure
+                .line_to(Vector2 {
+                    x: next.x,
+                    y: prev.y,
+                })
+                .line_to(next),
             Interpolation::Smooth => {
                 // Catmull-Rom through (before, prev, next, after), converted to a cubic
                 // bezier - control points are derived from the *neighboring* points so
@@ -141,9 +172,19 @@ fn build_path(
                 // isolation but has a slope discontinuity at every sample, which reads as
                 // jagged/zigzaggy once points are dense relative to how fast the series moves.
                 let before = if i == 0 { prev } else { screen_points[i - 1] };
-                let after = if i + 1 == last_idx { next } else { screen_points[i + 2] };
-                let c1 = Vector2 { x: prev.x + (next.x - before.x) / 6.0, y: prev.y + (next.y - before.y) / 6.0 };
-                let c2 = Vector2 { x: next.x - (after.x - prev.x) / 6.0, y: next.y - (after.y - prev.y) / 6.0 };
+                let after = if i + 1 == last_idx {
+                    next
+                } else {
+                    screen_points[i + 2]
+                };
+                let c1 = Vector2 {
+                    x: prev.x + (next.x - before.x) / 6.0,
+                    y: prev.y + (next.y - before.y) / 6.0,
+                };
+                let c2 = Vector2 {
+                    x: next.x - (after.x - prev.x) / 6.0,
+                    y: next.y - (after.y - prev.y) / 6.0,
+                };
                 figure.bezier_to(c1, c2, next)
             }
         };
@@ -151,7 +192,13 @@ fn build_path(
 
     if filled {
         let last = *screen_points.last().expect("checked len >= 2 above");
-        figure.line_to(Vector2 { x: last.x, y: height }).close().build()
+        figure
+            .line_to(Vector2 {
+                x: last.x,
+                y: height,
+            })
+            .close()
+            .build()
     } else {
         figure.end_open().build()
     }

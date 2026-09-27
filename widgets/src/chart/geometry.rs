@@ -1,6 +1,5 @@
 use super::Series;
 
-
 pub fn bounds(series: &[Series]) -> Option<(u64, u64, f32, f32)> {
     let mut points = series.iter().flat_map(|s| s.points.iter().copied());
     let (first_t, first_v) = points.next()?;
@@ -14,7 +13,6 @@ pub fn bounds(series: &[Series]) -> Option<(u64, u64, f32, f32)> {
     Some(acc)
 }
 
-
 pub fn nearest_point(points: &[(u64, f32)], target: u64) -> Option<(u64, f32)> {
     if points.is_empty() {
         return None;
@@ -26,7 +24,11 @@ pub fn nearest_point(points: &[(u64, f32)], target: u64) -> Option<(u64, f32)> {
         n if n == points.len() => points[n - 1],
         n => {
             let (before, after) = (points[n - 1], points[n]);
-            if target - before.0 <= after.0 - target { before } else { after }
+            if target - before.0 <= after.0 - target {
+                before
+            } else {
+                after
+            }
         }
     })
 }
@@ -48,7 +50,11 @@ mod tests {
 
     #[test]
     fn bounds_spans_every_series() {
-        let all = bounds(&[series(&[(0, 1.0), (10, 5.0)]), series(&[(5, -2.0), (20, 3.0)])]).unwrap();
+        let all = bounds(&[
+            series(&[(0, 1.0), (10, 5.0)]),
+            series(&[(5, -2.0), (20, 3.0)]),
+        ])
+        .unwrap();
         assert_eq!(all, (0, 20, -2.0, 5.0));
     }
 

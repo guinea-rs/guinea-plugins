@@ -102,14 +102,21 @@ impl peer::Server for Inbound {
                 root,
                 action,
                 payload,
-            } => self.on_ui(request, move || guinea::devtools::act(root, &action, &payload)),
+            } => self.on_ui(request, move || {
+                guinea::devtools::act(root, &action, &payload)
+            }),
             Command::Publish {
                 request,
                 event,
                 payload,
-            } => self.on_ui(request, move || guinea_core::remote::publish(&event, &payload)),
+            } => self.on_ui(request, move || {
+                guinea_core::remote::publish(&event, &payload)
+            }),
             other => {
-                tracing::debug!(?other, "devtools asked for something this link does not offer");
+                tracing::debug!(
+                    ?other,
+                    "devtools asked for something this link does not offer"
+                );
             }
         }
 
@@ -155,9 +162,15 @@ async fn run(
         let remote = session.remote();
         let mut announced = AppInfo::default();
         loop {
-            let current = info.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+            let current = info
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
             if current != announced {
-                if wire::send(remote, &Report::Hello(current.clone())).await.is_err() {
+                if wire::send(remote, &Report::Hello(current.clone()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
                 announced = current;
@@ -179,9 +192,7 @@ async fn run(
 /// Throws away what arrives while there is no connection. `false` once the
 /// application has gone.
 async fn idle(reports: &mut Receiver<Report>) -> bool {
-    let drained = compio::time::timeout(RETRY, async {
-        while reports.next().await.is_some() {}
-    })
-    .await;
+    let drained =
+        compio::time::timeout(RETRY, async { while reports.next().await.is_some() {} }).await;
     drained.is_err()
 }

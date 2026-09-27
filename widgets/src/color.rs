@@ -2,12 +2,21 @@ use windows_canvas::ColorF;
 
 /// Builds an opaque color from a packed `0xRRGGBB` literal.
 pub const fn hex(rgb: u32) -> ColorF {
-    ColorF::from_rgb8(((rgb >> 16) & 0xFF) as u8, ((rgb >> 8) & 0xFF) as u8, (rgb & 0xFF) as u8)
+    ColorF::from_rgb8(
+        ((rgb >> 16) & 0xFF) as u8,
+        ((rgb >> 8) & 0xFF) as u8,
+        (rgb & 0xFF) as u8,
+    )
 }
 
 /// Builds a color from a packed `0xRRGGBB` literal and an 8-bit alpha.
 pub const fn hex_alpha(rgb: u32, a: u8) -> ColorF {
-    ColorF::from_rgba8(((rgb >> 16) & 0xFF) as u8, ((rgb >> 8) & 0xFF) as u8, (rgb & 0xFF) as u8, a)
+    ColorF::from_rgba8(
+        ((rgb >> 16) & 0xFF) as u8,
+        ((rgb >> 8) & 0xFF) as u8,
+        (rgb & 0xFF) as u8,
+        a,
+    )
 }
 
 #[cfg(test)]

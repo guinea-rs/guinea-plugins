@@ -34,7 +34,10 @@ fn shared() -> Result<Rc<GpuDevice>> {
 
 fn lost(device: &Rc<GpuDevice>) {
     DEVICE.with_borrow_mut(|slot| {
-        if slot.upgrade().is_some_and(|current| Rc::ptr_eq(&current, device)) {
+        if slot
+            .upgrade()
+            .is_some_and(|current| Rc::ptr_eq(&current, device))
+        {
             *slot = Weak::new();
         }
     });
@@ -121,12 +124,12 @@ impl Surface {
                 Err(error) => return tracing::warn!(%error, "chart: no graphics device"),
             };
 
-            let current = self
-                .drawn
-                .as_ref()
-                .is_some_and(|drawn| Rc::ptr_eq(&drawn.device, &device) && drawn.metrics == metrics);
+            let current = self.drawn.as_ref().is_some_and(|drawn| {
+                Rc::ptr_eq(&drawn.device, &device) && drawn.metrics == metrics
+            });
             if !current {
-                match CanvasImageSource::new(&device, metrics.width, metrics.height, metrics.scale) {
+                match CanvasImageSource::new(&device, metrics.width, metrics.height, metrics.scale)
+                {
                     Ok(source) => {
                         self.drawn = Some(Drawn {
                             device: device.clone(),
@@ -144,12 +147,10 @@ impl Surface {
             };
 
             let size = (metrics.width, metrics.height);
-            match drawn
-                .source
-                .draw(ColorF::TRANSPARENT, |session| {
-                    paint(session, &drawn.device, size);
-                    Ok(())
-                }) {
+            match drawn.source.draw(ColorF::TRANSPARENT, |session| {
+                paint(session, &drawn.device, size);
+                Ok(())
+            }) {
                 Ok(true) => {
                     if !drawn.attached {
                         drawn.attached = drawn.source.attach_result(&self.image, |result| {
