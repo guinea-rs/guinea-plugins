@@ -1,11 +1,11 @@
-//! What plugins and backends contribute as trees of their own, and all of
-//! them as one tree of rows.
+//! What plugins and backends contribute as trees of their own, as rows: the
+//! panels with their sections, and the nodes of one section.
 //!
 //! Two properties mean something to the rows. A node's `value` is shown
-//! beside its label instead of its kind. A top-level node with `languages`
-//! (tags, comma-separated) and `language` (the one the application shows)
-//! has rows that carry their text under each tag, and the rows show the text
-//! in the language picked, or in `language` when none is.
+//! beside its label instead of its kind. A section with `languages` (tags,
+//! comma-separated) and `language` (the one the application shows) has rows
+//! that carry their text under each tag, and the rows show the text in the
+//! language picked, or in `language` when none is.
 
 use std::collections::HashSet;
 
@@ -117,26 +117,20 @@ pub struct Line {
     pub words: Vec<Word>,
 }
 
-/// The languages the panels offer, in the order the first to offer them
-/// gives them, and the one the application shows.
-pub fn languages(listed: &[Listed]) -> (Vec<String>, Option<String>) {
-    let mut offered: Vec<String> = Vec::new();
-    let mut showing = None;
+/// The languages a section's messages can be read in, and the one the
+/// application shows; nothing for a section without messages.
+pub fn languages(section: &Node) -> (Vec<String>, Option<String>) {
+    let offered = property(section, "languages")
+        .map(|tags| {
+            tags.split(',')
+                .map(str::trim)
+                .filter(|tag| !tag.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
 
-    for section in listed.iter().flat_map(|listed| &listed.panel.nodes) {
-        if let Some(tags) = property(section, "languages") {
-            for tag in tags.split(',').map(str::trim).filter(|tag| !tag.is_empty()) {
-                if !offered.iter().any(|known| known == tag) {
-                    offered.push(tag.to_string());
-                }
-            }
-        }
-        if showing.is_none() {
-            showing = property(section, "language").map(str::to_string);
-        }
-    }
-
-    (offered, showing)
+    (offered, property(section, "language").map(str::to_string))
 }
 
 fn property<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
@@ -146,42 +140,71 @@ fn property<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
         .map(|(_, value)| value.as_str())
 }
 
-/// Every panel as a row with its nodes under it, top to bottom. Rows in
-/// `closed` hide what is under them, except on the way to `reveal`. Rows of a
-/// section with languages show their text in `language`.
+/// Every panel as a row with its sections under it: what the side list
+/// shows. A panel in `closed` hides its sections, except the one `open` is.
+pub fn sections(listed: &[Listed], closed: &HashSet<Place>, open: Option<&Place>) -> Vec<Line> {
+    let mut lines = Vec::new();
+
+    for listed in listed {
+        let place = Place {
+            panel: listed.key.clone(),
+            path: Vec::new(),
+        };
+        let branch = !listed.panel.nodes.is_empty();
+        let shown = branch && (leads_to(&place, open) || !closed.contains(&place));
+        lines.push(Line {
+            depth: 0,
+            place,
+            branch,
+            open: shown,
+            words: vec![Word::new(&listed.title, Tone::Accent)],
+        });
+        if !shown {
+            continue;
+        }
+
+        for (index, section) in listed.panel.nodes.iter().enumerate() {
+            lines.push(Line {
+                depth: 1,
+                place: Place {
+                    panel: listed.key.clone(),
+                    path: vec![index],
+                },
+                branch: false,
+                open: false,
+                words: vec![Word::new(&section.label, Tone::Plain)],
+            });
+        }
+    }
+
+    lines
+}
+
+/// The nodes of one section, top to bottom, the section itself left out.
+/// Rows in `closed` hide what is under them, except on the way to `reveal`.
+/// A section with languages shows its messages' text in `language`, or in
+/// the one the application shows.
 pub fn lines(
-    listed: &[Listed],
+    listed: &Listed,
+    section: usize,
     closed: &HashSet<Place>,
     reveal: Option<&Place>,
     language: Option<&str>,
 ) -> Vec<Line> {
     let mut lines = Vec::new();
+    let Some(node) = listed.panel.nodes.get(section) else {
+        return lines;
+    };
 
-    for listed in listed {
-        let mut place = Place {
-            panel: listed.key.clone(),
-            path: Vec::new(),
-        };
-        let branch = !listed.panel.nodes.is_empty();
-        let open = branch && (leads_to(&place, reveal) || !closed.contains(&place));
-        lines.push(Line {
-            depth: 0,
-            place: place.clone(),
-            branch,
-            open,
-            words: vec![Word::new(&listed.title, Tone::Accent)],
-        });
-        if !open {
-            continue;
-        }
-
-        for (index, section) in listed.panel.nodes.iter().enumerate() {
-            let shown = property(section, "languages")
-                .and(language.or_else(|| property(section, "language")));
-            place.path.push(index);
-            rows(&mut lines, section, &mut place, closed, reveal, shown);
-            place.path.pop();
-        }
+    let shown = property(node, "languages").and(language.or_else(|| property(node, "language")));
+    let mut place = Place {
+        panel: listed.key.clone(),
+        path: vec![section],
+    };
+    for (index, child) in node.children.iter().enumerate() {
+        place.path.push(index);
+        rows(&mut lines, child, &mut place, closed, reveal, shown);
+        place.path.pop();
     }
 
     lines
@@ -206,7 +229,7 @@ fn rows(
     let branch = !node.children.is_empty();
     let open = branch && (leads_to(place, reveal) || !closed.contains(place));
     lines.push(Line {
-        depth: place.path.len(),
+        depth: place.path.len() - 2,
         place: place.clone(),
         branch,
         open,
@@ -324,31 +347,59 @@ mod tests {
     }
 
     #[test]
-    fn every_panel_is_one_tree_and_a_row_shows_what_it_holds() {
+    fn the_side_list_is_the_panels_with_their_sections() {
         let listed = application();
-        let lines = lines(&listed, &HashSet::new(), None, None);
+        let store = Place {
+            panel: "guinea.store".into(),
+            path: Vec::new(),
+        };
 
         assert_eq!(
-            shown(&lines),
+            shown(&sections(&listed, &HashSet::new(), None)),
             [
                 (0, "Store".to_string()),
-                (1, "Keys  store".to_string()),
-                (2, "app  group".to_string()),
-                (3, "language  \"ru\"".to_string()),
+                (1, "Keys".to_string()),
                 (0, "Localization".to_string()),
-                (1, "main.ftl  file".to_string()),
-                (2, "hello  Hello".to_string()),
-                (2, "bye  Bye".to_string()),
+                (1, "main.ftl".to_string()),
             ]
         );
-        assert_eq!(languages(&listed), (vec!["en".into(), "ru".into()], Some("en".into())));
+
+        let closed = HashSet::from([store]);
+        assert_eq!(sections(&listed, &closed, None).len(), 3);
+
+        let keys = Place {
+            panel: "guinea.store".into(),
+            path: vec![0],
+        };
+        assert_eq!(sections(&listed, &closed, Some(&keys)).len(), 4, "the open section stays in view");
+    }
+
+    #[test]
+    fn a_section_is_its_nodes_and_a_row_shows_what_it_holds() {
+        let listed = application();
+
+        assert_eq!(
+            shown(&lines(&listed[0], 0, &HashSet::new(), None, None)),
+            [(0, "app  group".to_string()), (1, "language  \"ru\"".to_string())]
+        );
+        assert_eq!(
+            shown(&lines(&listed[1], 0, &HashSet::new(), None, None)),
+            [(0, "hello  Hello".to_string()), (0, "bye  Bye".to_string())]
+        );
+        assert_eq!(
+            languages(&listed[1].panel.nodes[0]),
+            (vec!["en".into(), "ru".into()], Some("en".into()))
+        );
+        assert_eq!(languages(&listed[0].panel.nodes[0]), (Vec::new(), None));
     }
 
     #[test]
     fn a_picked_language_shows_its_text_or_that_there_is_none() {
         let listed = application();
-        let lines = lines(&listed, &HashSet::new(), None, Some("ru"));
-        let texts: Vec<String> = shown(&lines).into_iter().skip(6).map(|(_, text)| text).collect();
+        let texts: Vec<String> = shown(&lines(&listed[1], 0, &HashSet::new(), None, Some("ru")))
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect();
 
         assert_eq!(texts, ["hello  Привет", "bye  untranslated"]);
     }
@@ -356,17 +407,17 @@ mod tests {
     #[test]
     fn a_closed_row_hides_what_is_under_it_but_not_the_way_to_a_reveal() {
         let listed = application();
-        let store = Place {
+        let app = Place {
             panel: "guinea.store".into(),
-            path: Vec::new(),
+            path: vec![0, 0],
         };
-        let closed = HashSet::from([store]);
+        let closed = HashSet::from([app]);
 
-        assert_eq!(lines(&listed, &closed, None, None).len(), 5);
+        assert_eq!(lines(&listed[0], 0, &closed, None, None).len(), 1);
 
         let wanted = Place::holding(&listed, "path", "app.language").expect("found");
         assert_eq!(wanted.path, [0, 0, 0]);
-        let lines = lines(&listed, &closed, Some(&wanted), None);
+        let lines = lines(&listed[0], 0, &closed, Some(&wanted), None);
         assert!(lines.iter().any(|line| line.place == wanted));
         assert_eq!(wanted.node(&listed).map(|node| node.label.as_str()), Some("language"));
     }

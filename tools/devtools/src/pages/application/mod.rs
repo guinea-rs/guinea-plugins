@@ -1,23 +1,26 @@
-//! Whatever backends and plugins contribute, as one tree, and on the right
-//! whatever was picked in it.
+//! Whatever backends and plugins contribute: the panels and their sections
+//! on the left, the open section as a tree, and on the right whatever was
+//! picked in it. Both trees are drawn by [`components::tree`].
 
 use std::collections::HashSet;
 
 use guinea::eframe::{Page, PageCx};
 use guinea::feature::FeatureInitContext;
-use guinea_devtools_model::panels::{self, Listed, Place};
+use guinea_devtools_model::panels::{self, Line, Listed, Place};
 use guinea_devtools_protocol::Node;
 
 use crate::components;
 use crate::components::tree;
 use crate::features::focus::contracts::Focus;
+use crate::features::panels::PanelsFeature;
+use crate::features::panels::contracts::{Open, PanelsState, Select};
 use crate::features::sessions::contracts::Live;
 
-/// What is picked in the tree, what is folded in it and which language its
-/// messages are read in: this page's own business.
+/// What is folded in the trees and which language messages are read in: this
+/// page's own business. Which section is open and what is picked in it is the
+/// feature's, which remembers them.
 #[derive(Default)]
 pub struct Application {
-    picked: Option<Place>,
     /// The rows a click closed; every other row is open.
     closed: HashSet<Place>,
     /// The language picked; `None` reads messages in the one the application
@@ -29,22 +32,25 @@ pub struct Application {
 
 impl Page for Application {
     type Params = crate::routes::ApplicationParams;
-    type Installs = ();
+    type Installs = PanelsFeature;
 
-    fn install(_ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<()> {
-        Ok(())
+    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<Self::Installs> {
+        ctx.install(&())
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
         let (live, _) = cx.state::<Live, _>();
         let (focus, _) = cx.state::<Focus, _>();
+        let (view, dispatch) = cx.state::<PanelsState, _>();
         let ui = cx.ui();
 
-        let sessions = live.read();
-        let Some(session) = sessions.get(focus.app) else {
-            return;
+        let listed = {
+            let sessions = live.read();
+            let Some(session) = sessions.get(focus.app) else {
+                return;
+            };
+            panels::listed(&session.snapshot)
         };
-        let listed = panels::listed(&session.snapshot);
 
         if listed.is_empty() {
             components::block(ui, |ui| {
@@ -60,22 +66,52 @@ impl Page for Application {
             .and_then(|path| Place::holding(&listed, "path", path))
             .filter(|_| super::fresh(&focus, &mut self.seen));
         if let Some(place) = &wanted {
-            self.picked = Some(place.clone());
+            dispatch.emit(Open(place.panel.clone()));
+            dispatch.emit(Select(place.path.clone()));
         }
 
-        let (offered, showing) = panels::languages(&listed);
-        if !offered.is_empty() {
-            egui::Panel::top("application-tools")
-                .resizable(false)
-                .frame(components::bare(ui))
-                .show(ui, |ui| {
-                    components::block(ui, |ui| {
-                        language(ui, &offered, showing.as_deref(), &mut self.language)
-                    })
-                });
+        let Some(open) = view
+            .panel
+            .as_ref()
+            .and_then(|key| listed.iter().find(|listed| listed.key == *key))
+            .or(listed.first())
+        else {
+            return;
+        };
+        if view.panel.as_ref() != Some(&open.key) {
+            dispatch.emit(Open(open.key.clone()));
         }
 
-        let picked = self.picked.clone();
+        let path = match &wanted {
+            Some(place) => place.path.clone(),
+            None if view.panel.as_ref() == Some(&open.key) => view.node.clone(),
+            None => Vec::new(),
+        };
+        let at = path.first().copied().filter(|at| *at < open.panel.nodes.len()).unwrap_or(0);
+        let Some(section) = open.panel.nodes.get(at) else {
+            return;
+        };
+        let section_place = Place {
+            panel: open.key.clone(),
+            path: vec![at],
+        };
+        let picked = (path.len() > 1).then(|| Place {
+            panel: open.key.clone(),
+            path: path.clone(),
+        });
+
+        let chosen = egui::Panel::left("application-sections")
+            .resizable(true)
+            .size_range(160.0..=360.0)
+            .default_size(220.0)
+            .frame(components::side())
+            .show(ui, |ui| sections(ui, &listed, &section_place, &mut self.closed))
+            .inner;
+        if let Some(place) = chosen {
+            dispatch.emit(Open(place.panel));
+            dispatch.emit(Select(place.path));
+        }
+
         if let Some(node) = picked.as_ref().and_then(|place| place.node(&listed)) {
             let closed = egui::Panel::right("application-details")
                 .resizable(true)
@@ -85,22 +121,58 @@ impl Page for Application {
                 .show(ui, |ui| details(ui, node))
                 .inner;
             if closed {
-                self.picked = None;
+                dispatch.emit(Select(vec![at]));
             }
         }
 
-        let read_in = self.language.as_deref().or(showing.as_deref());
         let clicked = egui::CentralPanel::default()
             .frame(components::bare(ui))
             .show(ui, |ui| {
-                show(ui, &listed, picked.as_ref(), wanted.as_ref(), &mut self.closed, read_in)
+                if section.children.is_empty() {
+                    components::block(ui, |ui| title(ui, section));
+                    components::rule(ui);
+                    properties(ui, section);
+                    return None;
+                }
+
+                let (offered, showing) = panels::languages(section);
+                if !offered.is_empty() {
+                    components::block(ui, |ui| {
+                        language(ui, &offered, showing.as_deref(), &mut self.language)
+                    });
+                    components::rule(ui);
+                }
+
+                let read_in = self.language.as_deref().or(showing.as_deref());
+                let lines = panels::lines(open, at, &self.closed, wanted.as_ref(), read_in);
+                show(ui, &lines, picked.as_ref(), wanted.as_ref(), &mut self.closed)
             })
             .inner;
 
         if let Some(place) = clicked {
-            self.picked = Some(place);
+            dispatch.emit(Select(place.path));
         }
     }
+}
+
+/// The panels with their sections; the section clicked, if any.
+fn sections(
+    ui: &mut egui::Ui,
+    listed: &[Listed],
+    open: &Place,
+    closed: &mut HashSet<Place>,
+) -> Option<Place> {
+    let lines = panels::sections(listed, closed, Some(open));
+    let clicked = show(ui, &lines, Some(open), None, closed)?;
+
+    if clicked.path.is_empty() {
+        if !closed.remove(&clicked) {
+            closed.insert(clicked);
+        }
+        return None;
+    }
+
+    Some(clicked)
 }
 
 /// The languages messages can be read in; `picked` becomes the one chosen.
@@ -124,18 +196,15 @@ fn language(ui: &mut egui::Ui, offered: &[String], showing: Option<&str>, picked
     });
 }
 
-/// Draws the tree, folding what `closed` holds; what was picked, if anything
-/// was.
+/// Draws `lines`, folding and unfolding what `closed` holds; the row
+/// clicked, if any.
 fn show(
     ui: &mut egui::Ui,
-    listed: &[Listed],
+    lines: &[Line],
     picked: Option<&Place>,
     reveal: Option<&Place>,
     closed: &mut HashSet<Place>,
-    language: Option<&str>,
 ) -> Option<Place> {
-    let lines = panels::lines(listed, closed, reveal, language);
-
     let wanted = reveal.and_then(|wanted| lines.iter().position(|line| &line.place == wanted));
     let answer = tree::show(ui, lines.len(), wanted, |ui, index| {
         let line = &lines[index];
@@ -160,18 +229,22 @@ fn show(
 
 /// What the picked node holds; whether it was closed.
 fn details(ui: &mut egui::Ui, node: &Node) -> bool {
-    let closed = components::head(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new(&node.kind).heading().weak());
-            ui.heading(&node.label);
-        });
-    });
-
+    let closed = components::head(ui, |ui| title(ui, node));
     components::rule(ui);
+    properties(ui, node);
 
+    closed
+}
+
+fn title(ui: &mut egui::Ui, node: &Node) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new(&node.kind).heading().weak());
+        ui.heading(&node.label);
+    });
+}
+
+fn properties(ui: &mut egui::Ui, node: &Node) {
     egui::ScrollArea::vertical()
         .auto_shrink(false)
         .show(ui, |ui| components::block(ui, |ui| components::fields(ui, &node.properties)));
-
-    closed
 }
