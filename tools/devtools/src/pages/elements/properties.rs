@@ -1,5 +1,5 @@
-//! The sidebar of the Native page: one element's properties, the way the
-//! browser's devtools show one node's styles.
+//! The sidebar for a native element: its properties, the way the browser's
+//! devtools show one node's styles.
 //!
 //! Tabs across the top - what was set and where from, then one per cluster.
 //! Layout draws the box model, Text a sample of the font, Appearance the

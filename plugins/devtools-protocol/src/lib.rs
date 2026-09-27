@@ -22,7 +22,7 @@ pub mod devtools_capnp {
 /// field with a default, a variant nobody older is sent - bumps the minor;
 /// anything an older peer would misread bumps the major, and peers of
 /// different majors refuse each other.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 1, 0, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 1, 1, 0);
 
 use ogurpchik::auth::handshake::Protocol;
 use ogurpchik::endpoint::Endpoint;

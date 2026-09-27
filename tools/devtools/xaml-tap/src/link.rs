@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use guinea_devtools_protocol::devtools_capnp::peer;
+use guinea_devtools_protocol::native::Change;
 use guinea_devtools_protocol::{Answer, AppInfo, Capability, Command, Report, key, wire};
 use ogurpchik::rpc::connect_session;
 
@@ -96,7 +97,7 @@ async fn run() {
         let opening = [
             Report::Hello(hello()),
             Report::NativeTree {
-                changes: tree::whole(),
+                changes: marked(tree::whole()),
             },
             Report::NativeEnums { enums },
         ];
@@ -110,6 +111,7 @@ async fn run() {
 
             let changes = tree::take_changes();
             if !changes.is_empty() {
+                let changes = marked(changes);
                 open &= wire::send(remote, &Report::NativeTree { changes }).await.is_ok();
             }
 
@@ -121,6 +123,34 @@ async fn run() {
         perf::stop();
         ui::on_ui(highlight::hide);
     }
+}
+
+/// The changes with the mark of every element added, read in one trip to the
+/// UI thread per batch rather than from inside the callback that reports each
+/// element.
+fn marked(mut changes: Vec<Change>) -> Vec<Change> {
+    let added: Vec<u64> = changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::Added(element) => Some(element.handle),
+            Change::Removed { .. } => None,
+        })
+        .collect();
+    let Ok(marks) = inspect::with(|inspector| {
+        Ok(added.iter().map(|&handle| inspector.mark(handle)).collect::<Vec<_>>())
+    }) else {
+        return changes;
+    };
+
+    let added = changes.iter_mut().filter_map(|change| match change {
+        Change::Added(element) => Some(element),
+        Change::Removed { .. } => None,
+    });
+    for (element, mark) in added.zip(marks) {
+        element.mark = mark.unwrap_or_default();
+    }
+
+    changes
 }
 
 /// Carries out what devtools ask, on the UI thread, and posts the answer.

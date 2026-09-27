@@ -58,14 +58,17 @@ async fn snapshot(
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 struct Tree {
-    /// Elements whose children are left out, comma-separated ids.
+    /// Elements the other way from how they start, comma-separated ids: a
+    /// row open by default closed, a native one - closed by default - open.
     #[serde(default)]
-    closed: String,
+    flipped: String,
     /// An element to bring into view, opening whatever hides it.
     reveal: Option<String>,
 }
 
-/// The application as one tree: windows, segments, features, state, actors.
+/// The application as one tree: windows, segments, features, state, actors,
+/// and what each segment made in the backend's own tree when an inspector is
+/// attached.
 #[utoipa::path(
     get,
     path = "/apps/{app}/elements",
@@ -79,7 +82,7 @@ async fn elements(
     Path(app): Path<String>,
     Query(tree): Query<Tree>,
 ) -> Result<Json<Vec<Line>>, Failure> {
-    let closed: HashSet<Element> = list(&tree.closed)
+    let flipped: HashSet<Element> = list(&tree.flipped)
         .iter()
         .map(|id| id.parse().map_err(Failure::bad_request))
         .collect::<Result<_, _>>()?;
@@ -91,7 +94,11 @@ async fn elements(
     state.read(|sessions| {
         let session = session(sessions, &app)?;
 
-        Ok(Json(elements::lines(&session.snapshot, &closed, reveal.as_ref())))
+        let native = sessions
+            .native_for(session.id)
+            .map(|inspector| &inspector.inspection.tree);
+
+        Ok(Json(elements::lines(&session.snapshot, native, &flipped, reveal.as_ref())))
     })
 }
 
@@ -99,7 +106,8 @@ async fn elements(
 #[into_params(parameter_in = Query)]
 struct Which {
     /// `app`, `actor/7`, `window/1`, `segment/1/0`, `feature/1/0/TabsFeature`,
-    /// `state/1/0/a::Tabs`, `view/1/0.2.1`.
+    /// `state/1/0/a::Tabs`, `view/1/0.2.1`. A native element, `native/2178`,
+    /// is described by the native routes instead.
     id: String,
 }
 

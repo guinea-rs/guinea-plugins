@@ -12,6 +12,7 @@ use guinea_devtools_protocol::{
 use serde::{Deserialize, Serialize};
 
 use crate::names::{names, type_name, window_name};
+use crate::native::NativeTree;
 use crate::panels::is_view;
 use crate::sessions::Session;
 use crate::words::{Kind, Tone, Word};
@@ -30,11 +31,14 @@ pub enum Element {
     State { root: u64, depth: usize, type_name: String },
     /// A node of a window's view tree, by its path from the tree's top.
     View { root: u64, path: Vec<usize> },
+    /// An element of the backend's own tree, by the inspector's handle.
+    Native(u64),
 }
 
 impl fmt::Display for Element {
     /// `app`, `actor/7`, `window/1`, `segment/1/0`, `feature/1/0/TabsFeature`,
-    /// `feature/app/StartupFeature`, `state/1/0/a::Tabs`, `view/1/0.2.1`.
+    /// `feature/app/StartupFeature`, `state/1/0/a::Tabs`, `view/1/0.2.1`,
+    /// `native/2178`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Element::App => f.write_str("app"),
@@ -55,6 +59,7 @@ impl fmt::Display for Element {
                 let path: Vec<String> = path.iter().map(usize::to_string).collect();
                 write!(f, "view/{root}/{}", path.join("."))
             }
+            Element::Native(handle) => write!(f, "native/{handle}"),
         }
     }
 }
@@ -100,6 +105,7 @@ impl FromStr for Element {
                     .map(|step| step.parse().map_err(|_| bad()))
                     .collect::<Result<_, _>>()?,
             },
+            Some("native") => Element::Native(number(parts.next())?),
             _ => return Err(bad()),
         })
     }
@@ -154,17 +160,66 @@ fn kind(kind: Kind) -> Tone {
     Tone::Kind(kind)
 }
 
+/// `Microsoft.UI.Xaml.Controls.Border` as `Border`.
+fn native_kind(kind: &str) -> &str {
+    kind.rsplit('.').next().unwrap_or(kind)
+}
+
 struct Lines<'a> {
     snapshot: &'a Snapshot,
-    closed: &'a HashSet<Element>,
+    flipped: &'a HashSet<Element>,
     reveal: Option<&'a Element>,
+    native: Option<&'a NativeTree>,
+    /// The native element each segment begins at: `((root, depth), handle)`.
+    borders: Vec<((u64, usize), u64)>,
+    /// The native elements on the way to the one revealed, it included.
+    native_path: Vec<u64>,
+    /// The segment the revealed native element sits in.
+    owner: Option<(u64, usize)>,
     lines: Vec<Line>,
 }
 
+/// The native element each segment begins at: the one carrying the segment's
+/// name as its mark, inside its parent segment's when there is a choice, and
+/// none claimed twice.
+fn borders(snapshot: &Snapshot, tree: &NativeTree) -> Vec<((u64, usize), u64)> {
+    let mut found: Vec<((u64, usize), u64)> = Vec::new();
+
+    for root in &snapshot.roots {
+        let mut parent: Option<u64> = None;
+        for (at, segment) in root.chain.iter().enumerate() {
+            let free: Vec<u64> = tree
+                .marked(&segment.name)
+                .into_iter()
+                .filter(|handle| found.iter().all(|(_, claimed)| claimed != handle))
+                .collect();
+            let inside = parent.and_then(|parent| {
+                free.iter().copied().find(|handle| tree.path(*handle).contains(&parent))
+            });
+
+            let Some(border) = inside.or(free.first().copied()) else {
+                break;
+            };
+            found.push(((root.id, at), border));
+            parent = Some(border);
+        }
+    }
+
+    found
+}
+
 impl Lines<'_> {
-    /// Adds a row; whether what is under it follows.
+    /// Adds a row; whether what is under it follows. A row is open unless it
+    /// is flipped; a native one, of which there are thousands, is closed
+    /// unless it is.
     fn push(&mut self, depth: usize, element: Element, words: Vec<Word>, branch: bool, forced: bool) -> bool {
-        let open = branch && (forced || !self.closed.contains(&element));
+        let flipped = self.flipped.contains(&element);
+        let open = branch
+            && (forced
+                || match element {
+                    Element::Native(_) => flipped,
+                    _ => !flipped,
+                });
         self.lines.push(Line {
             depth,
             element,
@@ -189,6 +244,7 @@ impl Lines<'_> {
                 actor.id == *id && actor.root == Some(root) && actor.segment.is_some_and(|d| d >= depth)
             }),
             Some(Element::View { root: at, .. } | Element::Segment { root: at, .. }) => *at == root,
+            Some(Element::Native(_)) => self.owner.is_some_and(|(at, d)| at == root && d >= depth),
             _ => false,
         }
     }
@@ -359,6 +415,7 @@ impl Lines<'_> {
             &actors,
             depth + 1,
         );
+        self.native_of(root, at, depth + 1);
 
         let mut nested = false;
         if let Some((view, mut path)) = view {
@@ -371,6 +428,64 @@ impl Lines<'_> {
 
         if !nested {
             self.segment(root, at + 1, None, depth + 1);
+        }
+    }
+
+    /// What segment `at` of `root` made in the backend's own tree: the
+    /// element it begins at and everything under it, up to where the next
+    /// segment begins.
+    fn native_of(&mut self, root: &Root, at: usize, depth: usize) {
+        let Some(tree) = self.native else {
+            return;
+        };
+        let Some(&(_, border)) = self.borders.iter().find(|(owner, _)| *owner == (root.id, at)) else {
+            return;
+        };
+
+        let later: Vec<u64> = self
+            .borders
+            .iter()
+            .filter(|((owner, deeper), _)| *owner == root.id && *deeper > at)
+            .map(|(_, handle)| *handle)
+            .collect();
+        self.native_row(tree, border, &later, depth, true);
+    }
+
+    fn native_row(&mut self, tree: &NativeTree, handle: u64, later: &[u64], depth: usize, first: bool) {
+        let Some(element) = tree.get(handle) else {
+            return;
+        };
+        let children: Vec<u64> = tree
+            .children(handle)
+            .iter()
+            .copied()
+            .filter(|child| !later.contains(child))
+            .collect();
+        let branch = !children.is_empty();
+
+        let mut words = Vec::new();
+        if first {
+            words.push(word("native ", Tone::Muted));
+        }
+        words.push(word("<", Tone::Muted));
+        words.push(word(native_kind(&element.kind), kind(Kind::Send)));
+        if !element.name.is_empty() {
+            words.push(word(format!(" #{}", element.name), Tone::Accent));
+        }
+        if !element.mark.is_empty() {
+            words.push(word(format!(" {:?}", element.mark), Tone::Quote));
+        }
+        words.push(word(if branch { ">" } else { " />" }, Tone::Muted));
+
+        let forced = self
+            .native_path
+            .iter()
+            .position(|on_the_way| *on_the_way == handle)
+            .is_some_and(|at| at + 1 < self.native_path.len());
+        if self.push(depth, Element::Native(handle), words, branch, forced) {
+            for child in children {
+                self.native_row(tree, child, later, depth + 1, false);
+            }
         }
     }
 
@@ -428,13 +543,35 @@ impl Lines<'_> {
     }
 }
 
-/// The tree as rows, top to bottom. Rows in `closed` hide what is under
-/// them, except on the way to `reveal`.
-pub fn lines(snapshot: &Snapshot, closed: &HashSet<Element>, reveal: Option<&Element>) -> Vec<Line> {
+/// The tree as rows, top to bottom, with what each segment made in `native`
+/// under it when an inspector reported the backend's own tree. A row in
+/// `flipped` is the other way from how it starts - open rows close, native
+/// ones, closed to begin with, open - except on the way to `reveal`.
+pub fn lines(
+    snapshot: &Snapshot,
+    native: Option<&NativeTree>,
+    flipped: &HashSet<Element>,
+    reveal: Option<&Element>,
+) -> Vec<Line> {
+    let borders = native.map(|tree| borders(snapshot, tree)).unwrap_or_default();
+    let native_path = match (native, reveal) {
+        (Some(tree), Some(Element::Native(handle))) => tree.path(*handle),
+        _ => Vec::new(),
+    };
+    let owner = native_path
+        .iter()
+        .rev()
+        .find_map(|handle| borders.iter().find(|(_, border)| border == handle))
+        .map(|(owner, _)| *owner);
+
     let mut lines = Lines {
         snapshot,
-        closed,
+        flipped,
         reveal,
+        native,
+        borders,
+        native_path,
+        owner,
         lines: Vec::new(),
     };
 
@@ -719,6 +856,7 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
 
             details(&node.label, "view", node.properties.clone())
         }
+        Element::Native(_) => return None,
     })
 }
 
@@ -840,10 +978,77 @@ mod tests {
     }
 
     fn rows(closed: &HashSet<Element>) -> Vec<(usize, Element)> {
-        lines(&snapshot(), closed, None)
+        lines(&snapshot(), None, closed, None)
             .into_iter()
             .map(|line| (line.depth, line.element))
             .collect()
+    }
+
+    /// A window's XAML: the shell's border, a grid in it, the page's border
+    /// in that, and a text in the page.
+    fn native() -> NativeTree {
+        use guinea_devtools_protocol::native::{Change, Element as Native};
+
+        let element = |handle: u64, parent: u64, kind: &str, mark: &str| {
+            Change::Added(Native {
+                handle,
+                parent,
+                kind: format!("Microsoft.UI.Xaml.Controls.{kind}"),
+                mark: mark.into(),
+                ..Native::default()
+            })
+        };
+        let mut tree = NativeTree::default();
+        tree.apply(vec![
+            element(1, 0, "Canvas", ""),
+            element(2, 1, "Border", "Shell"),
+            element(3, 2, "Grid", ""),
+            element(4, 3, "Border", "Page"),
+            element(5, 4, "TextBlock", ""),
+        ]);
+        tree
+    }
+
+    fn native_rows(flipped: &HashSet<Element>, reveal: Option<&Element>) -> Vec<(usize, Element, String)> {
+        lines(&snapshot(), Some(&native()), flipped, reveal)
+            .into_iter()
+            .filter(|line| matches!(line.element, Element::Native(_)))
+            .map(|line| (line.depth, line.element, crate::words::text(&line.words)))
+            .collect()
+    }
+
+    #[test]
+    fn each_segment_holds_what_it_made_in_the_native_tree_closed() {
+        assert_eq!(
+            native_rows(&HashSet::new(), None),
+            [
+                (2, Element::Native(2), "native <Border \"Shell\">".to_string()),
+                (4, Element::Native(4), "native <Border \"Page\">".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_segment_s_native_tree_stops_where_the_next_segment_begins() {
+        let flipped = HashSet::from([Element::Native(2), Element::Native(3), Element::Native(4)]);
+
+        assert_eq!(
+            native_rows(&flipped, None),
+            [
+                (2, Element::Native(2), "native <Border \"Shell\">".to_string()),
+                (3, Element::Native(3), "<Grid />".to_string()),
+                (4, Element::Native(4), "native <Border \"Page\">".to_string()),
+                (5, Element::Native(5), "<TextBlock />".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_revealed_native_element_opens_its_segment_and_the_way_to_it() {
+        let closed = HashSet::from([Element::Segment { root: 1, depth: 0 }]);
+        let shown = native_rows(&closed, Some(&Element::Native(5)));
+
+        assert!(shown.iter().any(|(_, element, _)| *element == Element::Native(5)));
     }
 
     #[test]
@@ -874,7 +1079,7 @@ mod tests {
     #[test]
     fn a_revealed_row_opens_the_way_to_it() {
         let closed = HashSet::from([Element::View { root: 1, path: vec![0, 0] }]);
-        let shown = lines(&snapshot(), &closed, Some(&Element::Actor(7)));
+        let shown = lines(&snapshot(), None, &closed, Some(&Element::Actor(7)));
 
         assert!(shown.iter().any(|line| line.element == Element::Actor(7)));
     }
@@ -903,6 +1108,7 @@ mod tests {
                 at: None,
                 name: "StartupFeature".into(),
             },
+            Element::Native(2178),
         ] {
             assert_eq!(element.to_string().parse::<Element>(), Ok(element));
         }
@@ -946,7 +1152,7 @@ mod tests {
             type_name: name.into(),
         };
 
-        let rows: Vec<(usize, Element)> = lines(&snapshot, &HashSet::new(), None)
+        let rows: Vec<(usize, Element)> = lines(&snapshot, None, &HashSet::new(), None)
             .into_iter()
             .map(|line| (line.depth, line.element))
             .collect();

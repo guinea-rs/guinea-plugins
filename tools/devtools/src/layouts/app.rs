@@ -11,7 +11,6 @@ use crate::features::tab::contracts::{LastTab, Opened};
 use crate::pages::application::Application;
 use crate::pages::elements::Elements;
 use crate::pages::graph::Graphs;
-use crate::pages::native::Native;
 use crate::pages::trace::Traces;
 use crate::routes::Route;
 use crate::features::sessions::contracts::Live;
@@ -20,7 +19,7 @@ use crate::theme;
 #[derive(Default)]
 pub struct App;
 
-const TABS: [&str; 5] = ["Elements", "Graph", "Trace", "Application", "Native"];
+const TABS: [&str; 4] = ["Elements", "Graph", "Trace", "Application"];
 
 /// The tab titled `title` for `app`, or the first one for a title no tab has.
 pub fn tab_named(title: &str, app: u64) -> Route {
@@ -33,8 +32,7 @@ fn tab(index: usize, app: u64) -> Route {
         0 => Route::Elements { app },
         1 => Route::Graphs { app },
         2 => Route::Traces { app },
-        3 => Route::Application { app },
-        _ => Route::Native { app },
+        _ => Route::Application { app },
     }
 }
 
@@ -58,7 +56,6 @@ impl Layout for App {
             cx.child_is::<Graphs>(),
             cx.child_is::<Traces>(),
             cx.child_is::<Application>(),
-            cx.child_is::<Native>(),
         ];
         let open = current.iter().position(|on| *on).unwrap_or(0);
         if current[open] && last.0 != TABS[open] {

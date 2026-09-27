@@ -107,6 +107,7 @@ impl IVisualTreeServiceCallback_Impl for Watcher_Impl {
                     index: relation.child_index,
                     kind: text(element.kind),
                     name: text(element.name),
+                    mark: String::new(),
                 };
                 state.elements.insert(added.handle, added.clone());
                 state.pending.push(Change::Added(added));

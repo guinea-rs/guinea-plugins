@@ -6,7 +6,6 @@ use crate::pages::application::Application;
 use crate::pages::elements::Elements;
 use crate::pages::graph::Graphs;
 use crate::pages::home::Home;
-use crate::pages::native::Native;
 use crate::pages::trace::Traces;
 
 routes! {
@@ -19,7 +18,6 @@ routes! {
                 page(Graphs) { app: u64 }
                 page(Traces) { app: u64 }
                 page(Application) { app: u64 }
-                page(Native) { app: u64 }
             }
         }
     }

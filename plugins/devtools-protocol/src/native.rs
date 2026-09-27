@@ -18,6 +18,11 @@ pub struct Element {
     pub kind: String,
     /// The native name, when it has one.
     pub name: String,
+    /// The mark it carries - its `AutomationId` on WinUI - when it has one.
+    /// guinea marks the element each page and layout begins at with the
+    /// segment's name.
+    #[serde(default)]
+    pub mark: String,
 }
 
 /// How the tree changed, in the order it did.

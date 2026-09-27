@@ -85,6 +85,21 @@ impl NativeTree {
         self.elements.is_empty()
     }
 
+    /// Every element carrying `mark`, depth first, siblings in order.
+    pub fn marked(&self, mark: &str) -> Vec<u64> {
+        let mut found = Vec::new();
+        let mut unseen: Vec<u64> = self.roots.iter().rev().copied().collect();
+
+        while let Some(handle) = unseen.pop() {
+            if self.elements.get(&handle).is_some_and(|element| element.mark == mark) {
+                found.push(handle);
+            }
+            unseen.extend(self.children(handle).iter().rev());
+        }
+
+        found
+    }
+
     /// From the root down to `handle`, both included; empty when it is gone.
     pub fn path(&self, handle: u64) -> Vec<u64> {
         let mut path = Vec::new();
@@ -135,7 +150,7 @@ mod tests {
             parent,
             index,
             kind: format!("Kind{handle}"),
-            name: String::new(),
+            ..Element::default()
         })
     }
 
@@ -147,6 +162,30 @@ mod tests {
         assert_eq!(tree.roots(), [1]);
         assert_eq!(tree.children(1), [2, 3]);
         assert_eq!(tree.path(3), [1, 3]);
+    }
+
+    #[test]
+    fn marked_elements_come_in_tree_order() {
+        let marked = |handle: u64, parent: u64, index: u32, mark: &str| {
+            Change::Added(Element {
+                handle,
+                parent,
+                index,
+                mark: mark.into(),
+                ..Element::default()
+            })
+        };
+        let mut tree = NativeTree::default();
+        tree.apply(vec![
+            marked(1, 0, 0, "Shell"),
+            marked(2, 1, 0, ""),
+            marked(3, 2, 0, "Page"),
+            marked(4, 1, 1, "Page"),
+        ]);
+
+        assert_eq!(tree.marked("Page"), [3, 4]);
+        assert_eq!(tree.marked("Shell"), [1]);
+        assert!(tree.marked("Other").is_empty());
     }
 
     #[test]

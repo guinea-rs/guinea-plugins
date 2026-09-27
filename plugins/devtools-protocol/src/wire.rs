@@ -65,6 +65,7 @@ mod tests {
                         index: 0,
                         kind: "Microsoft.UI.Xaml.Controls.Border".into(),
                         name: "Root".into(),
+                        mark: "Processes".into(),
                     }),
                     Change::Removed { handle: 3, parent: 1 },
                 ],
