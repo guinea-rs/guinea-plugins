@@ -1,5 +1,7 @@
 //! Reading the application, on the UI thread.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::time::Instant;
 
 use guinea::app::actors::app_actors;
@@ -154,12 +156,15 @@ fn point(point: &Point) -> TracePoint {
         Point::Log {
             level,
             target,
+            file,
+            line,
             text,
+            ..
         } => TracePoint::Log {
             level: level.to_string(),
             target: target.to_string(),
             text: text.clone(),
-            written: None,
+            written: file.zip(*line).map(|(file, line)| written(file, line)),
         },
         Point::Note(text) => TracePoint::Note { text: text.clone() },
     }
@@ -285,13 +290,56 @@ pub fn snapshot(started: Instant) -> Collected {
     }
 }
 
-/// Remembers the crate an actor was declared in: where a timer's file, which
-/// carries no crate of its own, is looked for.
+thread_local! {
+    /// Every crate an actor was declared in, over every snapshot so far.
+    static CRATE_DIRS: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+    /// A log's file as found on this machine, and how many crates it was
+    /// looked for under.
+    static WRITTEN: RefCell<HashMap<&'static str, (usize, Option<String>)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Remembers the crate an actor was declared in: where a timer's or a log's
+/// file, which carries no crate of its own, is looked for.
 fn note_crate(crate_dirs: &mut Vec<&'static str>, snapshot: &ActorSnapshot) {
     if let Some(declared) = snapshot.shape.declared
         && !crate_dirs.contains(&declared.crate_dir)
     {
         crate_dirs.push(declared.crate_dir);
+        CRATE_DIRS.with_borrow_mut(|known| {
+            if !known.contains(&declared.crate_dir) {
+                known.push(declared.crate_dir);
+            }
+        });
+    }
+}
+
+/// Where a log line was written. The file is the workspace's, relative, so it
+/// is looked for above every crate seen, once per file until more crates are.
+fn written(file: &'static str, line: u32) -> Declared {
+    let found = CRATE_DIRS.with_borrow(|crate_dirs| WRITTEN.with_borrow_mut(|written| {
+        let (tried, found) = written.entry(file).or_insert((usize::MAX, None));
+        if found.is_none() && *tried != crate_dirs.len() {
+            *found = crate_dirs.iter().find_map(|crate_dir| {
+                shape::Declared {
+                    file,
+                    line,
+                    column: 1,
+                    crate_dir,
+                }
+                .path()
+                .map(|path| path.display().to_string())
+            });
+            *tried = crate_dirs.len();
+        }
+        found.clone()
+    }));
+
+    Declared {
+        found: found.is_some(),
+        file: found.unwrap_or_else(|| file.to_string()),
+        line,
+        column: 1,
     }
 }
 
