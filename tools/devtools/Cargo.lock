@@ -2395,7 +2395,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.10.15"
+version = "0.10.16"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2454,7 +2454,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.10.15"
+version = "0.10.16"
 dependencies = [
  "anyhow",
  "guinea",
