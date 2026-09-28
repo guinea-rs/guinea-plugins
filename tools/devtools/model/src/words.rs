@@ -196,9 +196,9 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
     let said = tone(point);
     let text = |text: String| Word::new(text, said.clone());
     let name = Tone::Plain;
-    let actor = |full: &str| Word::link(type_name(full), name.clone(), Target::Actor(full.to_string()));
+    let actor = |full: &str| Word::link(&type_name(full), name.clone(), Target::Actor(full.to_string()));
     let message =
-        |full: &str| Word::link(type_name(full), name.clone(), Target::Records(full.to_string()));
+        |full: &str| Word::link(&type_name(full), name.clone(), Target::Records(full.to_string()));
 
     match point {
         TracePoint::Action { message: m } => vec![text("action ".into()), message(m)],
@@ -245,7 +245,7 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
         ],
         TracePoint::Push { reducer } => vec![
             text("push into ".into()),
-            Word::link(type_name(reducer), name, Target::Reducer(reducer.clone())),
+            Word::link(&type_name(reducer), name, Target::Reducer(reducer.clone())),
         ],
         TracePoint::Navigate { root, to } => vec![text(format!("{root} navigates to {to}"))],
         TracePoint::Tick { timer: None } => vec![text("timer".into())],

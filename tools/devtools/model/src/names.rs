@@ -1,12 +1,34 @@
 //! How things are called on screen.
 
+use std::borrow::Cow;
+
 use guinea_devtools_protocol::BusKind;
 
-/// A type without its path: `MetricsActor`, `List<c::Recent>`.
-pub fn type_name(full: &str) -> &str {
-    let generic = full.find('<').unwrap_or(full.len());
-    let start = full[..generic].rfind("::").map_or(0, |at| at + 2);
-    &full[start..]
+/// A type without its path, and its parameters without theirs:
+/// `MetricsActor`, `GenericAgentActor<WindowsAgent>`, `List<Recent>`.
+pub fn type_name(full: &str) -> Cow<'_, str> {
+    if !full.contains('<') {
+        let start = full.rfind("::").map_or(0, |at| at + 2);
+        return Cow::Borrowed(&full[start..]);
+    }
+
+    let mut out = String::with_capacity(full.len());
+    let mut path = 0;
+    for (at, c) in full.char_indices() {
+        if c.is_alphanumeric() || c == '_' || c == ':' {
+            continue;
+        }
+        out.push_str(last_segment(&full[path..at]));
+        out.push(c);
+        path = at + c.len_utf8();
+    }
+    out.push_str(last_segment(&full[path..]));
+
+    Cow::Owned(out)
+}
+
+fn last_segment(path: &str) -> &str {
+    path.rfind("::").map_or(path, |at| &path[at + 2..])
 }
 
 /// Whether `full`, a type path from a snapshot, is the type `name` names.
@@ -67,7 +89,17 @@ mod tests {
 
     #[test]
     fn a_type_is_named_by_its_last_segment() {
-        assert_eq!(type_name("a::b::List<c::Recent>"), "List<c::Recent>");
+        assert_eq!(type_name("a::b::List<c::Recent>"), "List<Recent>");
+        assert_eq!(
+            type_name("agent::GenericAgentActor<uniproc_agent::windows::WindowsAgent>"),
+            "GenericAgentActor<WindowsAgent>"
+        );
+        assert_eq!(
+            type_name("m::Pair<a::A, std::vec::Vec<b::B>, &'static str, [u8; 4]>"),
+            "Pair<A, Vec<B>, &'static str, [u8; 4]>"
+        );
+        assert_eq!(type_name("contracts::Kill"), "Kill");
+        assert_eq!(type_name("Kill"), "Kill");
         assert!(names("actor::Worker", "crate::actor::Worker"));
         assert!(!names("Worker", "crate::actor::BigWorker"));
     }

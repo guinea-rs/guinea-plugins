@@ -770,7 +770,7 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
                     )
                 }
             };
-            let actors: Vec<&str> = snapshot
+            let actors: Vec<_> = snapshot
                 .actors
                 .iter()
                 .filter(|actor| {
@@ -834,7 +834,7 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
             let actor = snapshot.actors.iter().find(|actor| actor.id == *id)?;
 
             let mut rows = actor_rows(snapshot, actor);
-            let waiting: Vec<&str> = session
+            let waiting: Vec<_> = session
                 .tasks
                 .of_actor(*id)
                 .map(|task| type_name(&task.output))
