@@ -84,6 +84,7 @@ pub fn kind_color(kind: Kind) -> Color32 {
         Kind::Navigate => CYAN,
         Kind::Store => LILAC,
         Kind::Render => SKY,
+        Kind::Span => CYAN,
         Kind::Log => TEXT,
         Kind::Tick | Kind::Note => MUTED,
     }

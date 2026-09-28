@@ -22,7 +22,7 @@ pub mod devtools_capnp {
 /// field with a default, a variant nobody older is sent - bumps the minor;
 /// anything an older peer would misread bumps the major, and peers of
 /// different majors refuse each other.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 1, 1, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 2, 0, 0);
 
 use ogurpchik::auth::handshake::Protocol;
 use ogurpchik::endpoint::Endpoint;
@@ -355,6 +355,19 @@ pub enum TracePoint {
     Note {
         text: String,
     },
+    /// A `tracing` span of the application's own: `took` on the record is
+    /// the time spent inside it, and what happened inside is under it.
+    Span {
+        name: String,
+        target: String,
+        /// Its fields as they were when it opened, `name=value` apart by
+        /// spaces.
+        #[serde(default)]
+        fields: String,
+        /// Where it was declared, when the span said.
+        #[serde(default)]
+        declared: Option<Declared>,
+    },
 }
 
 impl TracePoint {
@@ -375,6 +388,7 @@ impl TracePoint {
             TracePoint::Render { .. } => "render",
             TracePoint::Log { .. } => "log",
             TracePoint::Note { .. } => "note",
+            TracePoint::Span { .. } => "span",
         }
     }
 
@@ -429,6 +443,8 @@ impl TracePoint {
                 ..
             } => format!("{level} {target}: {text}"),
             TracePoint::Note { text } => text.clone(),
+            TracePoint::Span { name, fields, .. } if fields.is_empty() => name.clone(),
+            TracePoint::Span { name, fields, .. } => format!("{name} {fields}"),
         }
     }
 }

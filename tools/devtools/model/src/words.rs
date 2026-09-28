@@ -40,6 +40,7 @@ pub enum Kind {
     Navigate,
     Store,
     Render,
+    Span,
     Log,
     Tick,
     Note,
@@ -47,7 +48,7 @@ pub enum Kind {
 
 impl Kind {
     /// Every kind, in the order a filter lists them.
-    pub const ALL: [Kind; 15] = [
+    pub const ALL: [Kind; 16] = [
         Kind::Action,
         Kind::Send,
         Kind::Handle,
@@ -60,6 +61,7 @@ impl Kind {
         Kind::Navigate,
         Kind::Store,
         Kind::Render,
+        Kind::Span,
         Kind::Log,
         Kind::Tick,
         Kind::Note,
@@ -82,6 +84,7 @@ impl Kind {
             TracePoint::Store { .. } => Kind::Store,
             TracePoint::Log { .. } => Kind::Log,
             TracePoint::Note { .. } => Kind::Note,
+            TracePoint::Span { .. } => Kind::Span,
         }
     }
 
@@ -100,6 +103,7 @@ impl Kind {
             Kind::Navigate => "navigate",
             Kind::Store => "store",
             Kind::Render => "render",
+            Kind::Span => "span",
             Kind::Log => "log",
             Kind::Tick => "tick",
             Kind::Note => "note",
@@ -281,6 +285,18 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
             ..
         } => vec![text(format!("{} {target}: {logged}", level.to_lowercase()))],
         TracePoint::Note { text: note } => vec![text(note.clone())],
+        TracePoint::Span {
+            name: spanned,
+            fields,
+            ..
+        } => {
+            let mut said = vec![text("span ".into()), Word::new(spanned.clone(), Tone::Plain)];
+            if !fields.is_empty() {
+                said.push(Word::new(format!(" {fields}"), Tone::Muted));
+            }
+
+            said
+        }
     }
 }
 
@@ -364,6 +380,21 @@ mod tests {
             text(&sentence(&stored, &timers)),
             "store sets app.language (Settings.language)"
         );
+    }
+
+    #[test]
+    fn a_span_says_its_name_and_then_its_fields() {
+        let timers = Timers::default();
+        let span = |fields: &str| TracePoint::Span {
+            name: "rows_from_report".into(),
+            target: "uniproc::processes".into(),
+            fields: fields.into(),
+            declared: None,
+        };
+
+        assert_eq!(text(&sentence(&span("rows=12"), &timers)), "span rows_from_report rows=12");
+        assert_eq!(text(&sentence(&span(""), &timers)), "span rows_from_report");
+        assert_eq!(Kind::of(&span("")).name(), span("").kind());
     }
 
     #[test]

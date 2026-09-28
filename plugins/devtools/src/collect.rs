@@ -169,6 +169,19 @@ fn point(point: &Point) -> TracePoint {
             text: text.clone(),
             written: file.zip(*line).map(|(file, line)| written(file, line)),
         },
+        Point::Span {
+            name,
+            target,
+            file,
+            line,
+            fields,
+            ..
+        } => TracePoint::Span {
+            name: name.to_string(),
+            target: target.to_string(),
+            fields: fields.clone(),
+            declared: file.zip(*line).map(|(file, line)| written(file, line)),
+        },
         Point::Note(text) => TracePoint::Note { text: text.clone() },
     }
 }

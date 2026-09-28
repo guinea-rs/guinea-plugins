@@ -86,8 +86,10 @@ pub struct Shown {
     /// The query it holds records for, without its limit.
     query: Option<Query>,
     ids: VecDeque<u64>,
-    /// The newest record looked at.
-    seen: u64,
+    /// Where in the log's arrivals it stands.
+    cursor: u64,
+    /// The newest record the query's limit let in last time.
+    limit: u64,
 }
 
 impl Shown {
@@ -97,22 +99,31 @@ impl Shown {
             upto: None,
             ..query.clone()
         };
-        if self.query.as_ref() != Some(&criteria) {
-            *self = Shown {
-                query: Some(criteria.clone()),
-                ..Shown::default()
-            };
-        }
-
         let limit = match query.upto {
             None => u64::MAX,
             Some(0) => 0,
             Some(count) => log.id_at(count - 1).unwrap_or(u64::MAX),
         };
-        while self.ids.back().is_some_and(|id| *id > limit) {
-            self.ids.pop_back();
+        if self.query.as_ref() != Some(&criteria) {
+            *self = Shown {
+                query: Some(criteria.clone()),
+                limit,
+                ..Shown::default()
+            };
         }
-        self.seen = self.seen.min(limit);
+
+        if limit < self.limit {
+            while self.ids.back().is_some_and(|id| *id > limit) {
+                self.ids.pop_back();
+            }
+        } else if limit > self.limit {
+            for span in log.between(self.limit, limit.saturating_add(1)) {
+                if criteria.matches(span, reading.timers) {
+                    self.insert(span.id);
+                }
+            }
+        }
+        self.limit = limit;
 
         if let Some(first) = log.first_id() {
             while self.ids.front().is_some_and(|id| *id < first) {
@@ -120,14 +131,17 @@ impl Shown {
             }
         }
 
-        for span in log.after(self.seen) {
-            if span.id > limit {
-                break;
+        for span in log.since(self.cursor) {
+            if span.id <= limit && criteria.matches(span, reading.timers) {
+                self.insert(span.id);
             }
-            if criteria.matches(span, reading.timers) {
-                self.ids.push_back(span.id);
-            }
-            self.seen = span.id;
+        }
+        self.cursor = log.arrivals();
+    }
+
+    fn insert(&mut self, id: u64) {
+        if let Err(at) = self.ids.binary_search(&id) {
+            self.ids.insert(at, id);
         }
     }
 
@@ -366,7 +380,7 @@ pub struct Record {
     /// Whether the tree of consequences stopped at [`TREE_LIMIT`] records or
     /// [`DEPTH_LIMIT`] levels.
     pub cut: bool,
-    /// The line that wrote it, for a log that said.
+    /// The line that wrote it, for a log or a span that said.
     #[serde(default)]
     pub written: Option<Declared>,
 }
@@ -386,6 +400,7 @@ pub fn record(reading: Reading, id: u64, query: &Query) -> Option<Record> {
         cut: walk.cut,
         written: match &span.point {
             TracePoint::Log { written, .. } => written.clone(),
+            TracePoint::Span { declared, .. } => declared.clone(),
             _ => None,
         },
     })
@@ -592,6 +607,46 @@ mod tests {
         };
         shown.refresh(read(&log, &timers), &other);
         assert_eq!(ids(&shown, &log), [5]);
+    }
+
+    #[test]
+    fn a_record_that_arrives_late_is_shown_in_its_place() {
+        let mut log = log();
+        let timers = Timers::default();
+        let note = |id: u64| Span {
+            id,
+            parent: None,
+            at: id * 10,
+            took: None,
+            point: TracePoint::Note { text: "later".into() },
+        };
+        let ids = |shown: &Shown, log: &TraceLog| -> Vec<u64> {
+            shown.spans(log, 0..shown.len()).map(|span| span.id).collect()
+        };
+
+        let mut shown = Shown::default();
+        let frozen = Query {
+            upto: Some(4),
+            ..Query::default()
+        };
+        shown.refresh(read(&log, &timers), &frozen);
+        assert_eq!(ids(&shown, &log), [1, 2, 3, 4]);
+
+        log.absorb(TraceBatch {
+            spans: vec![note(7)],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+        shown.refresh(read(&log, &timers), &frozen);
+        assert_eq!(ids(&shown, &log), [1, 2, 3, 4], "past the limit");
+
+        log.absorb(TraceBatch {
+            spans: vec![note(6), note(5)],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+        shown.refresh(read(&log, &timers), &Query::default());
+        assert_eq!(ids(&shown, &log), [1, 2, 3, 4, 5, 6, 7]);
     }
 
     #[test]

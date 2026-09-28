@@ -28,7 +28,8 @@ pub struct Running {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Tasks {
     running: BTreeMap<u64, Running>,
-    seen: u64,
+    /// Where in the log's arrivals it stands.
+    cursor: u64,
 }
 
 impl Tasks {
@@ -38,10 +39,9 @@ impl Tasks {
             self.running.retain(|record, _| *record >= first);
         }
 
-        let fresh: Vec<_> = log.after(self.seen).collect();
+        let fresh: Vec<_> = log.since(self.cursor).collect();
+        self.cursor = log.arrivals();
         for span in fresh {
-            self.seen = span.id;
-
             match &span.point {
                 TracePoint::Spawn {
                     actor,

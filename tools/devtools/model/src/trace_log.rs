@@ -7,11 +7,20 @@ use guinea_devtools_protocol::{Span, TraceBatch, TracePoint};
 /// How many records a session keeps before forgetting the oldest.
 pub const KEPT: usize = 50_000;
 
+/// Ids grow in the order an application creates its points, but a point
+/// made off the UI thread is recorded when it gets there, after points made
+/// since - so records mostly arrive in id order, not always. They are kept
+/// sorted by id, and a reader that takes in what is new asks by arrival.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TraceLog {
     spans: HashMap<u64, Span>,
     children: HashMap<u64, Vec<u64>>,
+    /// By id.
     order: VecDeque<u64>,
+    /// As they arrived; the last [`KEPT`] of them.
+    arrived: VecDeque<u64>,
+    /// How many ever arrived.
+    arrivals: u64,
     pub dropped: u64,
 }
 
@@ -21,10 +30,17 @@ impl TraceLog {
 
         for span in batch.spans {
             if let Some(parent) = span.parent {
-                self.children.entry(parent).or_default().push(span.id);
+                insert_sorted(self.children.entry(parent).or_default(), span.id);
             }
 
-            self.order.push_back(span.id);
+            if self.order.back().is_some_and(|last| *last > span.id) {
+                let at = self.order.partition_point(|id| *id < span.id);
+                self.order.insert(at, span.id);
+            } else {
+                self.order.push_back(span.id);
+            }
+            self.arrived.push_back(span.id);
+            self.arrivals += 1;
             self.spans.insert(span.id, span);
         }
 
@@ -40,6 +56,25 @@ impl TraceLog {
                 self.children.remove(&old);
             }
         }
+        while self.arrived.len() > KEPT {
+            self.arrived.pop_front();
+        }
+    }
+
+    /// How many records ever arrived: where a reader that has taken in
+    /// everything so far stands.
+    pub fn arrivals(&self) -> u64 {
+        self.arrivals
+    }
+
+    /// What arrived after the reader stood at `cursor`, in the order it
+    /// arrived.
+    pub fn since(&self, cursor: u64) -> impl Iterator<Item = &Span> {
+        let first = self.arrivals - self.arrived.len() as u64;
+        let skip = (cursor.saturating_sub(first) as usize).min(self.arrived.len());
+        self.arrived
+            .range(skip..)
+            .filter_map(|id| self.spans.get(id))
     }
 
     pub fn len(&self) -> usize {
@@ -120,16 +155,7 @@ impl TraceLog {
         self.order.get(index).copied()
     }
 
-    /// What was recorded after `after`, oldest first.
-    pub fn after(&self, after: u64) -> impl Iterator<Item = &Span> {
-        let from = self.order.partition_point(|id| *id <= after);
-        self.order.range(from..).filter_map(|id| self.spans.get(id))
-    }
-
     /// What was recorded after `after` and before `before`, oldest first.
-    ///
-    /// Ids grow in the order an application records points, and records arrive
-    /// in that order, so the kept ones are sorted by id.
     pub fn between(&self, after: u64, before: u64) -> impl Iterator<Item = &Span> {
         let from = self.order.partition_point(|id| *id <= after);
         let to = self.order.partition_point(|id| *id < before);
@@ -165,6 +191,11 @@ impl TraceLog {
         chain.reverse();
         (chain, false)
     }
+}
+
+fn insert_sorted(ids: &mut Vec<u64>, id: u64) {
+    let at = ids.partition_point(|known| *known < id);
+    ids.insert(at, id);
 }
 
 #[cfg(test)]
@@ -233,6 +264,29 @@ mod tests {
 
         assert_eq!(log.get(2).and_then(|s| s.took), Some(77));
         assert_eq!(log.dropped, 3);
+    }
+
+    #[test]
+    fn a_record_that_arrives_late_takes_its_place_by_id() {
+        let mut log = log();
+        let cursor = log.arrivals();
+        log.absorb(TraceBatch {
+            spans: vec![span(7, Some(1)), span(5, Some(1)), span(6, Some(5))],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+
+        let kept: Vec<u64> = log.iter().map(|s| s.id).collect();
+        assert_eq!(kept, [1, 2, 3, 4, 5, 6, 7]);
+        let children: Vec<u64> = log.children(1).map(|s| s.id).collect();
+        assert_eq!(children, [2, 4, 5, 7]);
+        let between: Vec<u64> = log.between(4, 7).map(|s| s.id).collect();
+        assert_eq!(between, [5, 6]);
+
+        let fresh: Vec<u64> = log.since(cursor).map(|s| s.id).collect();
+        assert_eq!(fresh, [7, 5, 6]);
+        assert_eq!(log.since(log.arrivals()).count(), 0);
+        assert_eq!(log.since(0).count(), 7);
     }
 
     #[test]

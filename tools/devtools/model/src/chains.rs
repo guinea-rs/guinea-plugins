@@ -157,8 +157,8 @@ struct Chain {
 
 #[derive(Clone, Debug, Default)]
 pub struct Chains {
-    /// The newest record taken in.
-    seen: u64,
+    /// Where in the log's arrivals it stands.
+    cursor: u64,
     nodes: BTreeMap<u64, Node>,
     /// By the record that started them.
     chains: BTreeMap<u64, Chain>,
@@ -174,9 +174,9 @@ impl Chains {
             self.forget(first);
         }
 
-        let fresh: Vec<&Span> = log.after(self.seen).collect();
+        let fresh: Vec<&Span> = log.since(self.cursor).collect();
+        self.cursor = log.arrivals();
         for span in fresh {
-            self.seen = span.id;
             self.take(span, timers);
         }
     }
@@ -316,6 +316,7 @@ fn key(point: &TracePoint, timers: &Timers) -> u64 {
         TracePoint::Render { segment, .. } => ("render", segment).hash(h),
         TracePoint::Log { level, target, .. } => ("log", level, target).hash(h),
         TracePoint::Note { text } => ("note", text).hash(h),
+        TracePoint::Span { name, target, .. } => ("span", name, target).hash(h),
     }
 
     hasher.finish()
