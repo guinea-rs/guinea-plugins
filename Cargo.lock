@@ -1116,7 +1116,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.10.28"
+version = "0.10.29"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -1164,7 +1164,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-devtools"
-version = "0.10.28"
+version = "0.10.29"
 dependencies = [
  "anyhow",
  "capnp",
@@ -1181,7 +1181,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n"
-version = "0.10.28"
+version = "0.10.29"
 dependencies = [
  "anyhow",
  "fluent-bundle",
@@ -1197,7 +1197,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-l10n-build"
-version = "0.10.28"
+version = "0.10.29"
 dependencies = [
  "fluent-syntax",
  "proc-macro2",
@@ -1209,7 +1209,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.10.28"
+version = "0.10.29"
 dependencies = [
  "anyhow",
  "guinea",
@@ -1231,7 +1231,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-window-state"
-version = "0.10.28"
+version = "0.10.29"
 dependencies = [
  "anyhow",
  "guinea",
@@ -1278,7 +1278,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-widgets"
-version = "0.10.28"
+version = "0.10.29"
 dependencies = [
  "anyhow",
  "guinea",
