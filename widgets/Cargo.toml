@@ -24,6 +24,10 @@ windows-composition = { git = "https://github.com/microsoft/windows-rs", rev = "
     "reactor",
 ], optional = true }
 
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+guinea = { workspace = true, features = ["winui", "harness"] }
+anyhow.workspace = true
+
 [features]
 default = ["winui"]
 

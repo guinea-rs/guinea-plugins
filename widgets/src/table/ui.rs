@@ -324,7 +324,8 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
     }
 
     /// Where a drag goes. Without it the handles are not drawn at all - a
-    /// handle that reported to nobody would move and snap back.
+    /// handle that reported to nobody would move and snap back. A column's
+    /// handle carries the automation id `{mark name}/resize`.
     ///
     /// Takes what every reactor widget takes: a plain closure, or a `Callback`
     /// a segment already made. The second is the usual one - `cx.on(..)` seals
@@ -475,9 +476,11 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
             if let Some(on_resize) = &on_resize
                 && railed
             {
+                let key = format!("{}/resize", column.id.name());
                 handles.push((
-                    format!("{}/resize", column.id.name()),
+                    key.clone(),
                     Border::new()
+                        .automation_id(key)
                         .grid_column(slot as i32)
                         .width(RESIZE_HANDLE_WIDTH)
                         .horizontal_alignment(HorizontalAlignment::Right)
@@ -847,9 +850,11 @@ impl Moving {
 #[derive(Default)]
 struct Drag {
     /// Where in the window the header's place began when pressed, moved on
-    /// by every trade since.
+    /// by every trade since. Gone once the capture is lost: the drag stops
+    /// trading there, while the release that follows still counts.
     anchor: Cell<Option<f64>>,
-    /// The press has travelled far enough to be a drag.
+    /// The press has travelled far enough to be a drag, so its release does
+    /// not sort.
     moved: Cell<bool>,
     /// The slot a trade was last reported from. Until the table draws the
     /// header in its new slot the pointer keeps moving against the old one,
@@ -927,7 +932,9 @@ impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
 
         let pressed = self.drag.clone();
         let dragged = self.drag.clone();
+        let lost = self.drag.clone();
         cell.capture_pointer_on_press(true)
+            .on_pointer_capture_lost(move || lost.anchor.set(None))
             .on_pointer_pressed(Callback::new(move |info: PointerEventInfo| {
                 pressed.anchor.set(Some(info.window_x));
                 pressed.moved.set(false);

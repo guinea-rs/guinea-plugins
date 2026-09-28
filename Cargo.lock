@@ -1280,6 +1280,8 @@ dependencies = [
 name = "guinea-widgets"
 version = "0.10.28"
 dependencies = [
+ "anyhow",
+ "guinea",
  "guinea-mark",
  "tracing",
  "windows-canvas",
@@ -1297,6 +1299,7 @@ dependencies = [
  "guinea-core",
  "guinea-macros",
  "guinea-router",
+ "serde",
  "tracing",
  "windows-core",
  "windows-reactor",

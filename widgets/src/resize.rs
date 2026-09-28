@@ -124,6 +124,7 @@ pub enum Dragging {
         current: f64,
     },
     Released,
+    Lost,
 }
 
 /// The handle's own state.
@@ -156,7 +157,7 @@ impl Component for Handle {
                 self.pressed = true;
                 self.drag_start = (window_x, current);
             }
-            Dragging::Released => self.pressed = false,
+            Dragging::Released | Dragging::Lost => self.pressed = false,
         }
     }
 
@@ -242,6 +243,7 @@ impl Component for Handle {
         // changes state, the component publishes again, and the move callback
         // built here carries the anchor that press recorded.
         let (start_window_x, start_current) = self.drag_start;
+        let pressed = self.pressed;
         let current = input.current;
 
         Border::new()
@@ -269,9 +271,10 @@ impl Component for Handle {
                 }),
             )
             .on_pointer_released(cx.callback(|_: PointerEventInfo| Dragging::Released))
+            .on_pointer_capture_lost(cx.callback(|()| Dragging::Lost))
             .on_pointer_moved(windows_reactor::Callback::new(
                 move |info: PointerEventInfo| {
-                    if info.is_left_button_pressed {
+                    if pressed && info.is_left_button_pressed {
                         let delta = info.window_x - start_window_x;
                         // Dropped when whoever owns the width is not publishing;
                         // the handle then simply does not move.
