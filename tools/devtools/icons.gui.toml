@@ -13,6 +13,9 @@ iconify = "tabler:bolt"
 [timer]
 iconify = "tabler:clock"
 
+[source]
+iconify = "tabler:transfer-in"
+
 [repeat]
 iconify = "tabler:repeat"
 

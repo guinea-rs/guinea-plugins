@@ -13,9 +13,9 @@ members = ["model", "api", "hub", "mcp", "xaml-tap"]
 guinea-devtools-model = { path = "model" }
 guinea-devtools-api = { path = "api" }
 guinea-devtools-hub = { path = "hub" }
-guinea = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.14.2", default-features = false, features = ["eframe"] }
-guinea-core = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.14.2" }
-guinea-macros = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.14.2" }
+guinea = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.15.0", default-features = false, features = ["eframe"] }
+guinea-core = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.15.0" }
+guinea-macros = { git = "https://github.com/uniproc-dev/guinea", tag = "v0.15.0" }
 guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
 guinea-plugin-store = { path = "../../plugins/store" }
 guinea-plugin-single-instance = { path = "../../plugins/single-instance" }

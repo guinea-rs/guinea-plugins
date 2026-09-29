@@ -22,7 +22,7 @@ pub mod devtools_capnp {
 /// field with a default, a variant nobody older is sent - bumps the minor;
 /// anything an older peer would misread bumps the major, and peers of
 /// different majors refuse each other.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 2, 0, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 0, 0);
 
 use ogurpchik::auth::handshake::Protocol;
 use ogurpchik::endpoint::Endpoint;
@@ -311,6 +311,28 @@ pub enum TracePoint {
         output: String,
         took_us: u64,
     },
+    /// An actor opened a source whose items come to it as `output`.
+    Source {
+        actor: String,
+        actor_id: u64,
+        output: String,
+    },
+    /// An item came from a source. A root, as a tick is; `source` is the id
+    /// of the [`TracePoint::Source`] record it came from.
+    Arrived {
+        actor: String,
+        actor_id: u64,
+        output: String,
+        source: u64,
+    },
+    /// A source ended: it ran dry, or `gone` - its actor went away.
+    Closed {
+        actor: String,
+        actor_id: u64,
+        output: String,
+        took_us: u64,
+        gone: bool,
+    },
     Publish {
         event: String,
         bus: BusKind,
@@ -379,6 +401,9 @@ impl TracePoint {
             TracePoint::Spawn { .. } => "spawn",
             TracePoint::Settled { .. } => "settled",
             TracePoint::Cancelled { .. } => "cancelled",
+            TracePoint::Source { .. } => "source",
+            TracePoint::Arrived { .. } => "arrived",
+            TracePoint::Closed { .. } => "closed",
             TracePoint::Publish { .. } => "publish",
             TracePoint::Deliver { .. } => "deliver",
             TracePoint::Push { .. } => "push",
@@ -415,6 +440,30 @@ impl TracePoint {
                 ..
             } => format!(
                 "{actor} is gone: {output} cancelled after {:.1} ms",
+                *took_us as f64 / 1000.0
+            ),
+            TracePoint::Source { actor, output, .. } => {
+                format!("{actor} opens a source of {output}")
+            }
+            TracePoint::Arrived { actor, output, .. } => format!("{output} arrives at {actor}"),
+            TracePoint::Closed {
+                actor,
+                output,
+                took_us,
+                gone: false,
+                ..
+            } => format!(
+                "{actor}'s source of {output} ran dry after {:.1} ms",
+                *took_us as f64 / 1000.0
+            ),
+            TracePoint::Closed {
+                actor,
+                output,
+                took_us,
+                gone: true,
+                ..
+            } => format!(
+                "{actor} is gone: its source of {output} closed after {:.1} ms",
                 *took_us as f64 / 1000.0
             ),
             TracePoint::Publish {

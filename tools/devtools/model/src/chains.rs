@@ -47,6 +47,9 @@ pub enum Stream {
     Action(String),
     /// Chains a timer started, by where the timer was set up.
     Timer(String),
+    /// Chains an item from a source started, by the actor and what the items
+    /// come as: see [`Stream::source_of`].
+    Source(String),
     /// Chains a repeating step started, by the step.
     Loop(String),
     Navigation,
@@ -65,6 +68,7 @@ impl fmt::Display for Stream {
             Stream::Records => f.write_str("records"),
             Stream::Action(message) => write!(f, "action/{message}"),
             Stream::Timer(site) => write!(f, "timer/{site}"),
+            Stream::Source(key) => write!(f, "source/{key}"),
             Stream::Loop(step) => write!(f, "loop/{step}"),
             Stream::Navigation => f.write_str("navigation"),
             Stream::Store => f.write_str("store"),
@@ -81,6 +85,7 @@ impl FromStr for Stream {
         Ok(match id.split_once('/') {
             Some(("action", message)) => Stream::Action(message.to_string()),
             Some(("timer", site)) => Stream::Timer(site.to_string()),
+            Some(("source", key)) => Stream::Source(key.to_string()),
             Some(("loop", step)) => Stream::Loop(step.to_string()),
             Some(_) => return Err(format!("not a stream: {id}")),
             None => match id {
@@ -93,6 +98,14 @@ impl FromStr for Stream {
                 _ => return Err(format!("not a stream: {id}")),
             },
         })
+    }
+}
+
+impl Stream {
+    /// What names the source an actor's `output` items come from: every
+    /// source of one kind is one stream, the way every timer of one site is.
+    pub fn source_of(actor: &str, output: &str) -> String {
+        format!("{actor}|{output}")
     }
 }
 
@@ -116,6 +129,7 @@ impl TryFrom<String> for Stream {
 pub enum Section {
     Actions,
     Timers,
+    Sources,
     Loops,
     Other,
 }
@@ -126,6 +140,7 @@ impl Stream {
             Stream::All | Stream::Records => None,
             Stream::Action(_) => Some(Section::Actions),
             Stream::Timer(_) => Some(Section::Timers),
+            Stream::Source(_) => Some(Section::Sources),
             Stream::Loop(_) => Some(Section::Loops),
             Stream::Navigation | Stream::Store | Stream::Log | Stream::Loose => Some(Section::Other),
         }
@@ -133,7 +148,7 @@ impl Stream {
 
     /// Whether its chains are one line in [`Stream::All`].
     fn repeats(&self) -> bool {
-        matches!(self, Stream::Timer(_) | Stream::Loop(_))
+        matches!(self, Stream::Timer(_) | Stream::Source(_) | Stream::Loop(_))
     }
 }
 
@@ -305,6 +320,14 @@ fn key(point: &TracePoint, timers: &Timers) -> u64 {
         TracePoint::Spawn { actor, output, .. } => ("spawn", actor, output).hash(h),
         TracePoint::Settled { actor, output, .. } => ("settled", actor, output).hash(h),
         TracePoint::Cancelled { actor, output, .. } => ("cancelled", actor, output).hash(h),
+        TracePoint::Source { actor, output, .. } => ("source", actor, output).hash(h),
+        TracePoint::Arrived { actor, output, .. } => ("arrived", actor, output).hash(h),
+        TracePoint::Closed {
+            actor,
+            output,
+            gone,
+            ..
+        } => ("closed", actor, output, gone).hash(h),
         TracePoint::Publish { event, bus, .. } => ("publish", event, bus).hash(h),
         TracePoint::Deliver { event, bus } => ("deliver", event, bus).hash(h),
         TracePoint::Push { reducer } => ("push", reducer).hash(h),
@@ -326,6 +349,7 @@ fn stream_of(span: &Span, timers: &Timers) -> Stream {
     match &span.point {
         TracePoint::Tick { timer: Some(id) } => Stream::Timer(timers.site(*id)),
         TracePoint::Tick { timer: None } => Stream::Timer("#?".to_string()),
+        TracePoint::Arrived { actor, output, .. } => Stream::Source(Stream::source_of(actor, output)),
         TracePoint::Action { message } => Stream::Action(message.clone()),
         TracePoint::Navigate { .. } => Stream::Navigation,
         TracePoint::Store { .. } => Stream::Store,
@@ -393,6 +417,10 @@ pub fn title(chains: &Chains, reading: Reading, stream: &Stream) -> String {
             .at(site)
             .next()
             .map_or_else(|| site.clone(), crate::timers::label),
+        Stream::Source(key) => match key.split_once('|') {
+            Some((actor, output)) => format!("{} → {}", type_name(output), type_name(actor)),
+            None => key.clone(),
+        },
         Stream::Loop(step) => step.clone(),
         Stream::Navigation => "Navigation".to_string(),
         Stream::Store => "Store".to_string(),
@@ -540,6 +568,7 @@ fn whole(chains: &Chains, reading: Reading, stream: &Stream) -> GroupLine {
 
     let mut words = match stream {
         Stream::Timer(_) => vec![Word::new("timer ", Tone::Kind(Kind::Tick))],
+        Stream::Source(_) => vec![Word::new("source ", Tone::Kind(Kind::Arrived))],
         _ => vec![Word::new("loop ", Tone::Kind(Kind::Spawn))],
     };
     words.push(Word::new(title(chains, reading, stream), Tone::Plain));

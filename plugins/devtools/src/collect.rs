@@ -114,6 +114,39 @@ fn point(point: &Point) -> TracePoint {
             output: output.to_string(),
             took_us: *took_us,
         },
+        Point::Source {
+            actor,
+            actor_id,
+            output,
+        } => TracePoint::Source {
+            actor: actor.to_string(),
+            actor_id: *actor_id,
+            output: output.to_string(),
+        },
+        Point::Arrived {
+            actor,
+            actor_id,
+            output,
+            source,
+        } => TracePoint::Arrived {
+            actor: actor.to_string(),
+            actor_id: *actor_id,
+            output: output.to_string(),
+            source: *source,
+        },
+        Point::Closed {
+            actor,
+            actor_id,
+            output,
+            took_us,
+            gone,
+        } => TracePoint::Closed {
+            actor: actor.to_string(),
+            actor_id: *actor_id,
+            output: output.to_string(),
+            took_us: *took_us,
+            gone: *gone,
+        },
         Point::Publish {
             event,
             bus: kind,

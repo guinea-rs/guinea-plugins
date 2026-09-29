@@ -199,6 +199,7 @@ fn measured(point: &TracePoint) -> Option<u64> {
     match point {
         TracePoint::Settled { took_us, .. }
         | TracePoint::Cancelled { took_us, .. }
+        | TracePoint::Closed { took_us, .. }
         | TracePoint::Render { took_us, .. } => Some(*took_us),
         _ => None,
     }

@@ -26,6 +26,7 @@ pub fn stream(stream: &Stream) -> ImageSource<'static> {
         Stream::Records => guicons::icon!(records),
         Stream::Action(_) => guicons::icon!(action),
         Stream::Timer(_) => guicons::icon!(timer),
+        Stream::Source(_) => guicons::icon!(source),
         Stream::Loop(_) => guicons::icon!(repeat),
         Stream::Navigation => guicons::icon!(navigation),
         Stream::Store => guicons::icon!(store),

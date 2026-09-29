@@ -34,6 +34,9 @@ pub enum Kind {
     Spawn,
     Settled,
     Cancelled,
+    Source,
+    Arrived,
+    Closed,
     Publish,
     Deliver,
     Push,
@@ -48,13 +51,16 @@ pub enum Kind {
 
 impl Kind {
     /// Every kind, in the order a filter lists them.
-    pub const ALL: [Kind; 16] = [
+    pub const ALL: [Kind; 19] = [
         Kind::Action,
         Kind::Send,
         Kind::Handle,
         Kind::Spawn,
         Kind::Settled,
         Kind::Cancelled,
+        Kind::Source,
+        Kind::Arrived,
+        Kind::Closed,
         Kind::Publish,
         Kind::Deliver,
         Kind::Push,
@@ -75,6 +81,9 @@ impl Kind {
             TracePoint::Spawn { .. } => Kind::Spawn,
             TracePoint::Settled { .. } => Kind::Settled,
             TracePoint::Cancelled { .. } => Kind::Cancelled,
+            TracePoint::Source { .. } => Kind::Source,
+            TracePoint::Arrived { .. } => Kind::Arrived,
+            TracePoint::Closed { .. } => Kind::Closed,
             TracePoint::Publish { .. } => Kind::Publish,
             TracePoint::Deliver { .. } => Kind::Deliver,
             TracePoint::Push { .. } => Kind::Push,
@@ -97,6 +106,9 @@ impl Kind {
             Kind::Spawn => "spawn",
             Kind::Settled => "settled",
             Kind::Cancelled => "cancelled",
+            Kind::Source => "source",
+            Kind::Arrived => "arrived",
+            Kind::Closed => "closed",
             Kind::Publish => "publish",
             Kind::Deliver => "deliver",
             Kind::Push => "push",
@@ -221,6 +233,39 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
         TracePoint::Cancelled { actor: a, output, .. } => {
             vec![actor(a), text(" is gone without its ".into()), message(output)]
         }
+        TracePoint::Source { actor: a, output, .. } => {
+            vec![actor(a), text(" opens a source of ".into()), message(output)]
+        }
+        TracePoint::Arrived { actor: a, output, .. } => vec![
+            Word::link(
+                &type_name(output),
+                name.clone(),
+                Target::Stream(Stream::Source(Stream::source_of(a, output)).to_string()),
+            ),
+            text(" arrives at ".into()),
+            actor(a),
+        ],
+        TracePoint::Closed {
+            actor: a,
+            output,
+            gone: false,
+            ..
+        } => vec![
+            actor(a),
+            text("'s source of ".into()),
+            message(output),
+            text(" ran dry".into()),
+        ],
+        TracePoint::Closed {
+            actor: a,
+            output,
+            gone: true,
+            ..
+        } => vec![
+            actor(a),
+            text(" is gone with its source of ".into()),
+            message(output),
+        ],
         TracePoint::Publish {
             event,
             bus,
@@ -380,6 +425,53 @@ mod tests {
             text(&sentence(&stored, &timers)),
             "store sets app.language (Settings.language)"
         );
+    }
+
+    #[test]
+    fn a_source_is_opened_arrives_and_closes() {
+        let timers = Timers::default();
+        let (actor, output) = ("agent::Watcher<w::Win>", "events::Changed");
+
+        let opened = TracePoint::Source {
+            actor: actor.into(),
+            actor_id: 3,
+            output: output.into(),
+        };
+        assert_eq!(gist(&opened, &timers), "Watcher<Win> opens a source of Changed");
+
+        let arrived = TracePoint::Arrived {
+            actor: actor.into(),
+            actor_id: 3,
+            output: output.into(),
+            source: 9,
+        };
+        let words = sentence(&arrived, &timers);
+        assert_eq!(text(&words), "Changed arrives at Watcher<Win>");
+        assert_eq!(
+            words[0].link,
+            Some(Target::Stream(
+                "source/agent::Watcher<w::Win>|events::Changed".into()
+            ))
+        );
+
+        let closed = |gone| TracePoint::Closed {
+            actor: actor.into(),
+            actor_id: 3,
+            output: output.into(),
+            took_us: 5,
+            gone,
+        };
+        assert_eq!(
+            text(&sentence(&closed(false), &timers)),
+            "Watcher<Win>'s source of Changed ran dry"
+        );
+        assert_eq!(
+            text(&sentence(&closed(true), &timers)),
+            "Watcher<Win> is gone with its source of Changed"
+        );
+        for point in [opened, arrived, closed(true)] {
+            assert_eq!(Kind::of(&point).name(), point.kind());
+        }
     }
 
     #[test]

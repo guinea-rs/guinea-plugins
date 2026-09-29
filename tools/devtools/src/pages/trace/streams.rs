@@ -24,6 +24,7 @@ fn section_title(section: Section) -> &'static str {
     match section {
         Section::Actions => "Actions",
         Section::Timers => "Timers",
+        Section::Sources => "Sources",
         Section::Loops => "Loops",
         Section::Other => "Other",
     }
