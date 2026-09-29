@@ -19,6 +19,8 @@ mod surface;
 mod ui;
 
 #[cfg(feature = "winui")]
-pub use model::{HoverInfo, Interpolation, LineChartOptions, Series, theme_border_color};
+pub use model::{
+    ChartGrid, HoverInfo, Interpolation, LineChartOptions, Series, theme_border_color,
+};
 #[cfg(feature = "winui")]
 pub use ui::Chart;

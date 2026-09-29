@@ -28,17 +28,22 @@ pub struct HoverInfo {
     pub values: Vec<f32>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LineChartOptions {
     /// Solid background color; `None` for a fully transparent background.
     pub background: Option<ColorF>,
     /// Border color; `None` for no border. Use `theme_border_color()` to match
     /// the current dark/light scheme.
     pub border: Option<ColorF>,
-    /// Whether to draw the background grid lines.
-    pub show_grid: bool,
-    /// Fixed Y range; `None` means auto-fit to the data.
+    /// Lines behind the data; `None` for none.
+    pub grid: Option<ChartGrid>,
+    /// Fixed Y range; `None` means auto-fit to the data in view.
     pub y_range: Option<(f32, f32)>,
+    /// How much time the chart spans, ending at the newest sample; `None`
+    /// spans all the data. With it, a history still filling up sits at the
+    /// right edge instead of stretching across, and lines at every second stay
+    /// a second apart.
+    pub x_window: Option<u64>,
 }
 
 impl Default for LineChartOptions {
@@ -46,10 +51,22 @@ impl Default for LineChartOptions {
         Self {
             background: Some(super::paint::BACKGROUND_TOP),
             border: Some(theme_border_color(ColorScheme::Dark)),
-            show_grid: true,
+            grid: None,
             y_range: None,
+            x_window: None,
         }
     }
+}
+
+/// Lines at places in the data, so they say something: a second, a limit.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChartGrid {
+    /// A vertical line at every multiple of this on the time axis. They move
+    /// with the data as it scrolls.
+    pub every_t: Option<u64>,
+    /// A horizontal line at each of these values, when it is in range.
+    pub at_v: Vec<f32>,
+    pub color: ColorF,
 }
 
 /// The border that reads as a hairline against `scheme`.

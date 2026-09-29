@@ -6,15 +6,14 @@ use windows_canvas::{
     Vector2,
 };
 
-use super::bounds;
-use super::model::{Interpolation, LineChartOptions, Series};
-use crate::color::{hex, hex_alpha};
+use super::geometry::Frame;
+use super::model::{ChartGrid, Interpolation, LineChartOptions, Series};
+use crate::color::hex;
 
 const LINE_WIDTH: f32 = 1.0;
 const GRID_LINE_WIDTH: f32 = 1.0;
-const GRID_COLOR: ColorF = hex_alpha(0xffffff, 20);
-const GRID_TARGET_SPACING_X: f32 = 80.0;
-const GRID_TARGET_SPACING_Y: f32 = 40.0;
+/// Vertical lines closer than this are not drawn: they would be a fill.
+const GRID_LEAST_SPACING: f32 = 4.0;
 pub(super) const BACKGROUND_TOP: ColorF = hex(0x1c1e26);
 const BORDER_WIDTH: f32 = 1.0;
 
@@ -37,11 +36,15 @@ pub(super) fn render(
     if let Some(background) = options.background {
         draw_backdrop(draw, width, height, background);
     }
-    if options.show_grid
-        && let Ok(grid_brush) = draw.create_solid_brush(GRID_COLOR)
-    {
-        draw_grid(draw, &grid_brush, width, height);
+
+    let frame = Frame::of(series, options.x_window, options.y_range);
+    if let (Some(grid), Some(frame)) = (&options.grid, &frame) {
+        match draw.create_solid_brush(grid.color) {
+            Ok(brush) => draw_grid(draw, &brush, grid, frame, width, height),
+            Err(e) => tracing::warn!(error = %e, "line_chart: failed to create grid brush"),
+        }
     }
+
     if let Some(border) = options.border {
         let rect = Rect::from_xywh(0.0, 0.0, width, height);
         match draw.create_solid_brush(border) {
@@ -50,20 +53,16 @@ pub(super) fn render(
         }
     }
 
-    let Some((min_t, max_t, min_v, max_v)) = bounds(series) else {
+    let Some(frame) = frame else {
         tracing::trace!("line_chart: no points in any series yet, nothing to draw");
         return;
     };
 
-    let (min_v, max_v) = options.y_range.unwrap_or((min_v, max_v));
-
-    let t_span = (max_t - min_t).max(1) as f32;
-    let v_span = (max_v - min_v).max(f32::EPSILON);
-
     let to_screen = move |t: u64, v: f32| -> Vector2 {
-        let x = ((t - min_t) as f32 / t_span) * width;
-        let y = height - ((v - min_v) / v_span) * height;
-        Vector2 { x, y }
+        Vector2 {
+            x: frame.x(t, width),
+            y: frame.y(v, height),
+        }
     };
 
     for s in series {
@@ -103,11 +102,19 @@ fn draw_backdrop(draw: &DrawingSession<'_>, width: f32, height: f32, background:
     }
 }
 
-fn draw_grid(draw: &DrawingSession<'_>, brush: &Brush, width: f32, height: f32) {
-    let cols = (width / GRID_TARGET_SPACING_X).ceil().max(1.0) as u32;
-    let rows = (height / GRID_TARGET_SPACING_Y).ceil().max(1.0) as u32;
-    for row in 1..rows {
-        let y = height * (row as f32 / rows as f32);
+fn draw_grid(
+    draw: &DrawingSession<'_>,
+    brush: &Brush,
+    grid: &ChartGrid,
+    frame: &Frame,
+    width: f32,
+    height: f32,
+) {
+    for &v in &grid.at_v {
+        if v < frame.min_v || v > frame.max_v {
+            continue;
+        }
+        let y = frame.y(v, height);
         draw.draw_line(
             Vector2 { x: 0.0, y },
             Vector2 { x: width, y },
@@ -115,8 +122,16 @@ fn draw_grid(draw: &DrawingSession<'_>, brush: &Brush, width: f32, height: f32) 
             GRID_LINE_WIDTH,
         );
     }
-    for col in 1..cols {
-        let x = width * (col as f32 / cols as f32);
+
+    let Some(every) = grid.every_t else {
+        return;
+    };
+    let spacing = every as f64 / (frame.to - frame.from) * width as f64;
+    if spacing < GRID_LEAST_SPACING as f64 {
+        return;
+    }
+    for t in frame.multiples(every) {
+        let x = frame.x(t, width);
         draw.draw_line(
             Vector2 { x, y: 0.0 },
             Vector2 { x, y: height },

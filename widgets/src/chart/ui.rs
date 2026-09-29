@@ -114,10 +114,11 @@ impl Chart {
     /// canvas did.
     pub fn publish(&self, series: Vec<Series>, options: LineChartOptions) {
         let revision = chart_revision(&series);
+        let restyled = *self.options.borrow() != options;
         *self.series.borrow_mut() = series;
         *self.options.borrow_mut() = options;
 
-        if self.drawn.get() != Some(revision) {
+        if restyled || self.drawn.get() != Some(revision) {
             self.drawn.set(Some(revision));
 
             let (series, options) = (self.series.borrow(), self.options.borrow());
@@ -135,7 +136,12 @@ impl Chart {
     /// moved. A page asks for this in the same breath as it publishes.
     pub fn hovered(&self) -> Option<HoverInfo> {
         let at = self.pointer.get()?;
-        hover_at(&self.series.borrow(), at, self.width.get())
+        hover_at(
+            &self.series.borrow(),
+            &self.options.borrow(),
+            at,
+            self.width.get(),
+        )
     }
 
     /// The chart, drawn.
@@ -151,6 +157,7 @@ impl Chart {
 
         let on_hover = on_hover.into_payload_callback();
         let moved_over = self.series.clone();
+        let options_on_move = self.options.clone();
         let width_on_move = self.width.clone();
         let pointer_on_move = self.pointer.clone();
         let hover_on_move = on_hover.clone();
@@ -167,7 +174,12 @@ impl Chart {
                 pointer_on_move.set(Some(at));
                 // Dropped when the segment that drew this chart is no longer
                 // publishing; the readout then simply stays where it was.
-                let _ = hover_on_move.call(hover_at(&moved_over.borrow(), at, width_on_move.get()));
+                let _ = hover_on_move.call(hover_at(
+                    &moved_over.borrow(),
+                    &options_on_move.borrow(),
+                    at,
+                    width_on_move.get(),
+                ));
             }))
             .on_pointer_exited(Callback::new(move |_: PointerEventInfo| {
                 pointer_on_exit.set(None);

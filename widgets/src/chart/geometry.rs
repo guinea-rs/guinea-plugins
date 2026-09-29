@@ -13,6 +13,78 @@ pub fn bounds(series: &[Series]) -> Option<(u64, u64, f32, f32)> {
     Some(acc)
 }
 
+/// What the chart spans: the stretch of time across it and the values up it.
+///
+/// Time is kept as `f64` rather than `u64`: with a window the left edge can
+/// fall before the first sample, or before zero, and the samples older than
+/// the edge still have to land somewhere - off the left side.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Frame {
+    pub from: f64,
+    pub to: f64,
+    pub min_v: f32,
+    pub max_v: f32,
+}
+
+impl Frame {
+    /// The frame for `series`: the last `x_window` of time up to the newest
+    /// sample, or all of it; `y_range`, or the values of the samples in view.
+    pub fn of(
+        series: &[Series],
+        x_window: Option<u64>,
+        y_range: Option<(f32, f32)>,
+    ) -> Option<Frame> {
+        let (min_t, max_t, all_min_v, all_max_v) = bounds(series)?;
+        let to = max_t as f64;
+        let from = match x_window {
+            Some(window) => to - window.max(1) as f64,
+            None => min_t as f64,
+        };
+
+        let (min_v, max_v) = y_range.unwrap_or_else(|| {
+            let mut shown = series
+                .iter()
+                .flat_map(|s| s.points.iter())
+                .filter(|(t, _)| *t as f64 >= from)
+                .map(|&(_, v)| v);
+            match shown.next() {
+                Some(first) => shown.fold((first, first), |(lo, hi), v| (lo.min(v), hi.max(v))),
+                None => (all_min_v, all_max_v),
+            }
+        });
+
+        Some(Frame {
+            from,
+            to: to.max(from + 1.0),
+            min_v,
+            max_v,
+        })
+    }
+
+    pub fn x(&self, t: u64, width: f32) -> f32 {
+        ((t as f64 - self.from) / (self.to - self.from)) as f32 * width
+    }
+
+    pub fn y(&self, v: f32, height: f32) -> f32 {
+        let span = (self.max_v - self.min_v).max(f32::EPSILON);
+        height - ((v - self.min_v) / span) * height
+    }
+
+    /// The time at `x` of `width`, kept within the frame.
+    pub fn t_at(&self, x: f32, width: f32) -> u64 {
+        let ratio = (x / width).clamp(0.0, 1.0) as f64;
+        (self.from + (self.to - self.from) * ratio).max(0.0) as u64
+    }
+
+    /// Every multiple of `every` in view, oldest first.
+    pub fn multiples(&self, every: u64) -> impl Iterator<Item = u64> {
+        let every = every.max(1);
+        let first = (self.from.max(0.0) / every as f64).ceil() as u64;
+        let last = (self.to / every as f64).floor() as u64;
+        (first..=last).map(move |k| k * every)
+    }
+}
+
 pub fn nearest_point(points: &[(u64, f32)], target: u64) -> Option<(u64, f32)> {
     if points.is_empty() {
         return None;
@@ -76,6 +148,54 @@ mod tests {
         let points = [(10, 0.0), (20, 1.0)];
         assert_eq!(nearest_point(&points, 0), Some((10, 0.0)));
         assert_eq!(nearest_point(&points, 100), Some((20, 1.0)));
+    }
+
+    #[test]
+    fn a_frame_spans_the_data_or_the_window_up_to_the_newest_sample() {
+        let data = [series(&[(1_000, 1.0), (2_000, 9.0), (4_000, 3.0)])];
+
+        let all = Frame::of(&data, None, None).unwrap();
+        assert_eq!(
+            (all.from, all.to, all.min_v, all.max_v),
+            (1_000.0, 4_000.0, 1.0, 9.0)
+        );
+        assert_eq!(all.x(2_500, 300.0), 150.0);
+
+        let window = Frame::of(&data, Some(10_000), None).unwrap();
+        assert_eq!((window.from, window.to), (-6_000.0, 4_000.0));
+        assert_eq!(window.x(4_000, 100.0), 100.0);
+        assert_eq!(window.x(1_000, 100.0), 70.0);
+
+        let last = Frame::of(&data, Some(1_500), None).unwrap();
+        assert_eq!(
+            (last.min_v, last.max_v),
+            (3.0, 3.0),
+            "only the samples in view"
+        );
+        assert!(
+            last.x(1_000, 100.0) < 0.0,
+            "older samples fall off the left"
+        );
+
+        let fixed = Frame::of(&data, Some(1_500), Some((0.0, 100.0))).unwrap();
+        assert_eq!((fixed.min_v, fixed.max_v), (0.0, 100.0));
+        assert_eq!(fixed.y(50.0, 200.0), 100.0);
+    }
+
+    #[test]
+    fn a_frame_names_the_multiples_in_view_and_the_time_under_a_point() {
+        let frame = Frame::of(&[series(&[(1_500, 0.0), (4_200, 0.0)])], None, None).unwrap();
+        assert_eq!(
+            frame.multiples(1_000).collect::<Vec<_>>(),
+            [2_000, 3_000, 4_000]
+        );
+        assert_eq!(frame.t_at(0.0, 270.0), 1_500);
+        assert_eq!(frame.t_at(135.0, 270.0), 2_850);
+        assert_eq!(frame.t_at(999.0, 270.0), 4_200);
+
+        let early = Frame::of(&[series(&[(500, 0.0)])], Some(2_000), None).unwrap();
+        assert_eq!(early.multiples(1_000).collect::<Vec<_>>(), [0]);
+        assert_eq!(early.t_at(0.0, 100.0), 0);
     }
 
     #[test]
