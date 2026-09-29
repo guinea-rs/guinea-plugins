@@ -44,6 +44,10 @@ pub struct LineChartOptions {
     /// right edge instead of stretching across, and lines at every second stay
     /// a second apart.
     pub x_window: Option<u64>,
+    /// Rounds the chart's corners to this radius in DIPs, and clips all it
+    /// draws to them: a WinUI border does not clip its child to its own
+    /// corners, so a chart in a rounded tile has to round itself.
+    pub corner_radius: Option<f32>,
 }
 
 impl Default for LineChartOptions {
@@ -54,11 +58,14 @@ impl Default for LineChartOptions {
             grid: None,
             y_range: None,
             x_window: None,
+            corner_radius: None,
         }
     }
 }
 
 /// Lines at places in the data, so they say something: a second, a limit.
+/// Each is one device pixel wide and sits on whole pixels, so it stays sharp
+/// at any scale.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChartGrid {
     /// A vertical line at every multiple of this on the time axis. They move

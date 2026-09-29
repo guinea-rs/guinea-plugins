@@ -85,8 +85,14 @@ impl Chart {
                     surface.detached();
                 }
                 if surface.resize(metrics) || rebound {
-                    surface.draw(|session, device, size| {
-                        paint::render(session, device, size, &series.borrow(), &options.borrow());
+                    surface.draw(|session, device, metrics| {
+                        paint::render(
+                            session,
+                            device,
+                            metrics,
+                            &series.borrow(),
+                            &options.borrow(),
+                        );
                     });
                 }
             }
@@ -122,8 +128,8 @@ impl Chart {
             self.drawn.set(Some(revision));
 
             let (series, options) = (self.series.borrow(), self.options.borrow());
-            self.surface.borrow_mut().draw(|session, device, size| {
-                paint::render(session, device, size, &series, &options);
+            self.surface.borrow_mut().draw(|session, device, metrics| {
+                paint::render(session, device, metrics, &series, &options);
             });
         }
     }

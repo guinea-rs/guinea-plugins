@@ -1,29 +1,37 @@
 //! Turning a chart into strokes and fills. Nothing here knows where the
 //! surface came from or how it reaches the screen.
 
+use std::mem::ManuallyDrop;
+
+use windows::Win32::{
+    D2D_RECT_F, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_LAYER_OPTIONS1_NONE,
+    D2D1_LAYER_PARAMETERS1, D2D1_ROUNDED_RECT, ID2D1DeviceContext, ID2D1Geometry,
+};
+use windows::core::Interface;
 use windows_canvas::{
-    Brush, ColorF, DrawingSession, GpuDevice, Path, PathBuilder, Rect, Result as CanvasResult,
-    Vector2,
+    Brush, ColorF, DrawingSession, GpuDevice, Matrix3x2, Path, PathBuilder, Rect,
+    Result as CanvasResult, RoundedRect, Vector2,
 };
 
 use super::geometry::Frame;
 use super::model::{ChartGrid, Interpolation, LineChartOptions, Series};
+use super::surface::Metrics;
 use crate::color::hex;
 
 const LINE_WIDTH: f32 = 1.0;
-const GRID_LINE_WIDTH: f32 = 1.0;
-/// Vertical lines closer than this are not drawn: they would be a fill.
+/// Vertical lines closer than this many device pixels are not drawn: they
+/// would be a fill.
 const GRID_LEAST_SPACING: f32 = 4.0;
 pub(super) const BACKGROUND_TOP: ColorF = hex(0x1c1e26);
-const BORDER_WIDTH: f32 = 1.0;
 
 pub(super) fn render(
     draw: &DrawingSession<'_>,
     device: &GpuDevice,
-    (width, height): (f32, f32),
+    metrics: Metrics,
     series: &[Series],
     options: &LineChartOptions,
 ) {
+    let Metrics { width, height, .. } = metrics;
     if width <= 0.0 || height <= 0.0 {
         tracing::warn!(
             width,
@@ -33,6 +41,73 @@ pub(super) fn render(
         return;
     }
 
+    match options.corner_radius.filter(|radius| *radius > 0.0) {
+        Some(radius) => clipped(draw, width, height, radius, || {
+            content(draw, device, metrics, series, options)
+        }),
+        None => content(draw, device, metrics, series, options),
+    }
+}
+
+/// Draws `inside` clipped to a rectangle of `width` by `height` rounded to
+/// `radius` - or unclipped, and says so, when Direct2D will not give a layer.
+fn clipped(draw: &DrawingSession<'_>, width: f32, height: f32, radius: f32, inside: impl FnOnce()) {
+    let mask = || -> windows::core::Result<(ID2D1DeviceContext, ID2D1Geometry)> {
+        let context: ID2D1DeviceContext = draw.raw().cast()?;
+        let factory = unsafe { context.GetFactory()? };
+        let geometry = unsafe {
+            factory.CreateRoundedRectangleGeometry(&D2D1_ROUNDED_RECT {
+                rect: D2D_RECT_F {
+                    left: 0.0,
+                    top: 0.0,
+                    right: width,
+                    bottom: height,
+                },
+                radiusX: radius,
+                radiusY: radius,
+            })?
+        };
+        Ok((context, geometry.cast()?))
+    };
+
+    let (context, geometry) = match mask() {
+        Ok(mask) => mask,
+        Err(error) => {
+            tracing::warn!(%error, "line_chart: no layer to round the corners with");
+            return inside();
+        }
+    };
+
+    let layer = D2D1_LAYER_PARAMETERS1 {
+        contentBounds: D2D_RECT_F {
+            left: 0.0,
+            top: 0.0,
+            right: width,
+            bottom: height,
+        },
+        geometricMask: ManuallyDrop::new(Some(geometry)),
+        maskAntialiasMode: D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+        maskTransform: Matrix3x2::identity(),
+        opacity: 1.0,
+        opacityBrush: ManuallyDrop::new(None),
+        layerOptions: D2D1_LAYER_OPTIONS1_NONE,
+    };
+    unsafe { context.PushLayer(&layer, None) };
+    inside();
+    unsafe { context.PopLayer() };
+    drop(ManuallyDrop::into_inner(layer.geometricMask));
+}
+
+fn content(
+    draw: &DrawingSession<'_>,
+    device: &GpuDevice,
+    metrics: Metrics,
+    series: &[Series],
+    options: &LineChartOptions,
+) {
+    let Metrics { width, height, .. } = metrics;
+    let pixel = Pixel::of(metrics);
+
     if let Some(background) = options.background {
         draw_backdrop(draw, width, height, background);
     }
@@ -40,15 +115,14 @@ pub(super) fn render(
     let frame = Frame::of(series, options.x_window, options.y_range);
     if let (Some(grid), Some(frame)) = (&options.grid, &frame) {
         match draw.create_solid_brush(grid.color) {
-            Ok(brush) => draw_grid(draw, &brush, grid, frame, width, height),
+            Ok(brush) => draw_grid(draw, &brush, grid, frame, pixel),
             Err(e) => tracing::warn!(error = %e, "line_chart: failed to create grid brush"),
         }
     }
 
     if let Some(border) = options.border {
-        let rect = Rect::from_xywh(0.0, 0.0, width, height);
         match draw.create_solid_brush(border) {
-            Ok(brush) => draw.draw_rect(&rect, &brush, BORDER_WIDTH),
+            Ok(brush) => draw_border(draw, &brush, pixel, options.corner_radius),
             Err(e) => tracing::warn!(error = %e, "line_chart: failed to create border brush"),
         }
     }
@@ -102,41 +176,91 @@ fn draw_backdrop(draw: &DrawingSession<'_>, width: f32, height: f32, background:
     }
 }
 
+/// Where the surface's device pixels fall, in DIPs: a hairline one pixel wide
+/// on a pixel's middle covers that pixel and no other, where one DIP wide at
+/// any other place smears across two at a fractional scale.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pixel {
+    /// Device pixels per DIP.
+    scale: f32,
+    width: f32,
+    height: f32,
+}
+
+impl Pixel {
+    fn of(metrics: Metrics) -> Self {
+        Self {
+            scale: if metrics.scale > 0.0 {
+                metrics.scale
+            } else {
+                1.0
+            },
+            width: metrics.width,
+            height: metrics.height,
+        }
+    }
+
+    /// One device pixel, in DIPs.
+    fn hair(self) -> f32 {
+        1.0 / self.scale
+    }
+
+    /// The middle of the pixel `at` falls in, kept within `extent`.
+    fn snap(self, at: f32, extent: f32) -> f32 {
+        let last = ((extent * self.scale).ceil() - 1.0).max(0.0);
+        ((at * self.scale).floor().clamp(0.0, last) + 0.5) / self.scale
+    }
+}
+
+fn draw_border(draw: &DrawingSession<'_>, brush: &Brush, pixel: Pixel, radius: Option<f32>) {
+    let half = pixel.hair() / 2.0;
+    let rect = Rect::new(half, half, pixel.width - half, pixel.height - half);
+    match radius.filter(|radius| *radius > 0.0) {
+        Some(radius) => draw.draw_rounded_rect(
+            &RoundedRect::uniform(rect, (radius - half).max(0.0)),
+            brush,
+            pixel.hair(),
+        ),
+        None => draw.draw_rect(&rect, brush, pixel.hair()),
+    }
+}
+
 fn draw_grid(
     draw: &DrawingSession<'_>,
     brush: &Brush,
     grid: &ChartGrid,
     frame: &Frame,
-    width: f32,
-    height: f32,
+    pixel: Pixel,
 ) {
+    let Pixel { width, height, .. } = pixel;
+
     for &v in &grid.at_v {
         if v < frame.min_v || v > frame.max_v {
             continue;
         }
-        let y = frame.y(v, height);
+        let y = pixel.snap(frame.y(v, height), height);
         draw.draw_line(
             Vector2 { x: 0.0, y },
             Vector2 { x: width, y },
             brush,
-            GRID_LINE_WIDTH,
+            pixel.hair(),
         );
     }
 
     let Some(every) = grid.every_t else {
         return;
     };
-    let spacing = every as f64 / (frame.to - frame.from) * width as f64;
+    let spacing = every as f64 / (frame.to - frame.from) * (width * pixel.scale) as f64;
     if spacing < GRID_LEAST_SPACING as f64 {
         return;
     }
     for t in frame.multiples(every) {
-        let x = frame.x(t, width);
+        let x = pixel.snap(frame.x(t, width), width);
         draw.draw_line(
             Vector2 { x, y: 0.0 },
             Vector2 { x, y: height },
             brush,
-            GRID_LINE_WIDTH,
+            pixel.hair(),
         );
     }
 }
@@ -216,5 +340,36 @@ fn build_path(
             .build()
     } else {
         figure.end_open().build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(scale: f32) -> Pixel {
+        Pixel::of(Metrics {
+            width: 100.0,
+            height: 40.0,
+            scale,
+        })
+    }
+
+    #[test]
+    fn a_hairline_sits_in_the_middle_of_one_device_pixel() {
+        let pixel = at(1.25);
+        assert_eq!(pixel.hair(), 0.8);
+        let x = pixel.snap(10.3, 100.0);
+        assert_eq!(x * 1.25, 12.5, "pixel 12, across its middle");
+        assert_eq!(at(1.0).snap(10.9, 100.0), 10.5);
+        assert_eq!(at(2.0).snap(10.3, 100.0), 10.25);
+    }
+
+    #[test]
+    fn a_hairline_at_an_edge_stays_on_the_surface() {
+        let pixel = at(1.25);
+        assert_eq!(pixel.snap(100.0, 100.0) * 1.25, 124.5);
+        assert_eq!(pixel.snap(-3.0, 100.0) * 1.25, 0.5);
+        assert_eq!(at(0.0).hair(), 1.0, "no scale yet reads as one");
     }
 }

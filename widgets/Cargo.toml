@@ -24,6 +24,12 @@ windows-composition = { git = "https://github.com/microsoft/windows-rs", rev = "
     "reactor",
 ], optional = true }
 
+# Direct2D itself, for the one thing the canvas does not wrap: a layer with a
+# geometric mask, which is how a chart clips to its rounded corners.
+windows = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", default-features = false, features = [
+    "d2d",
+], optional = true }
+
 [target.'cfg(target_os = "windows")'.dev-dependencies]
 guinea = { workspace = true, features = ["winui", "harness"] }
 anyhow.workspace = true
@@ -33,7 +39,7 @@ default = ["winui"]
 
 # Backends. Without one, what is left is the part that is pure layout and
 # geometry: column sizing, sort/flow state, ring series.
-winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-composition"]
+winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-composition", "dep:windows"]
 
 [lints]
 workspace = true

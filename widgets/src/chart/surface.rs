@@ -108,9 +108,9 @@ impl Surface {
         true
     }
 
-    /// Draws with `paint`, handed the session, the device and the size in
-    /// DIPs. Does nothing until the image has a size.
-    pub fn draw(&mut self, paint: impl Fn(&DrawingSession<'_>, &GpuDevice, (f32, f32))) {
+    /// Draws with `paint`, handed the session, the device, and the size in
+    /// DIPs with the pixels per DIP. Does nothing until the image has a size.
+    pub fn draw(&mut self, paint: impl Fn(&DrawingSession<'_>, &GpuDevice, Metrics)) {
         let Some(metrics) = self.metrics else {
             return;
         };
@@ -146,9 +146,8 @@ impl Surface {
                 return;
             };
 
-            let size = (metrics.width, metrics.height);
             match drawn.source.draw(ColorF::TRANSPARENT, |session| {
-                paint(session, &drawn.device, size);
+                paint(session, &drawn.device, metrics);
                 Ok(())
             }) {
                 Ok(true) => {

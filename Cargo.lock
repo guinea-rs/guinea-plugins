@@ -1285,6 +1285,7 @@ dependencies = [
  "guinea",
  "guinea-mark",
  "tracing",
+ "windows",
  "windows-canvas",
  "windows-composition",
  "windows-reactor",
