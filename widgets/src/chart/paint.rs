@@ -24,12 +24,15 @@ const LINE_WIDTH: f32 = 1.0;
 const GRID_LEAST_SPACING: f32 = 4.0;
 pub(super) const BACKGROUND_TOP: ColorF = hex(0x1c1e26);
 
+/// Draws the chart, its time axis ending at `end` when a live chart's clock
+/// says where that is.
 pub(super) fn render(
     draw: &DrawingSession<'_>,
     device: &GpuDevice,
     metrics: Metrics,
     series: &[Series],
     options: &LineChartOptions,
+    end: Option<f64>,
 ) {
     let Metrics { width, height, .. } = metrics;
     if width <= 0.0 || height <= 0.0 {
@@ -43,9 +46,9 @@ pub(super) fn render(
 
     match options.corner_radius.filter(|radius| *radius > 0.0) {
         Some(radius) => clipped(draw, width, height, radius, || {
-            content(draw, device, metrics, series, options)
+            content(draw, device, metrics, series, options, end)
         }),
-        None => content(draw, device, metrics, series, options),
+        None => content(draw, device, metrics, series, options, end),
     }
 }
 
@@ -104,6 +107,7 @@ fn content(
     metrics: Metrics,
     series: &[Series],
     options: &LineChartOptions,
+    end: Option<f64>,
 ) {
     let Metrics { width, height, .. } = metrics;
     let pixel = Pixel::of(metrics);
@@ -112,7 +116,7 @@ fn content(
         draw_backdrop(draw, width, height, background);
     }
 
-    let frame = Frame::of(series, options.x_window, options.y_range);
+    let frame = Frame::of(series, options.x_window, options.y_range, end);
     if let (Some(grid), Some(frame)) = (&options.grid, &frame) {
         match draw.create_solid_brush(grid.color) {
             Ok(brush) => draw_grid(draw, &brush, grid, frame, pixel),

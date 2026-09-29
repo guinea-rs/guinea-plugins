@@ -99,6 +99,11 @@ impl Surface {
         }
     }
 
+    /// The size the image is laid out at, while it is on screen.
+    pub fn metrics(&self) -> Option<Metrics> {
+        self.metrics
+    }
+
     /// Takes the size the image is laid out at. `true` when it changed.
     pub fn resize(&mut self, metrics: Metrics) -> bool {
         if self.metrics == Some(metrics) {

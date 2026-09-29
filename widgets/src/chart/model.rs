@@ -48,6 +48,26 @@ pub struct LineChartOptions {
     /// draws to them: a WinUI border does not clip its child to its own
     /// corners, so a chart in a rounded tile has to round itself.
     pub corner_radius: Option<f32>,
+    /// Keeps the chart moving between publishes, with its right edge on the
+    /// clock rather than on the newest sample. Needs `x_window`.
+    pub live: Option<Live>,
+}
+
+/// A chart of data that arrives as it happens.
+///
+/// Between publishes the chart moves on by itself, one device pixel at a
+/// time: it redraws when the picture has moved a whole pixel and not
+/// otherwise, so a minute across a few hundred pixels costs a few redraws a
+/// second, and a chart that is not on screen none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Live {
+    /// How many units of `t` pass in a second: 1000 when `t` counts
+    /// milliseconds.
+    pub per_second: f64,
+    /// How far the right edge trails the clock, in units of `t`. About the
+    /// time between two samples, so that each new one comes in from past the
+    /// edge instead of appearing at it.
+    pub lag: u64,
 }
 
 impl Default for LineChartOptions {
@@ -59,6 +79,7 @@ impl Default for LineChartOptions {
             y_range: None,
             x_window: None,
             corner_radius: None,
+            live: None,
         }
     }
 }

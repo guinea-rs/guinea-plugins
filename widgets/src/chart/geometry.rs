@@ -27,25 +27,29 @@ pub(super) struct Frame {
 }
 
 impl Frame {
-    /// The frame for `series`: the last `x_window` of time up to the newest
-    /// sample, or all of it; `y_range`, or the values of the samples in view.
+    /// The frame for `series`: the last `x_window` of time up to `end`, or up
+    /// to the newest sample, or all of it; `y_range`, or the values of the
+    /// samples in view. `end` counts only with a window.
     pub fn of(
         series: &[Series],
         x_window: Option<u64>,
         y_range: Option<(f32, f32)>,
+        end: Option<f64>,
     ) -> Option<Frame> {
         let (min_t, max_t, all_min_v, all_max_v) = bounds(series)?;
-        let to = max_t as f64;
-        let from = match x_window {
-            Some(window) => to - window.max(1) as f64,
-            None => min_t as f64,
+        let (from, to) = match x_window {
+            Some(window) => {
+                let to = end.unwrap_or(max_t as f64);
+                (to - window.max(1) as f64, to)
+            }
+            None => (min_t as f64, max_t as f64),
         };
 
         let (min_v, max_v) = y_range.unwrap_or_else(|| {
             let mut shown = series
                 .iter()
                 .flat_map(|s| s.points.iter())
-                .filter(|(t, _)| *t as f64 >= from)
+                .filter(|(t, _)| (from..=to).contains(&(*t as f64)))
                 .map(|&(_, v)| v);
             match shown.next() {
                 Some(first) => shown.fold((first, first), |(lo, hi), v| (lo.min(v), hi.max(v))),
@@ -154,19 +158,19 @@ mod tests {
     fn a_frame_spans_the_data_or_the_window_up_to_the_newest_sample() {
         let data = [series(&[(1_000, 1.0), (2_000, 9.0), (4_000, 3.0)])];
 
-        let all = Frame::of(&data, None, None).unwrap();
+        let all = Frame::of(&data, None, None, None).unwrap();
         assert_eq!(
             (all.from, all.to, all.min_v, all.max_v),
             (1_000.0, 4_000.0, 1.0, 9.0)
         );
         assert_eq!(all.x(2_500, 300.0), 150.0);
 
-        let window = Frame::of(&data, Some(10_000), None).unwrap();
+        let window = Frame::of(&data, Some(10_000), None, None).unwrap();
         assert_eq!((window.from, window.to), (-6_000.0, 4_000.0));
         assert_eq!(window.x(4_000, 100.0), 100.0);
         assert_eq!(window.x(1_000, 100.0), 70.0);
 
-        let last = Frame::of(&data, Some(1_500), None).unwrap();
+        let last = Frame::of(&data, Some(1_500), None, None).unwrap();
         assert_eq!(
             (last.min_v, last.max_v),
             (3.0, 3.0),
@@ -177,14 +181,42 @@ mod tests {
             "older samples fall off the left"
         );
 
-        let fixed = Frame::of(&data, Some(1_500), Some((0.0, 100.0))).unwrap();
+        let fixed = Frame::of(&data, Some(1_500), Some((0.0, 100.0)), None).unwrap();
         assert_eq!((fixed.min_v, fixed.max_v), (0.0, 100.0));
         assert_eq!(fixed.y(50.0, 200.0), 100.0);
     }
 
     #[test]
+    fn a_frame_given_an_end_ends_there_whatever_the_newest_sample() {
+        let data = [series(&[(1_000, 1.0), (2_000, 9.0), (4_000, 3.0)])];
+
+        let ahead = Frame::of(&data, Some(2_000), None, Some(4_500.0)).unwrap();
+        assert_eq!((ahead.from, ahead.to), (2_500.0, 4_500.0));
+        assert_eq!(
+            ahead.x(4_000, 100.0),
+            75.0,
+            "the newest sample short of the edge"
+        );
+        assert_eq!((ahead.min_v, ahead.max_v), (3.0, 3.0));
+
+        let behind = Frame::of(&data, Some(2_000), None, Some(3_000.0)).unwrap();
+        assert!(
+            behind.x(4_000, 100.0) > 100.0,
+            "a sample past the edge waits off the right"
+        );
+        assert_eq!(
+            (behind.min_v, behind.max_v),
+            (1.0, 9.0),
+            "and is not fitted until it is in view"
+        );
+
+        let unwindowed = Frame::of(&data, None, None, Some(9_000.0)).unwrap();
+        assert_eq!(unwindowed.to, 4_000.0, "an end needs a window");
+    }
+
+    #[test]
     fn a_frame_names_the_multiples_in_view_and_the_time_under_a_point() {
-        let frame = Frame::of(&[series(&[(1_500, 0.0), (4_200, 0.0)])], None, None).unwrap();
+        let frame = Frame::of(&[series(&[(1_500, 0.0), (4_200, 0.0)])], None, None, None).unwrap();
         assert_eq!(
             frame.multiples(1_000).collect::<Vec<_>>(),
             [2_000, 3_000, 4_000]
@@ -193,7 +225,7 @@ mod tests {
         assert_eq!(frame.t_at(135.0, 270.0), 2_850);
         assert_eq!(frame.t_at(999.0, 270.0), 4_200);
 
-        let early = Frame::of(&[series(&[(500, 0.0)])], Some(2_000), None).unwrap();
+        let early = Frame::of(&[series(&[(500, 0.0)])], Some(2_000), None, None).unwrap();
         assert_eq!(early.multiples(1_000).collect::<Vec<_>>(), [0]);
         assert_eq!(early.t_at(0.0, 100.0), 0);
     }

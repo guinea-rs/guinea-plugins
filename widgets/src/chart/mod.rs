@@ -10,6 +10,8 @@ pub use geometry::{bounds, nearest_point};
 #[cfg(feature = "winui")]
 mod hover;
 #[cfg(feature = "winui")]
+mod live;
+#[cfg(feature = "winui")]
 mod model;
 #[cfg(feature = "winui")]
 mod paint;
@@ -20,7 +22,7 @@ mod ui;
 
 #[cfg(feature = "winui")]
 pub use model::{
-    ChartGrid, HoverInfo, Interpolation, LineChartOptions, Series, theme_border_color,
+    ChartGrid, HoverInfo, Interpolation, LineChartOptions, Live, Series, theme_border_color,
 };
 #[cfg(feature = "winui")]
 pub use ui::Chart;

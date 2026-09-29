@@ -1,8 +1,9 @@
 //! The chart widget: an image the page owns, and a pointer over it.
 //!
 //! The image shows a surface on the device every chart on the thread shares
-//! (see `surface`), drawn when the data moves or the image changes size. The
-//! grid around it reports that size.
+//! (see `surface`), drawn when the data moves or the image changes size - and
+//! for a live chart, whenever it has moved on by a device pixel. The grid
+//! around it reports that size.
 //!
 //! What is left is what was ours to begin with: when to redraw, and where the
 //! pointer is. Both live on [`Chart`], which the page keeps as a field - a
@@ -11,17 +12,78 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use windows_reactor::{
-    Border, Callback, ChildrenControl, Color, Component, ComponentContext, CompositionHostEvent,
-    ContentControl, ElementObservation, ElementRef, Grid, Image, IntoPayloadCallback,
-    PointerEventInfo, Stretch, View, ViewContext,
+    Border, Callback, ChildrenControl, Color, Component, ComponentContext, ComponentTimer,
+    CompositionHostEvent, ContentControl, ElementObservation, ElementRef, Grid, Image,
+    IntoPayloadCallback, PointerEventInfo, Stretch, View, ViewContext,
 };
 
 use super::hover::hover_at;
+use super::live::{self, Clock};
 use super::model::{ChartRevision, HoverInfo, LineChartOptions, Series, chart_revision};
 use super::paint;
 use super::surface::{Metrics, Surface};
+
+/// What a chart draws with, shared by the page's [`Chart`], the host that
+/// reports its size, and the timer that keeps a live chart moving.
+struct Drawing {
+    series: RefCell<Vec<Series>>,
+    options: RefCell<LineChartOptions>,
+    surface: RefCell<Surface>,
+    clock: Cell<Clock>,
+    /// The last width the canvas drew at, for turning a pointer position into
+    /// a point on the series.
+    width: Cell<f32>,
+}
+
+impl Drawing {
+    /// Where a live chart's time axis ends at `at`; `None` for a chart that is
+    /// not live, which ends at its newest sample.
+    fn end(&self, at: Instant) -> Option<f64> {
+        let options = self.options.borrow();
+        let live = options.live?;
+        options.x_window?;
+        let now = self.clock.get().now(live.per_second, at)?;
+        Some(now - live.lag as f64)
+    }
+
+    fn draw(&self) {
+        let end = self.end(Instant::now());
+        let (series, options) = (self.series.borrow(), self.options.borrow());
+        self.surface.borrow_mut().draw(|session, device, metrics| {
+            paint::render(session, device, metrics, &series, &options, end);
+        });
+    }
+
+    /// Moves a live chart on: draws it, and says how long until it has moved
+    /// another device pixel. `None` for a chart that is not live, or not on
+    /// screen.
+    fn tick(&self) -> Option<Duration> {
+        let (live, window) = {
+            let options = self.options.borrow();
+            (options.live?, options.x_window?)
+        };
+        let metrics = self.surface.borrow().metrics()?;
+        self.draw();
+        Some(live::step(
+            window,
+            live.per_second,
+            metrics.width * metrics.scale,
+        ))
+    }
+
+    fn hover(&self, at: f32) -> Option<HoverInfo> {
+        hover_at(
+            &self.series.borrow(),
+            &self.options.borrow(),
+            self.end(Instant::now()),
+            at,
+            self.width.get(),
+        )
+    }
+}
 
 /// A line chart, and what it needs between draws.
 ///
@@ -29,17 +91,12 @@ use super::surface::{Metrics, Surface};
 /// only when its data grew has to remember what it last drew, and that
 /// remembering is state like any other.
 pub struct Chart {
-    series: Rc<RefCell<Vec<Series>>>,
-    options: Rc<RefCell<LineChartOptions>>,
-    /// The last width the canvas drew at, for turning a pointer position into
-    /// a point on the series.
-    width: Rc<Cell<f32>>,
+    drawing: Rc<Drawing>,
     /// Where the pointer was last seen, or `None` when it is away.
     pointer: Rc<Cell<Option<f32>>>,
     drawn: Cell<Option<ChartRevision>>,
     host: ElementRef<Grid>,
     image: ElementRef<Image>,
-    surface: Rc<RefCell<Surface>>,
     _sized: ElementObservation,
 }
 
@@ -51,18 +108,18 @@ impl Default for Chart {
 
 impl Chart {
     pub fn new() -> Self {
-        let series = Rc::new(RefCell::new(Vec::new()));
-        let options = Rc::new(RefCell::new(LineChartOptions::default()));
-        let width = Rc::new(Cell::new(0.0));
         let host = ElementRef::new();
         let image = ElementRef::new();
-        let surface = Rc::new(RefCell::new(Surface::new(image.clone())));
+        let drawing = Rc::new(Drawing {
+            series: RefCell::new(Vec::new()),
+            options: RefCell::new(LineChartOptions::default()),
+            surface: RefCell::new(Surface::new(image.clone())),
+            clock: Cell::new(Clock::default()),
+            width: Cell::new(0.0),
+        });
 
         let sized = host.observe_composition_host({
-            let series = series.clone();
-            let options = options.clone();
-            let measured = width.clone();
-            let surface = surface.clone();
+            let drawing = drawing.clone();
 
             move |event| {
                 let (metrics, rebound) = match event {
@@ -78,35 +135,27 @@ impl Chart {
                         scale,
                     } => (Metrics::new(width, height, scale), false),
                 };
-                measured.set(metrics.width);
+                drawing.width.set(metrics.width);
 
-                let mut surface = surface.borrow_mut();
-                if rebound {
-                    surface.detached();
-                }
-                if surface.resize(metrics) || rebound {
-                    surface.draw(|session, device, metrics| {
-                        paint::render(
-                            session,
-                            device,
-                            metrics,
-                            &series.borrow(),
-                            &options.borrow(),
-                        );
-                    });
+                let changed = {
+                    let mut surface = drawing.surface.borrow_mut();
+                    if rebound {
+                        surface.detached();
+                    }
+                    surface.resize(metrics) || rebound
+                };
+                if changed {
+                    drawing.draw();
                 }
             }
         });
 
         Self {
-            series,
-            options,
-            width,
+            drawing,
             pointer: Rc::new(Cell::new(None)),
             drawn: Cell::new(None),
             host,
             image,
-            surface,
             _sized: sized,
         }
     }
@@ -117,20 +166,32 @@ impl Chart {
     /// surface presents a frame when it is drawn into rather than every vsync,
     /// so this gate is what keeps a chart that ticks twice a second from
     /// burning several percent of a core - which an unconditional animated
-    /// canvas did.
+    /// canvas did. A live chart moves on between publishes by itself, a pixel
+    /// at a time.
     pub fn publish(&self, series: Vec<Series>, options: LineChartOptions) {
         let revision = chart_revision(&series);
-        let restyled = *self.options.borrow() != options;
-        *self.series.borrow_mut() = series;
-        *self.options.borrow_mut() = options;
+        let drawing = &self.drawing;
+        let restyled = *drawing.options.borrow() != options;
+
+        let mut clock = drawing.clock.get();
+        match (options.live, options.x_window) {
+            (Some(live), Some(window)) if revision.0 > 0 => clock.saw(
+                revision.1 as f64,
+                window as f64,
+                live.per_second,
+                Instant::now(),
+            ),
+            (Some(_), Some(_)) => {}
+            _ => clock.forget(),
+        }
+        drawing.clock.set(clock);
+
+        *drawing.series.borrow_mut() = series;
+        *drawing.options.borrow_mut() = options;
 
         if restyled || self.drawn.get() != Some(revision) {
             self.drawn.set(Some(revision));
-
-            let (series, options) = (self.series.borrow(), self.options.borrow());
-            self.surface.borrow_mut().draw(|session, device, metrics| {
-                paint::render(session, device, metrics, &series, &options);
-            });
+            drawing.draw();
         }
     }
 
@@ -141,13 +202,7 @@ impl Chart {
     /// follow them rather than report whatever was under it when it last
     /// moved. A page asks for this in the same breath as it publishes.
     pub fn hovered(&self) -> Option<HoverInfo> {
-        let at = self.pointer.get()?;
-        hover_at(
-            &self.series.borrow(),
-            &self.options.borrow(),
-            at,
-            self.width.get(),
-        )
+        self.drawing.hover(self.pointer.get()?)
     }
 
     /// The chart, drawn.
@@ -155,16 +210,16 @@ impl Chart {
     /// `on_hover` takes what every reactor widget takes: a plain closure, or a
     /// `Callback` a segment already made with `cx.on(..)`.
     pub fn view(&self, on_hover: impl IntoPayloadCallback<Option<HoverInfo>>) -> View {
+        let options = self.drawing.options.borrow();
         let surface = View::component::<Mount>(Mounted {
             host: self.host.clone(),
             image: self.image.clone(),
-            surface: self.surface.clone(),
+            drawing: self.drawing.clone(),
+            live: options.live.is_some() && options.x_window.is_some(),
         });
 
         let on_hover = on_hover.into_payload_callback();
-        let moved_over = self.series.clone();
-        let options_on_move = self.options.clone();
-        let width_on_move = self.width.clone();
+        let moved_over = self.drawing.clone();
         let pointer_on_move = self.pointer.clone();
         let hover_on_move = on_hover.clone();
         let pointer_on_exit = self.pointer.clone();
@@ -180,12 +235,7 @@ impl Chart {
                 pointer_on_move.set(Some(at));
                 // Dropped when the segment that drew this chart is no longer
                 // publishing; the readout then simply stays where it was.
-                let _ = hover_on_move.call(hover_at(
-                    &moved_over.borrow(),
-                    &options_on_move.borrow(),
-                    at,
-                    width_on_move.get(),
-                ));
+                let _ = hover_on_move.call(moved_over.hover(at));
             }))
             .on_pointer_exited(Callback::new(move |_: PointerEventInfo| {
                 pointer_on_exit.set(None);
@@ -202,29 +252,73 @@ impl Chart {
 struct Mounted {
     host: ElementRef<Grid>,
     image: ElementRef<Image>,
-    surface: Rc<RefCell<Surface>>,
+    drawing: Rc<Drawing>,
+    /// Whether the chart moves on by itself.
+    live: bool,
 }
 
 impl PartialEq for Mounted {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.surface, &other.surface)
+        Rc::ptr_eq(&self.drawing, &other.drawing) && self.live == other.live
     }
 }
 
-struct Mount;
+/// A live chart's next pixel is due.
+struct Moved;
+
+/// How soon a chart that has just gone live first moves.
+const FIRST_MOVE: Duration = Duration::from_millis(16);
+
+/// The mounted image, and for a live chart the timer that moves it on. The
+/// timer is a component's because only a component can have one; it stops
+/// when the chart stops being live or leaves the screen, and goes with it.
+struct Mount {
+    drawing: Rc<Drawing>,
+    timer: Option<ComponentTimer>,
+}
+
+impl Mount {
+    fn start(&mut self, after: Duration, cx: &ComponentContext<Self>) {
+        match cx.set_timeout(after, Moved) {
+            Ok(timer) => self.timer = Some(timer),
+            Err(error) => tracing::warn!(%error, "chart: no timer to move a live chart with"),
+        }
+    }
+}
 
 impl Component for Mount {
     type Input = Mounted;
-    type Message = ();
+    type Message = Moved;
 
-    fn create(_input: &Mounted, _cx: &ComponentContext<Self>) -> Self {
-        Self
+    fn create(input: &Mounted, cx: &ComponentContext<Self>) -> Self {
+        let mut mount = Self {
+            drawing: input.drawing.clone(),
+            timer: None,
+        };
+        if input.live {
+            mount.start(FIRST_MOVE, cx);
+        }
+        mount
+    }
+
+    fn input_changed(&mut self, input: &Mounted, cx: &ComponentContext<Self>) {
+        self.drawing = input.drawing.clone();
+        if input.live && self.timer.is_none() {
+            self.start(FIRST_MOVE, cx);
+        }
+    }
+
+    fn update(&mut self, _moved: Moved, cx: &ComponentContext<Self>) {
+        self.timer = None;
+        if let Some(next) = self.drawing.tick() {
+            self.start(next, cx);
+        }
     }
 
     fn view(&self, mounted: &Mounted, cx: &mut ViewContext<Self>) -> View {
-        let surface = mounted.surface.clone();
+        let drawing = mounted.drawing.clone();
         cx.use_effect("surface", (), move || {
-            Some(Box::new(move || surface.borrow_mut().release()))
+            Some(Box::new(move || drawing.surface.borrow_mut().release()))
         });
 
         Grid::new()
