@@ -1,7 +1,9 @@
 //! What devtools see of the store: every change as a trace point under what
 //! caused it, and a panel with the files, the migrations and the keys.
 
+use std::cell::RefCell;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use amethystate::migration::{ComponentOutcome, NotMigrated};
 use amethystate::observability::resolve_field;
@@ -25,19 +27,27 @@ pub(crate) struct Watching {
 
 impl Watching {
     pub(crate) fn start(store: &Store, report: &MigrationReport) -> Self {
-        let subscription = store.subscribe(
-            SubscriptionKind::Any,
-            Arc::new(|event| {
+        let written = Arc::new(AtomicBool::new(true));
+        let subscription = store.subscribe(SubscriptionKind::Any, {
+            let written = written.clone();
+            Arc::new(move |event| {
+                written.store(true, Ordering::Relaxed);
                 changed(event);
                 Ok(())
-            }),
-        );
+            })
+        });
 
         let fixed = vec![files(store), migrations(report)];
         let reader = store.clone();
+        let listed = RefCell::new(None);
         let panel = devtools::contribute_to_app(move || {
+            let mut listed = listed.borrow_mut();
+            if written.swap(false, Ordering::Relaxed) || listed.is_none() {
+                *listed = Some(keys(&reader));
+            }
+
             let mut nodes = fixed.clone();
-            nodes.push(keys(&reader));
+            nodes.extend(listed.clone());
             Some(Panel {
                 id: "guinea.store",
                 title: "Store",

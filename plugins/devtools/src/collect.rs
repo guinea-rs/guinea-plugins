@@ -265,10 +265,23 @@ fn actor(snapshot: &ActorSnapshot, root: Option<u64>, segments: &[usize]) -> Act
     }
 }
 
+thread_local! {
+    /// Where each declaring file was found, or that it was not: finding one
+    /// asks the file system along every ancestor of its crate, and a
+    /// snapshot four times a second asked again for every actor and handler.
+    static FOUND: RefCell<HashMap<(&'static str, &'static str), Option<std::path::PathBuf>>> =
+        RefCell::new(HashMap::new());
+}
+
 /// Where something was written, with the file found on this machine when the
 /// sources are here.
 fn place(declared: shape::Declared) -> Declared {
-    let path = declared.path();
+    let path = FOUND.with_borrow_mut(|found| {
+        found
+            .entry((declared.crate_dir, declared.file))
+            .or_insert_with(|| declared.path())
+            .clone()
+    });
     Declared {
         found: path.is_some(),
         file: path.map_or_else(
