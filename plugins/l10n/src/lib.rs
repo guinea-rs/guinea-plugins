@@ -73,8 +73,9 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
             .unwrap_or_else(|| self.default_tag.clone());
 
         let strings = S::for_tag(&tag)
+            .filter(|strings| has_locale::<S>(&strings.tag()))
             .or_else(|| {
-                tracing::warn!(%tag, "not a usable language tag, falling back");
+                tracing::warn!(%tag, "no strings for this language, falling back");
                 S::for_tag(&self.default_tag)
             })
             .ok_or_else(|| anyhow::anyhow!("`{}` is not a language tag", self.default_tag))?;
@@ -93,6 +94,16 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
 
         Ok(())
     }
+}
+
+/// Whether the application has strings for `tag`. A resolver that does not
+/// list its locales is taken at its word for any tag it accepts.
+fn has_locale<S: Localization>(tag: &str) -> bool {
+    let languages = S::languages();
+    languages.is_empty()
+        || languages
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(tag))
 }
 
 #[cfg(feature = "persist")]
@@ -166,6 +177,37 @@ mod tests {
             .expect("install");
 
         assert_eq!(L10n::<Strings>::current(), Strings("en".into()));
+    }
+
+    #[test]
+    fn a_locale_counts_only_when_the_application_has_it() {
+        #[derive(Clone, Default)]
+        struct Listed;
+
+        impl Localization for Listed {
+            fn for_tag(_: &str) -> Option<Self> {
+                Some(Self)
+            }
+
+            fn tag(&self) -> String {
+                String::new()
+            }
+
+            fn languages() -> &'static [&'static str] {
+                &["en", "ru"]
+            }
+        }
+
+        assert!(has_locale::<Listed>("ru"));
+        assert!(has_locale::<Listed>("EN"));
+        assert!(
+            !has_locale::<Listed>("de"),
+            "a tag that parses is not enough"
+        );
+        assert!(
+            has_locale::<Strings>("de"),
+            "an unlisted resolver is taken at its word"
+        );
     }
 
     #[test]
