@@ -13,6 +13,18 @@ pub struct Request {
     pub params: Value,
 }
 
+/// The protocol versions this can speak, newest first.
+const SPOKEN: [&str; 3] = [PROTOCOL, "2025-03-26", "2024-11-05"];
+
+/// A JSON-RPC error: its code, and what it says.
+pub struct Refusal(pub i64, pub String);
+
+impl Refusal {
+    pub const UNPARSED: i64 = -32700;
+    const NO_METHOD: i64 = -32601;
+    const BAD_PARAMS: i64 = -32602;
+}
+
 /// What to write back, if anything.
 pub fn answer(devtools: &Devtools, tools: &[Tool], request: Request) -> Option<Value> {
     let id = request.id.clone()?;
@@ -22,27 +34,33 @@ pub fn answer(devtools: &Devtools, tools: &[Tool], request: Request) -> Option<V
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": listed(tools) })),
         "tools/call" => call(devtools, tools, &request.params),
-        other => Err(format!("no such method: {other}")),
+        other => Err(Refusal(Refusal::NO_METHOD, format!("no such method: {other}"))),
     };
 
     Some(match answered {
         Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-        Err(message) => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": { "code": -32601, "message": message },
-        }),
+        Err(refusal) => refused(id, refusal),
+    })
+}
+
+/// `refusal`, as the answer to request `id`.
+pub fn refused(id: Value, Refusal(code, message): Refusal) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": { "code": code, "message": message },
     })
 }
 
 fn initialize(params: &Value) -> Value {
-    let asked = params
-        .get("protocolVersion")
-        .and_then(Value::as_str)
+    let asked = params.get("protocolVersion").and_then(Value::as_str);
+    let spoken = SPOKEN
+        .into_iter()
+        .find(|version| Some(*version) == asked)
         .unwrap_or(PROTOCOL);
 
     json!({
-        "protocolVersion": asked,
+        "protocolVersion": spoken,
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": NAME, "version": env!("CARGO_PKG_VERSION") },
         "instructions": "Looks inside a running guinea application: what it is made of, \
@@ -64,18 +82,21 @@ fn listed(tools: &[Tool]) -> Vec<Value> {
         .collect()
 }
 
-fn call(devtools: &Devtools, tools: &[Tool], params: &Value) -> Result<Value, String> {
+fn call(devtools: &Devtools, tools: &[Tool], params: &Value) -> Result<Value, Refusal> {
     let name = params
         .get("name")
         .and_then(Value::as_str)
-        .ok_or("a call says which tool")?;
+        .ok_or_else(|| Refusal(Refusal::BAD_PARAMS, "a call says which tool".into()))?;
 
     let tool = tools
         .iter()
         .find(|tool| tool.name == name)
-        .ok_or_else(|| format!("no such tool: {name}"))?;
+        .ok_or_else(|| Refusal(Refusal::BAD_PARAMS, format!("no such tool: {name}")))?;
 
     let empty = Map::new();
+    if params.get("arguments").is_some_and(|arguments| !arguments.is_object()) {
+        return Err(Refusal(Refusal::BAD_PARAMS, "arguments are an object".into()));
+    }
     let arguments = params
         .get("arguments")
         .and_then(Value::as_object)

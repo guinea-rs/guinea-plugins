@@ -11,7 +11,9 @@
 mod rpc;
 mod stdio;
 
-use anyhow::Context;
+use std::cell::RefCell;
+use std::time::Duration;
+
 use guinea_devtools_api::tools::Tool;
 use guinea_devtools_model::access::Access;
 use serde_json::{Value, json};
@@ -21,65 +23,133 @@ const NAME: &str = "guinea-devtools";
 /// The newest protocol this speaks; a client asking for an older one is
 /// answered in its own.
 const PROTOCOL: &str = "2025-06-18";
+/// How long devtools have to accept a connection.
+const CONNECT: Duration = Duration::from_secs(5);
+/// How long a call may take: past the longest an action is followed, which is
+/// a minute.
+const ANSWER: Duration = Duration::from_secs(90);
 
 fn main() -> anyhow::Result<()> {
-    let devtools = Devtools::found()?;
+    let devtools = Devtools::default();
     let tools = guinea_devtools_api::tools::tools(&guinea_devtools_api::document());
 
     stdio::serve(|request| rpc::answer(&devtools, &tools, request))
 }
 
-/// The devtools this talks to.
+/// The devtools this talks to, found when first asked for and found again
+/// when they stop answering - they pick a new token, and maybe a new port,
+/// every time they start.
 struct Devtools {
+    found: RefCell<Option<Found>>,
+    agent: ureq::Agent,
+}
+
+#[derive(Clone)]
+struct Found {
     url: String,
     bearer: String,
 }
 
+/// What one try at a call came to.
+enum Tried {
+    Answered(Value),
+    /// Refused as a stranger, or not answered at all: the devtools found may
+    /// be gone, or started again since.
+    Stale(Value),
+}
+
+impl Default for Devtools {
+    fn default() -> Self {
+        Self {
+            found: RefCell::new(None),
+            agent: ureq::AgentBuilder::new()
+                .timeout_connect(CONNECT)
+                .timeout(ANSWER)
+                .build(),
+        }
+    }
+}
+
 impl Devtools {
     /// From the environment when it says, from the access file otherwise.
-    fn found() -> anyhow::Result<Devtools> {
+    fn find() -> Result<Found, String> {
         let url = std::env::var("GUINEA_DEVTOOLS_URL").ok();
         let token = std::env::var("GUINEA_DEVTOOLS_TOKEN").ok();
 
         let access = match (url, token) {
             (Some(url), Some(token)) => Access { url, token },
-            _ => Access::read().context(
-                "no devtools to talk to: start `guinea-devtools` or `guinea-devtools --headless`, \
-                 or set GUINEA_DEVTOOLS_URL and GUINEA_DEVTOOLS_TOKEN",
-            )?,
+            _ => Access::read().map_err(|error| {
+                format!(
+                    "no devtools to talk to ({error}): start `guinea-devtools` or \
+                     `guinea-devtools --headless`, or set GUINEA_DEVTOOLS_URL and GUINEA_DEVTOOLS_TOKEN"
+                )
+            })?,
         };
 
-        Ok(Devtools {
+        Ok(Found {
             url: access.url.trim_end_matches('/').to_string(),
             bearer: format!("Bearer {}", access.token),
         })
     }
 
+    fn found(&self) -> Result<Found, String> {
+        if let Some(found) = self.found.borrow().clone() {
+            return Ok(found);
+        }
+
+        let found = Self::find()?;
+        *self.found.borrow_mut() = Some(found.clone());
+        Ok(found)
+    }
+
     /// Calls `tool` with `arguments`, and answers with what came back.
     fn call(&self, tool: &Tool, arguments: &serde_json::Map<String, Value>) -> Value {
-        let url = match tool.url(arguments) {
-            Ok(url) => format!("{}{url}", self.url),
+        let path = match tool.url(arguments) {
+            Ok(path) => path,
             Err(missing) => return said(&missing, true),
         };
 
+        match self.try_call(tool, &path) {
+            Tried::Answered(answer) => answer,
+            Tried::Stale(_) => {
+                self.found.borrow_mut().take();
+                match self.try_call(tool, &path) {
+                    Tried::Answered(answer) | Tried::Stale(answer) => answer,
+                }
+            }
+        }
+    }
+
+    fn try_call(&self, tool: &Tool, path: &str) -> Tried {
+        let found = match self.found() {
+            Ok(found) => found,
+            Err(why) => return Tried::Answered(said(&why, true)),
+        };
+        let url = format!("{}{path}", found.url);
+
         let request = match tool.method {
-            "POST" => ureq::post(&url),
-            "PUT" => ureq::put(&url),
-            "DELETE" => ureq::delete(&url),
-            _ => ureq::get(&url),
+            "POST" => self.agent.post(&url),
+            "PUT" => self.agent.put(&url),
+            "DELETE" => self.agent.delete(&url),
+            _ => self.agent.get(&url),
         };
 
-        match request.set("Authorization", &self.bearer).call() {
-            Ok(response) => match response.into_string() {
+        match request.set("Authorization", &found.bearer).call() {
+            Ok(response) => Tried::Answered(match response.into_string() {
                 Ok(body) => said(&body, false),
                 Err(error) => said(&format!("devtools answered unreadably: {error}"), true),
-            },
+            }),
             Err(ureq::Error::Status(status, response)) => {
                 let body = response.into_string().unwrap_or_default();
+                let refused = said(&format!("devtools refused with {status}: {body}"), true);
 
-                said(&format!("devtools refused with {status}: {body}"), true)
+                if status == 401 {
+                    Tried::Stale(refused)
+                } else {
+                    Tried::Answered(refused)
+                }
             }
-            Err(error) => said(&format!("devtools are not answering: {error}"), true),
+            Err(error) => Tried::Stale(said(&format!("devtools are not answering: {error}"), true)),
         }
     }
 }

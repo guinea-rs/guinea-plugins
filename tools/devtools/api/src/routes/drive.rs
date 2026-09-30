@@ -43,6 +43,8 @@ const POLL: Duration = Duration::from_millis(50);
 const QUIET: Duration = Duration::from_millis(600);
 /// How long an action is followed when the caller does not say.
 const FOLLOWED: Duration = Duration::from_secs(5);
+/// The longest an action is followed whatever the caller says.
+const LONGEST_WAIT: Duration = Duration::from_secs(60);
 
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
@@ -94,7 +96,7 @@ struct Acting {
     /// The window whose page answers it; the newest when left out.
     root: Option<u64>,
     /// How many milliseconds to follow what it sets off; `0` answers as soon
-    /// as it is sent. 5000 when left out.
+    /// as it is sent. 5000 when left out, and 60000 at most.
     wait: Option<u64>,
 }
 
@@ -131,7 +133,7 @@ async fn act(
     Query(acting): Query<Acting>,
 ) -> Result<Json<Acted>, Failure> {
     let session = peer(&state, &app, Capability::Act, false)?;
-    let wait = acting.wait.map_or(FOLLOWED, Duration::from_millis);
+    let wait = acting.wait.map_or(FOLLOWED, Duration::from_millis).min(LONGEST_WAIT);
 
     let answer = ask(&state, session, |request| Command::Act {
         request,
@@ -175,7 +177,7 @@ async fn publish(
     Query(publishing): Query<Publishing>,
 ) -> Result<Json<Acted>, Failure> {
     let session = peer(&state, &app, Capability::Act, false)?;
-    let wait = publishing.wait.map_or(FOLLOWED, Duration::from_millis);
+    let wait = publishing.wait.map_or(FOLLOWED, Duration::from_millis).min(LONGEST_WAIT);
 
     let answer = ask(&state, session, |request| Command::Publish {
         request,

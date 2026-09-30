@@ -50,7 +50,7 @@ impl Tool {
             };
 
             if parameter.in_path {
-                path = path.replace(&format!("{{{}}}", parameter.name), &value);
+                path = path.replace(&format!("{{{}}}", parameter.name), &segment(&value));
             } else {
                 query.append_pair(&parameter.name, &value);
             }
@@ -64,6 +64,20 @@ impl Tool {
             format!("{path}?{query}")
         })
     }
+}
+
+/// `value` as one path segment: everything but the unreserved characters
+/// percent-encoded, so a `/`, `?` or `#` in it cannot lead somewhere else.
+fn segment(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            other => format!("%{other:02X}"),
+        })
+        .collect()
 }
 
 /// Every operation the document describes, in the order it lists them.
@@ -209,6 +223,17 @@ mod tests {
         assert_eq!(
             trace.url(arguments.as_object().expect("an object")).expect("a url"),
             "/apps/latest/trace?hide=tick%2Crender&limit=20"
+        );
+    }
+
+    #[test]
+    fn a_path_argument_stays_in_its_segment() {
+        let trace = named("get_trace");
+        let arguments = json!({ "app": "1/../2?x#y" });
+
+        assert_eq!(
+            trace.url(arguments.as_object().expect("an object")).expect("a url"),
+            "/apps/1%2F..%2F2%3Fx%23y/trace"
         );
     }
 
