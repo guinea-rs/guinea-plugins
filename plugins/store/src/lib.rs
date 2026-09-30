@@ -16,6 +16,7 @@ mod devtools;
 use std::path::PathBuf;
 
 use amethystate::StoreBuilder;
+use amethystate::migration::builder::MigrationBuilder;
 use amethystate::store::builder::{Backend, Layout};
 use guinea::app::{Plugin, PluginBuilder};
 
@@ -27,6 +28,7 @@ pub use amethystate;
 pub type Store = amethystate::Store;
 
 type Configure = Box<dyn FnOnce(StoreBuilder) -> StoreBuilder + Send>;
+type Steps = Box<dyn FnOnce(&mut MigrationBuilder) + Send>;
 
 enum Open {
     App {
@@ -47,6 +49,7 @@ pub struct StorePlugin {
     open: Open,
     backend: Option<Backend>,
     configure: Option<Configure>,
+    steps: Vec<Steps>,
 }
 
 impl StorePlugin {
@@ -90,7 +93,7 @@ impl StorePlugin {
 
     /// Any other [`StoreBuilder`] setting: `disk`, `file_write`, `limits`,
     /// `rules`, `when_it_will_not_open`, `when_it_will_not_read`, `context`,
-    /// `provide`, `migrations`.
+    /// `provide`. Migration steps go through [`migrations`](Self::migrations).
     pub fn configure(
         mut self,
         f: impl FnOnce(StoreBuilder) -> StoreBuilder + Send + 'static,
@@ -102,11 +105,19 @@ impl StorePlugin {
         self
     }
 
+    /// Migration steps written by hand, run with the `#[migrate]` ones when
+    /// the store opens. Called more than once, every call's steps run.
+    pub fn migrations(mut self, f: impl FnOnce(&mut MigrationBuilder) + Send + 'static) -> Self {
+        self.steps.push(Box::new(f));
+        self
+    }
+
     fn with_open(open: Open) -> Self {
         Self {
             open,
             backend: None,
             configure: None,
+            steps: Vec::new(),
         }
     }
 }
@@ -144,20 +155,30 @@ impl Plugin for StorePlugin {
         // Which is the better refusal - an application does not want a store
         // holding yesterday's shape - so it is said plainly rather than
         // printed as a debug blob.
-        let (guard, report) = builder.migrate_global().map_err(|refused| match refused {
-            amethystate::InitGlobal::Open(amethystate::store::OpenStore::Migrating {
-                why,
-                report,
-            }) => {
-                let failed = report
-                    .as_ref()
-                    .map(|report| report.failures().count())
-                    .unwrap_or_default();
-
-                anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
+        // The report itself is amethystate's to log: `migrate_global` writes
+        // it through tracing, a level per outcome.
+        let steps = self.steps;
+        let migrating = builder.migrations(move |migrations| {
+            for step in steps {
+                step(migrations);
             }
-            other => anyhow::anyhow!("opening the store: {other:?}"),
-        })?;
+        });
+        let (guard, report) = migrating
+            .migrate_global()
+            .map_err(|refused| match refused {
+                amethystate::InitGlobal::Open(amethystate::store::OpenStore::Migrating {
+                    why,
+                    report,
+                }) => {
+                    let failed = report
+                        .as_ref()
+                        .map(|report| report.failures().count())
+                        .unwrap_or_default();
+
+                    anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
+                }
+                other => anyhow::anyhow!("opening the store: {other:?}"),
+            })?;
 
         let store = amethystate::global_store();
         let watching = devtools::Watching::start(&store, &report);

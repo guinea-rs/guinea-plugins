@@ -9,8 +9,8 @@ guinea::app::App::new()
 ```
 
 The plugin resolves the platform's configuration directory, runs pending
-migrations, logs the report (including schema drift), and provides the store as
-a service:
+migrations - amethystate logs their report, schema drift included, through
+`tracing` - and provides the store as a service:
 
 ```rust
 use guinea_plugin_store::{Store, amethystate::Store as _};
@@ -32,10 +32,12 @@ View code that already talks to amethystate directly keeps working -
 |---|---|
 | `StorePlugin::for_app(app, config)` | platform configuration directory |
 | `StorePlugin::at(path)` | explicit path |
-| `StorePlugin::with(\|\| ..)` | a `StoreBuilder` you configure yourself, for migrations |
+| `StorePlugin::with(\|\| ..)` | a `StoreBuilder` you open yourself |
 
-`save_on_exit(bool)` controls whether the store is flushed during shutdown; it
-is on by default.
+`migrations(|m| ..)` adds steps written by hand, which run with the
+`#[migrate]` ones when the store opens; a step that fails refuses the open.
+`configure(|builder| ..)` takes any other `StoreBuilder` setting, `backend(..)`
+picks the engine. The store is closed, and so written out, on shutdown.
 
 ## Caveats
 
