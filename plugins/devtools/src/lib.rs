@@ -13,6 +13,11 @@
 //! Nothing is traced or snapshotted until devtools answer, and it stops when
 //! they go: an application that has the plugin and no devtools pays for one
 //! atomic load per tick.
+//!
+//! In a release build the plugin does nothing unless
+//! [`in_release`](DevToolsPlugin::in_release) says otherwise: devtools can
+//! call the application's remote actions, and a build shipped to users should
+//! not listen for that because a line was left in.
 
 mod collect;
 mod launch;
@@ -32,6 +37,7 @@ use guinea_devtools_protocol::{AppInfo, Capability, Report};
 pub struct DevToolsPlugin {
     every_ms: u64,
     launch: bool,
+    in_release: bool,
 }
 
 impl Default for DevToolsPlugin {
@@ -45,7 +51,14 @@ impl DevToolsPlugin {
         Self {
             every_ms: 250,
             launch: false,
+            in_release: false,
         }
+    }
+
+    /// Connects in a release build too. Off unless asked for.
+    pub fn in_release(mut self, on: bool) -> Self {
+        self.in_release = on;
+        self
     }
 
     /// How often a snapshot is taken. 250 ms unless said otherwise.
@@ -67,6 +80,13 @@ impl Plugin for DevToolsPlugin {
     const ID: &'static str = "guinea.devtools";
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+        if !cfg!(debug_assertions) && !self.in_release {
+            tracing::info!(
+                "devtools stay off in a release build; DevToolsPlugin::in_release turns them on"
+            );
+            return Ok(());
+        }
+
         let info = app
             .try_require::<AppMeta>()
             .map(|meta| AppInfo {
