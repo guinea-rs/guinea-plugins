@@ -8,6 +8,7 @@
 use std::sync::Mutex;
 
 /// Where the server is asked to listen, first free port wins.
+#[cfg(feature = "profiling")]
 const PORTS: std::ops::Range<u16> = 8585..8600;
 
 static RUNNING: Mutex<Option<Server>> = Mutex::new(None);

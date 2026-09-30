@@ -21,9 +21,11 @@ tracing.workspace = true
 puffin_http = { version = "0.17", optional = true }
 
 [features]
-default = ["profiling"]
+default = []
 # The puffin profiler: zones around the same moments the trace marks, and a
 # server devtools can be told to start. Nothing runs until it is asked for.
+# Off unless asked for: puffin's frame format brings bincode 1, which is
+# unmaintained.
 profiling = ["dep:puffin_http", "guinea-core/profiling"]
 
 [lints]
