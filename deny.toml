@@ -1,0 +1,51 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1 comes with puffin through guinea-core; no puffin release without it" },
+    { id = "RUSTSEC-2024-0436", reason = "paste is a proc macro of compio-driver, which devtools and ogurpchik run on" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+deny = []
+skip = [
+    { crate = "windows", reason = "0.61 from guinea, 0.100 from ogurpchik's git windows-rs" },
+    { crate = "windows-sys", reason = "every platform crate pins its own" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/microsoft/windows-rs"]
+
+[sources.allow-org]
+github = ["guinea-rs", "uniproc-dev"]
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+exceptions = []
+
+[licenses.private]
+ignore = true
