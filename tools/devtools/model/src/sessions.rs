@@ -70,6 +70,12 @@ impl Session {
         }
     }
 
+    /// A native inspector loaded into an application, rather than an
+    /// application: it shows the backend's tree and has no snapshot.
+    pub fn inspects_only(&self) -> bool {
+        self.info.can(Capability::NativeTree) && !self.info.can(Capability::Snapshot)
+    }
+
     pub fn name(&self) -> String {
         if self.info.name.is_empty() {
             "unnamed application".to_string()
@@ -131,9 +137,20 @@ impl Sessions {
         self.by_id.values().rev().map(Session::summary).collect()
     }
 
-    /// The newest connected application.
+    /// The newest connected application. An inspector attached to one is
+    /// not an application of its own.
     pub fn newest(&self) -> Option<&Session> {
-        self.by_id.values().rev().find(|session| session.connected)
+        self.by_id
+            .values()
+            .rev()
+            .find(|session| session.connected && !session.inspects_only())
+    }
+
+    /// What `latest` names: the newest connected application, or else the
+    /// newest one at all.
+    pub fn latest(&self) -> Option<&Session> {
+        self.newest()
+            .or_else(|| self.by_id.values().rev().find(|session| !session.inspects_only()))
     }
 
     /// The connected native inspector in the same process as session `id`:
@@ -261,5 +278,32 @@ mod tests {
 
         assert_eq!(sessions.successor(1), Some(2));
         assert_eq!(sessions.newest().map(|s| s.id), Some(2));
+    }
+
+    #[test]
+    fn latest_passes_over_an_inspector_attached_after_the_application() {
+        let mut sessions = Sessions::default();
+        let said = |id, capabilities: Vec<Capability>| {
+            Incoming::Report(
+                id,
+                Box::new(Report::Hello(AppInfo {
+                    pid: 7,
+                    capabilities,
+                    ..AppInfo::default()
+                })),
+            )
+        };
+
+        sessions.apply(Incoming::Opened(1));
+        sessions.apply(said(1, vec![Capability::Snapshot, Capability::Act]));
+        sessions.apply(Incoming::Opened(2));
+        sessions.apply(said(2, vec![Capability::NativeTree]));
+
+        assert_eq!(sessions.latest().map(|s| s.id), Some(1));
+        assert_eq!(sessions.native_for(1).map(|s| s.id), Some(2));
+
+        sessions.apply(Incoming::Closed(1));
+        sessions.apply(Incoming::Closed(2));
+        assert_eq!(sessions.latest().map(|s| s.id), Some(1));
     }
 }

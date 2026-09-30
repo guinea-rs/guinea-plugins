@@ -22,7 +22,7 @@ pub fn router() -> OpenApiRouter<crate::State> {
 /// connected.
 fn session<'a>(sessions: &'a Sessions, app: &str) -> Result<&'a Session, Failure> {
     let found = if app == "latest" {
-        sessions.newest().or_else(|| sessions.by_id.values().next_back())
+        sessions.latest()
     } else {
         app.parse().ok().and_then(|id| sessions.get(id))
     };
