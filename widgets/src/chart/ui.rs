@@ -22,7 +22,7 @@ use windows_reactor::{
 
 use super::hover::hover_at;
 use super::live::{self, Clock};
-use super::model::{ChartRevision, HoverInfo, LineChartOptions, Series, chart_revision};
+use super::model::{HoverInfo, LineChartOptions, Series, newest};
 use super::paint;
 use super::surface::{Metrics, Surface};
 
@@ -94,7 +94,8 @@ pub struct Chart {
     drawing: Rc<Drawing>,
     /// Where the pointer was last seen, or `None` when it is away.
     pointer: Rc<Cell<Option<f32>>>,
-    drawn: Cell<Option<ChartRevision>>,
+    /// Whether anything was published yet, so the first publish draws.
+    published: Cell<bool>,
     host: ElementRef<Grid>,
     image: ElementRef<Image>,
     _sized: ElementObservation,
@@ -153,7 +154,7 @@ impl Chart {
         Self {
             drawing,
             pointer: Rc::new(Cell::new(None)),
-            drawn: Cell::new(None),
+            published: Cell::new(false),
             host,
             image,
             _sized: sized,
@@ -162,26 +163,24 @@ impl Chart {
 
     /// Hands the chart new data.
     ///
-    /// A redraw is asked for only when the data actually moved. A drawing
-    /// surface presents a frame when it is drawn into rather than every vsync,
-    /// so this gate is what keeps a chart that ticks twice a second from
-    /// burning several percent of a core - which an unconditional animated
-    /// canvas did. A live chart moves on between publishes by itself, a pixel
-    /// at a time.
+    /// A redraw is asked for only when the data or the options actually
+    /// changed. A drawing surface presents a frame when it is drawn into
+    /// rather than every vsync, so this gate is what keeps a chart that ticks
+    /// twice a second from burning several percent of a core - which an
+    /// unconditional animated canvas did. A live chart moves on between
+    /// publishes by itself, a pixel at a time.
     pub fn publish(&self, series: Vec<Series>, options: LineChartOptions) {
-        let revision = chart_revision(&series);
         let drawing = &self.drawing;
+        let first = !self.published.replace(true);
         let restyled = *drawing.options.borrow() != options;
+        let moved = *drawing.series.borrow() != series;
 
         let mut clock = drawing.clock.get();
-        match (options.live, options.x_window) {
-            (Some(live), Some(window)) if revision.0 > 0 => clock.saw(
-                revision.1 as f64,
-                window as f64,
-                live.per_second,
-                Instant::now(),
-            ),
-            (Some(_), Some(_)) => {}
+        match (options.live, options.x_window, newest(&series)) {
+            (Some(live), Some(window), Some(newest)) => {
+                clock.saw(newest as f64, window as f64, live.per_second, Instant::now())
+            }
+            (Some(_), Some(_), None) => {}
             _ => clock.forget(),
         }
         drawing.clock.set(clock);
@@ -189,8 +188,7 @@ impl Chart {
         *drawing.series.borrow_mut() = series;
         *drawing.options.borrow_mut() = options;
 
-        if restyled || self.drawn.get() != Some(revision) {
-            self.drawn.set(Some(revision));
+        if first || restyled || moved {
             drawing.draw();
         }
     }

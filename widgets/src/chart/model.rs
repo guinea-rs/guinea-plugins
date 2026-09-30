@@ -13,7 +13,7 @@ pub enum Interpolation {
     Smooth,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Series {
     pub color: ColorF,
     pub interpolation: Interpolation,
@@ -111,18 +111,11 @@ pub fn theme_border_color(scheme: ColorScheme) -> ColorF {
     }
 }
 
-/// Cheap, comparable summary of a chart's data, used as a `use_effect`
-/// dependency so the surface only redraws when the data actually changed (grew
-/// or shifted), not on every unrelated re-render.
-pub(super) type ChartRevision = (usize, u64);
-
-pub(super) fn chart_revision(series: &[Series]) -> ChartRevision {
-    let total_points: usize = series.iter().map(|s| s.points.len()).sum();
-    let last_t = series
+/// The time of the newest sample of any series.
+pub(super) fn newest(series: &[Series]) -> Option<u64> {
+    series
         .iter()
         .filter_map(|s| s.points.last())
         .map(|&(t, _)| t)
         .max()
-        .unwrap_or(0);
-    (total_points, last_t)
 }

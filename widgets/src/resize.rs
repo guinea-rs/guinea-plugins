@@ -71,6 +71,8 @@ pub fn resize_handle(
 }
 
 impl ResizeHandle {
+    /// The narrowest a drag goes. Past `max`, `max` wins; a NaN bound is no
+    /// bound.
     pub fn min(mut self, min: f64) -> Self {
         self.min = min;
         self
@@ -278,7 +280,7 @@ impl Component for Handle {
                         let delta = info.window_x - start_window_x;
                         // Dropped when whoever owns the width is not publishing;
                         // the handle then simply does not move.
-                        let _ = on_resize.call((start_current + delta).clamp(min, max));
+                        let _ = on_resize.call((start_current + delta).max(min).min(max));
                     }
                 },
             ))

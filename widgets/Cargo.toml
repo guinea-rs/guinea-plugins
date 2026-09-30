@@ -34,7 +34,7 @@ anyhow.workspace = true
 default = ["winui"]
 
 # Backends. Without one, what is left is the part that is pure layout and
-# geometry: column sizing, sort/flow state, ring series.
+# geometry: sort state and ring series.
 winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-core", "dep:windows", "dep:d2d-numerics"]
 
 [lints]
