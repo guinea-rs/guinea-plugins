@@ -67,9 +67,15 @@ fn hello() -> AppInfo {
 }
 
 async fn run() {
-    let endpoint = guinea_devtools_protocol::endpoint();
-
     loop {
+        let endpoint = match guinea_devtools_protocol::endpoint() {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                tracing::warn!(%error, "nowhere to reach devtools at");
+                compio::time::sleep(RETRY).await;
+                continue;
+            }
+        };
         let session = match key::read() {
             Ok(secret) => connect_session::<peer::Client, _>(
                 &endpoint,

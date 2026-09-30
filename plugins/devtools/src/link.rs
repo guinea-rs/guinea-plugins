@@ -19,6 +19,12 @@ const RETRY: Duration = Duration::from_secs(1);
 
 pub struct Outbox(Sender<Report>);
 
+impl Drop for Outbox {
+    fn drop(&mut self) {
+        self.0.close_channel();
+    }
+}
+
 impl Outbox {
     pub fn send(&mut self, report: Report) {
         if let Err(error) = self.0.try_send(report)
@@ -131,8 +137,17 @@ async fn run(
     mut reports: Receiver<Report>,
     answers: Sender<Report>,
 ) {
-    let endpoint = guinea_devtools_protocol::endpoint();
     loop {
+        let endpoint = match guinea_devtools_protocol::endpoint() {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                tracing::warn!(%error, "nowhere to reach devtools at");
+                if !idle(&mut reports).await {
+                    return;
+                }
+                continue;
+            }
+        };
         let session = match key::read() {
             Ok(secret) => {
                 let inbound = Inbound(Mutex::new(answers.clone()));
@@ -177,6 +192,7 @@ async fn run(
             }
 
             let Some(report) = reports.next().await else {
+                crate::profiler::stop();
                 return;
             };
             if wire::send(remote, &report).await.is_err() {
@@ -185,6 +201,7 @@ async fn run(
             }
         }
 
+        crate::profiler::stop();
         connected.store(false, Ordering::Relaxed);
     }
 }

@@ -177,9 +177,12 @@ impl Chart {
 
         let mut clock = drawing.clock.get();
         match (options.live, options.x_window, newest(&series)) {
-            (Some(live), Some(window), Some(newest)) => {
-                clock.saw(newest as f64, window as f64, live.per_second, Instant::now())
-            }
+            (Some(live), Some(window), Some(newest)) => clock.saw(
+                newest as f64,
+                window as f64,
+                live.per_second,
+                Instant::now(),
+            ),
             (Some(_), Some(_), None) => {}
             _ => clock.forget(),
         }

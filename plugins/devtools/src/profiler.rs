@@ -22,7 +22,9 @@ struct Server {
 /// Starts recording and listening; answers where. Starting twice answers
 /// where it already listens.
 pub fn start() -> anyhow::Result<String> {
-    let mut running = RUNNING.lock().expect("the profiler lock");
+    let mut running = RUNNING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(server) = running.as_ref() {
         return Ok(server.at.clone());
     }
@@ -35,10 +37,14 @@ pub fn start() -> anyhow::Result<String> {
     Ok(at)
 }
 
-/// Stops recording and takes the server down.
+/// Stops recording and takes the server down. Also when devtools go away:
+/// the server has no authentication of its own, and nobody is reading it.
 pub fn stop() {
     guinea_core::devtools::profiling::record(false);
-    let _ = RUNNING.lock().expect("the profiler lock").take();
+    let _ = RUNNING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take();
 }
 
 #[cfg(feature = "profiling")]

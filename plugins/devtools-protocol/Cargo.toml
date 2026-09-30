@@ -18,5 +18,8 @@ getrandom = "0.4.2"
 [build-dependencies]
 capnpc = "0.27"
 
+[dev-dependencies]
+tempfile = "3.27.0"
+
 [lints]
 workspace = true

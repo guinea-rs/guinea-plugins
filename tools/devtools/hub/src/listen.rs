@@ -92,7 +92,13 @@ async fn listen(out: Sender<Incoming>, queued: UnboundedReceiver<(u64, Command)>
     let queues = Queues::default();
     compio::runtime::spawn(deliver(queues.clone(), queued)).detach();
 
-    let endpoint = guinea_devtools_protocol::endpoint();
+    let endpoint = match guinea_devtools_protocol::endpoint() {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            let _ = out.send(Incoming::Failed(format!("nowhere to listen: {error}")));
+            return;
+        }
+    };
     let listener = match endpoint.listen().await {
         Ok(listener) => listener,
         Err(report) => {

@@ -151,7 +151,12 @@ mod tests {
             ..Saved::default()
         };
 
-        for size in [(0.0, 600.0), (-800.0, 600.0), (f64::NAN, 600.0), (800.0, 1e9)] {
+        for size in [
+            (0.0, 600.0),
+            (-800.0, 600.0),
+            (f64::NAN, 600.0),
+            (800.0, 1e9),
+        ] {
             let geometry = written(size, (100.0, 50.0)).geometry();
             assert_eq!(geometry.size, None, "{size:?}");
             assert!(geometry.position.is_some(), "the place stands on its own");

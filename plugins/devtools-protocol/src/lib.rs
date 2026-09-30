@@ -29,9 +29,10 @@ use ogurpchik::endpoint::Endpoint;
 use serde::{Deserialize, Serialize};
 
 /// Where devtools listen: `\\.\pipe\guinea.devtools`, or `guinea/devtools.sock`
-/// under the runtime directory.
-pub fn endpoint() -> Endpoint {
-    Endpoint::for_service("guinea", "devtools").expect("a valid, constant service name")
+/// under the runtime directory - which can fail to be made, when the
+/// directory is not this user's.
+pub fn endpoint() -> Result<Endpoint, String> {
+    Endpoint::for_service("guinea", "devtools").map_err(|report| format!("{report:?}"))
 }
 
 /// Devtools' application identifier, which their single-instance lock is

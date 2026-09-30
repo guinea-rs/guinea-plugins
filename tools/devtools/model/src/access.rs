@@ -23,13 +23,8 @@ pub fn path() -> io::Result<PathBuf> {
 
 impl Access {
     pub fn write(&self) -> io::Result<()> {
-        let path = path()?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
         let text = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
-        std::fs::write(path, text)
+        guinea_devtools_protocol::key::write_private(&path()?, text.as_bytes())
     }
 
     pub fn read() -> io::Result<Self> {
