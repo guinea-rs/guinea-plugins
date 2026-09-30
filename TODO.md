@@ -2,9 +2,10 @@
 
 ## Publishing to crates.io
 
-guinea is on crates.io since 0.13.4, without WinUI: `guinea-winui` waits for
-windows-rs to release a `windows-reactor` with `AppProxy`, `open_window` and
-`proxy()`, and crates.io takes no git dependency, not even an optional one.
+guinea is on crates.io since 0.13.4, and with WinUI since 0.16.0: the
+windows-rs reactor and canvas it needs are published from guinea as
+`windows-reactor-pre` and `windows-canvas-pre`. crates.io takes no git
+dependency, not even an optional one.
 
 What can go now, in this order:
 
@@ -13,14 +14,12 @@ What can go now, in this order:
 2. `guinea-plugin-store` - if the amethystate it needs is on crates.io.
 3. `guinea-plugin-window-state` - after the store.
 
+4. `guinea-plugin-l10n`, `guinea-widgets` - on the `-pre` crates.
+
 What cannot yet:
 
-- `guinea-plugin-l10n`: its `winui` feature pulls `windows-reactor` from git.
-  Either the feature moves into a crate of its own, or it waits for
-  windows-rs.
 - `guinea-devtools-protocol`, `guinea-plugin-devtools`: ogurpchik comes from
   git; it has to be published first.
-- `guinea-widgets`: windows-rs from git.
 
 To do it:
 

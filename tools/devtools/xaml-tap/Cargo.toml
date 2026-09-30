@@ -15,5 +15,5 @@ ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.7.0" }
 capnp = "0.27"
 compio = { version = "0.18.0", features = ["runtime", "time"] }
 tracing = "0.1"
-windows-core = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45" }
-windows-numerics = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45" }
+windows-core = "0.100.0"
+windows-numerics = "0.100.0"

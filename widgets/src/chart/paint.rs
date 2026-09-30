@@ -3,14 +3,16 @@
 
 use std::mem::ManuallyDrop;
 
-use windows::Win32::{
-    D2D_RECT_F, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_LAYER_OPTIONS1_NONE,
-    D2D1_LAYER_PARAMETERS1, D2D1_ROUNDED_RECT, ID2D1DeviceContext, ID2D1Geometry,
+use d2d_numerics::Matrix3x2;
+use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
+use windows::Win32::Graphics::Direct2D::{
+    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_LAYER_OPTIONS1_NONE, D2D1_LAYER_PARAMETERS1,
+    D2D1_ROUNDED_RECT, ID2D1DeviceContext, ID2D1Geometry,
 };
-use windows::core::Interface;
+use windows::core::{Error, Interface};
 use windows_canvas::{
-    Brush, ColorF, DrawingSession, GpuDevice, Matrix3x2, Path, PathBuilder, Rect,
-    Result as CanvasResult, RoundedRect, Vector2,
+    Brush, ColorF, DrawingSession, GpuDevice, Path, PathBuilder, Rect, Result as CanvasResult,
+    RoundedRect, Vector2,
 };
 
 use super::geometry::Frame;
@@ -56,7 +58,10 @@ pub(super) fn render(
 /// `radius` - or unclipped, and says so, when Direct2D will not give a layer.
 fn clipped(draw: &DrawingSession<'_>, width: f32, height: f32, radius: f32, inside: impl FnOnce()) {
     let mask = || -> windows::core::Result<(ID2D1DeviceContext, ID2D1Geometry)> {
-        let context: ID2D1DeviceContext = draw.raw().cast()?;
+        let raw = windows_core::Interface::as_raw(draw.raw());
+        let context = unsafe { ID2D1DeviceContext::from_raw_borrowed(&raw) }
+            .cloned()
+            .ok_or_else(Error::empty)?;
         let factory = unsafe { context.GetFactory()? };
         let geometry = unsafe {
             factory.CreateRoundedRectangleGeometry(&D2D1_ROUNDED_RECT {

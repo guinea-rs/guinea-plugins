@@ -11,24 +11,19 @@ guinea-mark.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-reactor = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", optional = true }
-# The canvas moved out of `windows-reactor`'s features and into its own crate's
-# `reactor` feature when the reactor was rewritten.
-windows-canvas = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", features = [
-    "reactor",
-], optional = true }
-# The lifted stack - the same one `windows-reactor` pins. Charts draw Direct2D
-# into a composition surface owned by a WinUI host element, so the widget crate
-# names the composition types directly.
-windows-composition = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", default-features = false, features = [
-    "reactor",
-], optional = true }
+windows-reactor = { workspace = true, optional = true }
+windows-canvas = { workspace = true, features = ["reactor"], optional = true }
+windows-core = { workspace = true, optional = true }
 
 # Direct2D itself, for the one thing the canvas does not wrap: a layer with a
-# geometric mask, which is how a chart clips to its rounded corners.
-windows = { git = "https://github.com/microsoft/windows-rs", rev = "c14074c45", default-features = false, features = [
-    "d2d",
+# geometric mask, which is how a chart clips to its rounded corners. The
+# windows-rs 0.100 family has no `windows` on crates.io; this is the one guinea
+# already links, reached through the canvas's raw device context.
+windows = { version = "0.61.3", features = [
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
 ], optional = true }
+d2d-numerics = { package = "windows-numerics", version = "0.2.0", optional = true }
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]
 guinea = { workspace = true, features = ["winui", "harness"] }
@@ -39,7 +34,7 @@ default = ["winui"]
 
 # Backends. Without one, what is left is the part that is pure layout and
 # geometry: column sizing, sort/flow state, ring series.
-winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-composition", "dep:windows"]
+winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-core", "dep:windows", "dep:d2d-numerics"]
 
 [lints]
 workspace = true

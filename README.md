@@ -70,17 +70,21 @@ assert!(app.shutdown().is_empty());
 Each plugin is its own crate under `plugins/`, versioned and released
 independently.
 
-`guinea` is pinned to a rev rather than a version, since the plugin API is
-still moving. An application that also depends on guinea directly must resolve
-both to the same source, otherwise cargo builds two copies of guinea and the
-`PluginBuilder` a plugin expects is a different type from the one the
-application has:
+guinea and the WinUI stack come from crates.io: `guinea` 0.16, and the
+windows-rs reactor and canvas guinea is written against as
+`windows-reactor-pre` and `windows-canvas-pre`, under their usual lib names.
+An application must take guinea and the `-pre` crates from the same source as
+the plugins, otherwise cargo builds two copies and the `PluginBuilder` a plugin
+expects is a different type from the one the application has.
+
+Working on a plugin and on guinea at the same time is a `[patch]` pointing at
+your guinea checkout:
 
 ```toml
-[patch."https://github.com/uniproc-dev/guinea"]
+[patch.crates-io]
 guinea = { path = "../guinea/crates/guinea" }
 guinea-core = { path = "../guinea/crates/guinea-core" }
+guinea-mark = { path = "../guinea/crates/guinea-mark" }
+windows-reactor-pre = { path = "../guinea/crates/vendor/windows-reactor-pre" }
+windows-canvas-pre = { path = "../guinea/crates/vendor/windows-canvas-pre" }
 ```
-
-Working on a plugin and on guinea at the same time is the same `[patch]`,
-pointing at your guinea checkout.
