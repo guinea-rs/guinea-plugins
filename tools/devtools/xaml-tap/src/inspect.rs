@@ -88,6 +88,18 @@ unsafe fn safe_array<'a, T>(array: *const SafeArray) -> &'a [T] {
     unsafe { std::slice::from_raw_parts(array.data as *const T, array.bounds[0].elements as usize) }
 }
 
+/// `count` elements at `data`, borrowed - none when `data` is null, which a
+/// COM call may hand back for an empty list.
+///
+/// # Safety
+/// `data` is null or points at `count` live `T`s.
+unsafe fn borrowed<'a, T>(data: *const T, count: u32) -> &'a [T] {
+    if data.is_null() || count == 0 {
+        return &[];
+    }
+    unsafe { std::slice::from_raw_parts(data, count as usize) }
+}
+
 fn free(bstr: *const u16) {
     if !bstr.is_null() {
         drop(unsafe { BSTR::from_raw(bstr) });
@@ -128,7 +140,7 @@ impl Inspector {
                 .map_err(|error| format!("reading the enumerations: {error}"))?;
         }
 
-        let read = unsafe { std::slice::from_raw_parts(types, count as usize) };
+        let read = unsafe { borrowed(types, count) };
         let enums = read
             .iter()
             .map(|kind| {
@@ -168,8 +180,8 @@ impl Inspector {
                 .map_err(|error| format!("reading the properties: {error}"))?;
         }
 
-        let chain = unsafe { std::slice::from_raw_parts(sources, source_count as usize) };
-        let read = unsafe { std::slice::from_raw_parts(values, value_count as usize) };
+        let chain = unsafe { borrowed(sources, source_count) };
+        let read = unsafe { borrowed(values, value_count) };
 
         let properties = read
             .iter()
@@ -261,11 +273,11 @@ impl Inspector {
             let mut count = 0u32;
             let mut handles: *mut InstanceHandle = std::ptr::null_mut();
             let hit = unsafe { roots.HitTestForXamlRoot(root, at, &mut count, &mut handles) };
-            if hit.is_err() || count == 0 {
+            if hit.is_err() || count == 0 || handles.is_null() {
                 continue;
             }
 
-            let chain = unsafe { std::slice::from_raw_parts(handles, count as usize) }.to_vec();
+            let chain = unsafe { borrowed(handles, count) }.to_vec();
             unsafe { CoTaskMemFree(handles.cast()) };
 
             let bounds = self.bounds_in(chain[0], window);

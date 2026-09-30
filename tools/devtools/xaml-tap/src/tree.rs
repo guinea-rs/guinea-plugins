@@ -19,8 +19,52 @@ use crate::diag::{
 #[derive(Default)]
 struct State {
     elements: HashMap<u64, Element>,
+    /// Each element's children, so that removing one takes its subtree
+    /// without walking the whole tree.
+    children: HashMap<u64, Vec<u64>>,
     pending: Vec<Change>,
     roots: Vec<InstanceHandle>,
+}
+
+impl State {
+    fn add(&mut self, element: Element) {
+        let (handle, parent) = (element.handle, element.parent);
+        if let Some(before) = self.elements.insert(handle, element)
+            && before.parent != parent
+        {
+            self.detach(before.parent, handle);
+        }
+
+        let siblings = self.children.entry(parent).or_default();
+        if !siblings.contains(&handle) {
+            siblings.push(handle);
+        }
+    }
+
+    /// Takes `handle` and everything below it out of the tree.
+    fn remove(&mut self, handle: u64) {
+        if let Some(element) = self.elements.get(&handle) {
+            let parent = element.parent;
+            self.detach(parent, handle);
+        }
+
+        let mut gone = vec![handle];
+        while let Some(next) = gone.pop() {
+            self.elements.remove(&next);
+            if let Some(below) = self.children.remove(&next) {
+                gone.extend(below);
+            }
+        }
+    }
+
+    fn detach(&mut self, parent: u64, handle: u64) {
+        if let Some(siblings) = self.children.get_mut(&parent) {
+            siblings.retain(|&sibling| sibling != handle);
+            if siblings.is_empty() {
+                self.children.remove(&parent);
+            }
+        }
+    }
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -109,21 +153,10 @@ impl IVisualTreeServiceCallback_Impl for Watcher_Impl {
                     name: text(element.name),
                     mark: String::new(),
                 };
-                state.elements.insert(added.handle, added.clone());
+                state.add(added.clone());
                 state.pending.push(Change::Added(added));
             } else {
-                let mut gone = vec![element.handle];
-                while let Some(next) = gone.pop() {
-                    state.elements.remove(&next);
-                    gone.extend(
-                        state
-                            .elements
-                            .values()
-                            .filter(|child| child.parent == next)
-                            .map(|child| child.handle),
-                    );
-                }
-
+                state.remove(element.handle);
                 state.pending.push(Change::Removed {
                     handle: element.handle,
                     parent: relation.parent,
@@ -144,5 +177,43 @@ impl IVisualTreeServiceCallback3_Impl for Watcher_Impl {
             }
         });
         HRESULT(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn element(handle: u64, parent: u64) -> Element {
+        Element {
+            handle,
+            parent,
+            index: 0,
+            kind: String::new(),
+            name: String::new(),
+            mark: String::new(),
+        }
+    }
+
+    #[test]
+    fn removing_an_element_takes_its_subtree_and_nothing_else() {
+        let mut state = State::default();
+        for (handle, parent) in [(1, 0), (2, 1), (3, 2), (4, 1), (5, 0)] {
+            state.add(element(handle, parent));
+        }
+
+        state.remove(2);
+        let mut left: Vec<u64> = state.elements.keys().copied().collect();
+        left.sort_unstable();
+        assert_eq!(left, [1, 4, 5]);
+        assert_eq!(state.children.get(&1), Some(&vec![4]));
+        assert!(!state.children.contains_key(&2));
+
+        state.add(element(4, 5));
+        assert!(!state.children.contains_key(&1), "a moved element leaves its old parent");
+        state.remove(5);
+        let mut left: Vec<u64> = state.elements.keys().copied().collect();
+        left.sort_unstable();
+        assert_eq!(left, [1]);
     }
 }

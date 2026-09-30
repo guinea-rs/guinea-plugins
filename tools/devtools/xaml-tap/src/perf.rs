@@ -117,8 +117,14 @@ fn stop_session(id: CONTROLTRACE_ID, name: &[u16]) {
     unsafe { ControlTraceW(id, PCWSTR(name.as_ptr()), buffer.as_mut_ptr().cast(), EVENT_TRACE_CONTROL_STOP as u32) };
 }
 
-/// Stops recording, when devtools go away.
+/// Stops recording, when devtools go away, and removes the ring - up to 32
+/// MB that nobody will read.
 pub fn stop() {
+    halt();
+    let _ = std::fs::remove_file(ring());
+}
+
+fn halt() {
     if let Some(session) = SESSION.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
         stop_session(session.id, &session.name);
     }
@@ -126,7 +132,7 @@ pub fn stop() {
 
 /// What the ring holds now, as frames; recording goes on afterwards.
 pub fn capture() -> Result<Vec<Frame>, String> {
-    stop();
+    halt();
     let frames = read(&ring());
     start()?;
     frames
