@@ -14,8 +14,9 @@ impl Clock {
             return None;
         }
 
-        let epoch = chrono::DateTime::from_timestamp_millis(self.epoch_ms as i64)?;
-        let when = epoch + chrono::Duration::microseconds(at as i64);
+        let epoch = chrono::DateTime::from_timestamp_millis(i64::try_from(self.epoch_ms).ok()?)?;
+        let since = chrono::Duration::microseconds(i64::try_from(at).ok()?);
+        let when = epoch.checked_add_signed(since)?;
         Some(when.with_timezone(&chrono::Local))
     }
 
@@ -68,5 +69,19 @@ mod tests {
                 expected.format("%H:%M:%S%.3f")
             )
         );
+    }
+
+    #[test]
+    fn a_time_past_any_date_reads_as_time_since_start() {
+        let known = Clock {
+            epoch_ms: 1_700_000_000_000,
+        };
+        assert!(known.short(u64::MAX).ends_with(" s"));
+        assert!(known.short(i64::MAX as u64).ends_with(" s"));
+
+        let near_the_end = Clock {
+            epoch_ms: 8_210_000_000_000_000,
+        };
+        assert!(near_the_end.short(u64::MAX / 4).ends_with(" s"));
     }
 }

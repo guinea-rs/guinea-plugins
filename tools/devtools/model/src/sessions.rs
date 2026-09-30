@@ -1,6 +1,6 @@
 //! Every application that connected, and what it reported.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use guinea_devtools_protocol::{Answer, AppInfo, Capability, Report, Snapshot};
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,14 @@ impl Listening {
     }
 }
 
+/// How many answers a session keeps. A caller asks for its answer within
+/// seconds of sending the request; ids only grow, so the oldest go first.
+pub const ANSWERS_KEPT: usize = 256;
+
+/// How many sessions that have gone away are kept, newest first, for their
+/// trace and for [`Sessions::successor`].
+pub const GONE_KEPT: usize = 16;
+
 #[derive(Clone, Debug, Default)]
 pub struct Session {
     pub id: u64,
@@ -48,8 +56,9 @@ pub struct Session {
     pub inspection: Inspection,
     /// Where its puffin profiler listens, while it is switched on.
     pub profiler: Option<String>,
-    /// What commands that carry a request came to, until someone takes them.
-    pub answers: HashMap<u64, Answer>,
+    /// What the last [`ANSWERS_KEPT`] commands that carry a request came to,
+    /// by request id.
+    pub answers: BTreeMap<u64, Answer>,
     pub received: u64,
     pub connected: bool,
 }
@@ -183,6 +192,21 @@ impl Sessions {
             .map(|other| other.id)
     }
 
+    /// Drops sessions that went away, past the newest [`GONE_KEPT`] of them.
+    fn forget_the_long_gone(&mut self) {
+        let gone: Vec<u64> = self
+            .by_id
+            .values()
+            .rev()
+            .filter(|session| !session.connected)
+            .skip(GONE_KEPT)
+            .map(|session| session.id)
+            .collect();
+        for id in gone {
+            self.by_id.remove(&id);
+        }
+    }
+
     pub fn apply(&mut self, incoming: Incoming) {
         match incoming {
             Incoming::Listening(addr) => self.listening = Listening::On(addr),
@@ -232,6 +256,9 @@ impl Sessions {
                     }
                     Report::Answered { request, answer } => {
                         session.answers.insert(request, answer);
+                        while session.answers.len() > ANSWERS_KEPT {
+                            session.answers.pop_first();
+                        }
                     }
                 }
             }
@@ -239,6 +266,7 @@ impl Sessions {
                 if let Some(session) = self.by_id.get_mut(&id) {
                     session.connected = false;
                 }
+                self.forget_the_long_gone();
             }
         }
     }
@@ -278,6 +306,35 @@ mod tests {
 
         assert_eq!(sessions.successor(1), Some(2));
         assert_eq!(sessions.newest().map(|s| s.id), Some(2));
+    }
+
+    #[test]
+    fn only_the_newest_gone_sessions_and_answers_are_kept() {
+        let mut sessions = Sessions::default();
+        let total = GONE_KEPT as u64 + 5;
+        for id in 1..=total {
+            sessions.apply(Incoming::Opened(id));
+            sessions.apply(Incoming::Closed(id));
+        }
+        sessions.apply(Incoming::Opened(100));
+
+        assert_eq!(sessions.by_id.len(), GONE_KEPT + 1);
+        assert!(sessions.get(1).is_none(), "the oldest went");
+        assert!(sessions.get(total).is_some(), "the newest stayed");
+        assert!(sessions.get(100).is_some(), "a connected one always stays");
+
+        for request in 0..ANSWERS_KEPT as u64 + 10 {
+            sessions.apply(Incoming::Report(
+                100,
+                Box::new(Report::Answered {
+                    request,
+                    answer: Answer::Done,
+                }),
+            ));
+        }
+        let answers = &sessions.get(100).expect("there").answers;
+        assert_eq!(answers.len(), ANSWERS_KEPT);
+        assert!(!answers.contains_key(&0) && answers.contains_key(&(ANSWERS_KEPT as u64 + 9)));
     }
 
     #[test]

@@ -32,9 +32,13 @@ pub fn router() -> OpenApiRouter<crate::State> {
 struct Cut {
     /// Where to start, instead of every root.
     root: Option<u64>,
-    /// How many levels below that to include.
+    /// How many levels below that to include; 6 when left out, 64 at most.
     depth: Option<usize>,
 }
+
+/// The deepest a tree is cut: past any real XAML tree, and short of what a
+/// tree whose elements name each other as children could recurse into.
+const DEEPEST: usize = 64;
 
 /// The native tree, with whatever the inspector last answered.
 #[utoipa::path(
@@ -65,7 +69,7 @@ async fn native(
             ))
         })?;
 
-        Ok(Json(View::of(inspector, cut.root, cut.depth.unwrap_or(6))))
+        Ok(Json(View::of(inspector, cut.root, cut.depth.unwrap_or(6).min(DEEPEST))))
     })
 }
 

@@ -104,7 +104,8 @@ impl TraceLog {
     }
 
     /// Everything `cause` set off, however far down, depth first and each
-    /// with how far below `cause` it is.
+    /// with how far below `cause` it is. Each record once: a peer that names
+    /// a record its own ancestor does not send this round in circles.
     pub fn under(&self, cause: u64) -> Vec<(usize, &Span)> {
         let mut unseen: Vec<(usize, u64)> = self
             .children
@@ -115,8 +116,12 @@ impl TraceLog {
             .map(|child| (1, *child))
             .collect();
 
+        let mut seen = HashSet::from([cause]);
         let mut found = Vec::new();
         while let Some((depth, id)) = unseen.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
             let Some(span) = self.spans.get(&id) else {
                 continue;
             };
@@ -241,6 +246,20 @@ mod tests {
         let children: Vec<u64> = log.children(1).map(|s| s.id).collect();
         assert_eq!(children, [2, 4]);
         assert_eq!(log.children(3).count(), 0);
+    }
+
+    #[test]
+    fn records_that_name_each_other_as_parents_are_listed_once() {
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![span(1, Some(2)), span(2, Some(1)), span(3, Some(3))],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+
+        let under: Vec<u64> = log.under(1).iter().map(|(_, s)| s.id).collect();
+        assert_eq!(under, [2]);
+        assert!(log.under(3).is_empty(), "its own child is not under it");
     }
 
     #[test]
