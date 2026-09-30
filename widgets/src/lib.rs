@@ -8,7 +8,7 @@
 pub mod chart;
 pub mod table;
 
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 pub mod color;
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 pub mod resize;

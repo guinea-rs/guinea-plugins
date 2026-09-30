@@ -3,6 +3,7 @@ name = "guinea-devtools-model"
 description = "What guinea devtools make of what applications report, with no UI in it"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 license = "MIT"
 publish = false
 

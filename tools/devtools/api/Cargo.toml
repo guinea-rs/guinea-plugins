@@ -3,6 +3,7 @@ name = "guinea-devtools-api"
 description = "The devtools HTTP API: its routes, its OpenAPI document, and what reads both"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 license = "MIT"
 publish = false
 

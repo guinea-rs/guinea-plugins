@@ -5,6 +5,7 @@
 //! What the tree holds depends on the backend's inspector. For WinUI it is
 //! the live XAML tree, from a tap loaded into the process on demand.
 
+#[cfg(windows)]
 use std::time::{Duration, Instant};
 
 use guinea_core::feature::Dispatch;
@@ -16,6 +17,7 @@ use guinea_devtools_protocol::{Capability, Command};
 use crate::components;
 use crate::features::native::contracts::{NativeState, Picking, Select};
 
+#[cfg(windows)]
 const HIT_EVERY: Duration = Duration::from_millis(40);
 
 /// The pick in progress, what was last asked of the inspector, and how the
@@ -28,6 +30,7 @@ pub struct Inspecting {
     #[cfg(windows)]
     picker: Option<guinea_xaml_tap::pick::Picker>,
     hit_at: Option<(i32, i32)>,
+    #[cfg(windows)]
     hit_when: Option<Instant>,
     highlighted: Option<u64>,
     asked_for: Option<u64>,

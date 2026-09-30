@@ -48,14 +48,16 @@ fn command(editor: Editor, declared: &Declared) -> Option<Command> {
 }
 
 fn launch(program: &Path) -> Command {
-    let mut command = Command::new(program);
+    let command = Command::new(program);
 
     #[cfg(windows)]
-    {
+    let command = {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut command = command;
         command.creation_flags(CREATE_NO_WINDOW);
-    }
+        command
+    };
 
     command
 }

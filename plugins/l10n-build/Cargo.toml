@@ -3,6 +3,7 @@ name = "guinea-plugin-l10n-build"
 description = "Build-time half of guinea-plugin-l10n: turns Fluent .ftl files into typed accessors"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

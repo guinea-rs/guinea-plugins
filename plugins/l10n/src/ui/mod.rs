@@ -4,8 +4,8 @@
 //! and still choose - or combine - toolkits. Everything outside this module is
 //! backend-agnostic.
 
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod winui;
 
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 pub use winui::use_l10n;

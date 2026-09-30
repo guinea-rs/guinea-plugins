@@ -3,6 +3,7 @@ name = "guinea-xaml-tap"
 description = "Loaded into a WinUI 3 process by devtools: its live XAML tree, properties and hit tests"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 license = "MIT"
 publish = false
 

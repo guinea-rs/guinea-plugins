@@ -2,27 +2,27 @@ mod ring;
 
 pub use ring::RingSeries;
 
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod geometry;
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 pub use geometry::{bounds, nearest_point};
 
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod hover;
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod live;
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod model;
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod paint;
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod surface;
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod ui;
 
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 pub use model::{
     ChartGrid, HoverInfo, Interpolation, LineChartOptions, Live, Series, theme_border_color,
 };
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 pub use ui::Chart;

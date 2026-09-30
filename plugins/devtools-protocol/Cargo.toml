@@ -3,6 +3,7 @@ name = "guinea-devtools-protocol"
 description = "What a guinea application tells devtools, and how it gets there"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

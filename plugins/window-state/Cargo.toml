@@ -3,6 +3,7 @@ name = "guinea-plugin-window-state"
 description = "Remembers where an application's windows were, and opens them there again"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

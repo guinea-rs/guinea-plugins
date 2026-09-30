@@ -8,6 +8,8 @@
 //! any application would. Nothing in it knows about guinea: any WinUI 3
 //! process can be looked into.
 
+#![cfg(windows)]
+
 mod generated;
 mod highlight;
 pub mod inject;

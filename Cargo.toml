@@ -1,17 +1,18 @@
 [workspace.package]
-version = "0.13.0"
+version = "0.13.1"
 edition = "2024"
+rust-version = "1.95"
 license = "MIT"
-repository = "https://github.com/uniproc-dev/guinea-plugins"
+repository = "https://github.com/guinea-rs/guinea-plugins"
 
 [workspace]
 resolver = "2"
 members = ["plugins/*", "widgets"]
 
 [workspace.dependencies]
-guinea = "0.16.0"
-guinea-core = "0.16.0"
-guinea-mark = "0.16.0"
+guinea = { version = "0.16.1", default-features = false }
+guinea-core = "0.16.1"
+guinea-mark = "0.16.1"
 
 windows-reactor = { package = "windows-reactor-pre", version = "0.100.0" }
 windows-canvas = { package = "windows-canvas-pre", version = "0.100.0" }

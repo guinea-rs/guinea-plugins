@@ -2,7 +2,7 @@ mod flow;
 
 pub use flow::{SortState, TableDataBuilder, TableFlowState, TableNode};
 
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 mod ui;
-#[cfg(feature = "winui")]
+#[cfg(all(feature = "winui", windows))]
 pub use ui::*;

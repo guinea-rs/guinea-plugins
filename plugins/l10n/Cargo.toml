@@ -3,6 +3,7 @@ name = "guinea-plugin-l10n"
 description = "Localisation for guinea applications: process-wide strings, Fluent resolver, backend hooks"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
@@ -34,7 +35,7 @@ fluent = ["dep:fluent-templates", "dep:fluent-bundle", "dep:unic-langid"]
 
 # Backends. A backend is a feature rather than a target: one OS can host
 # several toolkits, and an application may want more than one at once.
-winui = ["dep:windows-reactor"]
+winui = ["dep:windows-reactor", "guinea/winui"]
 
 [lints]
 workspace = true

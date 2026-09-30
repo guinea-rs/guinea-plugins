@@ -3,6 +3,7 @@ name = "guinea-plugin-devtools"
 description = "Lets guinea devtools look inside a running application"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

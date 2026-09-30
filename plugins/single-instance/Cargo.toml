@@ -3,6 +3,7 @@ name = "guinea-plugin-single-instance"
 description = "Keeps one copy of an application running per user"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
