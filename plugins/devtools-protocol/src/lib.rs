@@ -12,9 +12,13 @@ pub mod key;
 pub mod native;
 pub mod wire;
 
+/// `schema/devtools.capnp`, compiled by `capnpc` and kept in the tree, so
+/// that building the protocol - here or in an application - needs no `capnp`
+/// binary. `tests/generated.rs` compiles the schema again and fails when the
+/// two differ.
 pub mod devtools_capnp {
     #![allow(clippy::all, missing_docs, unused)]
-    include!(concat!(env!("OUT_DIR"), "/devtools_capnp.rs"));
+    include!("generated/devtools_capnp.rs");
 }
 
 /// The protocol both ends name in the handshake: the id of

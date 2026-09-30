@@ -15,10 +15,8 @@ capnp-rpc = "0.27"
 ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.7.1" }
 getrandom = "0.4.2"
 
-[build-dependencies]
-capnpc = "0.27"
-
 [dev-dependencies]
+capnpc = "0.27"
 tempfile = "3.27.0"
 
 [lints]
