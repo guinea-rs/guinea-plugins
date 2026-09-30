@@ -16,6 +16,11 @@
 //!
 //! Another program can ask [`running`] whether the application is up - to
 //! start it only when it is not.
+//!
+//! Install it before every other plugin. A second copy leaves from inside
+//! this plugin's `build`, with the process's exit: what plugins installed
+//! earlier have done by then - a store opened, migrations run - is done, and
+//! their cleanup does not run.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
@@ -42,14 +47,15 @@ pub fn running(identifier: &str) -> bool {
     path(identifier).is_ok_and(|path| matches!(try_claim(&path), Ok(None)))
 }
 
-/// Where the lock for `identifier` lives.
+/// Where the lock for `identifier` lives: in the user's profile on Windows,
+/// under `~/.cache` elsewhere. Not the runtime directory, which a session
+/// has and `su`, cron or a container may not - two copies started with and
+/// without it would each find their own lock free.
 pub fn path(identifier: &str) -> io::Result<PathBuf> {
     let base = if cfg!(windows) {
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
     } else {
-        std::env::var_os("XDG_RUNTIME_DIR")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache"))
     };
 
     let file = format!("{}.lock", sanitized(identifier));
@@ -85,16 +91,24 @@ fn claim_at(path: PathBuf) -> io::Result<Option<Instance>> {
     Ok(None)
 }
 
+/// Opens the lock file, making it and its directory for the owner alone: a
+/// lock anyone else could open, anyone else could hold.
 fn try_claim(path: &PathBuf) -> io::Result<Option<File>> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        let mut directory = std::fs::DirBuilder::new();
+        directory.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut directory, 0o700);
+        directory.create(parent)?;
+        #[cfg(unix)]
+        std::fs::set_permissions(parent, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
     }
 
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(path)?;
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(false).write(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let file = options.open(path)?;
 
     match file.try_lock() {
         Ok(()) => Ok(Some(file)),
