@@ -141,12 +141,17 @@ pub fn attach_native_in(sessions: &Sessions, id: u64) -> Result<(), String> {
         _ => return Err(format!("cannot tell how far process {pid} is trusted")),
     }
 
-    let built = std::env::current_exe()
-        .map_err(|error| error.to_string())?
-        .with_file_name(guinea_xaml_tap::DLL);
-    if !built.exists() {
-        return Err(format!("no tap at {}", built.display()));
-    }
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let beside = exe.with_file_name(guinea_xaml_tap::DLL);
+    let in_deps = exe.with_file_name("deps").join(guinea_xaml_tap::DLL);
+    let Some(built) = [&beside, &in_deps].into_iter().find(|path| path.exists()) else {
+        return Err(format!(
+            "no tap at {} - build it with `cargo build --workspace` in tools/devtools and keep \
+             {} beside the executable",
+            beside.display(),
+            guinea_xaml_tap::DLL
+        ));
+    };
 
     let temp = std::env::temp_dir();
     let copies = |entry: &std::fs::DirEntry| {
@@ -161,7 +166,7 @@ pub fn attach_native_in(sessions: &Sessions, id: u64) -> Result<(), String> {
     let mut unique = [0u8; 8];
     getrandom::fill(&mut unique).map_err(|error| format!("no name for the tap's copy: {error}"))?;
     let loaded = temp.join(format!("{TAP_COPY}{pid}-{:016x}.dll", u64::from_le_bytes(unique)));
-    std::fs::copy(&built, &loaded)
+    std::fs::copy(built, &loaded)
         .map_err(|error| format!("copying the tap to {}: {error}", loaded.display()))?;
 
     guinea_xaml_tap::inject::inject(pid, &loaded)

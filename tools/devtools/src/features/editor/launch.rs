@@ -76,10 +76,13 @@ fn configured(template: &str, declared: &Declared) -> Option<Command> {
     Some(command)
 }
 
+/// What the system opens the file with. On Windows through Explorer, given
+/// the path as one argument: `cmd /C start` would read `&`, `|` or `^` in it
+/// as its own.
 fn system(declared: &Declared) -> Command {
     if cfg!(windows) {
-        let mut command = launch(Path::new("cmd"));
-        command.args(["/C", "start", "", &declared.file]);
+        let mut command = launch(Path::new("explorer"));
+        command.arg(declared.file.replace('/', "\\"));
         command
     } else if cfg!(target_os = "macos") {
         let mut command = Command::new("open");
@@ -110,5 +113,22 @@ mod tests {
 
         assert_eq!(command.get_program(), "rustrover");
         assert_eq!(args, ["--line", "12", "C:/src/actor.rs"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_system_is_handed_the_path_whole() {
+        let declared = Declared {
+            file: "C:/work/R&D/a^b.rs".into(),
+            line: 1,
+            column: 1,
+            found: true,
+        };
+
+        let command = system(&declared);
+        let args: Vec<_> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+
+        assert_eq!(command.get_program(), "explorer");
+        assert_eq!(args, [r"C:\work\R&D\a^b.rs"]);
     }
 }
