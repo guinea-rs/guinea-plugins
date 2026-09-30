@@ -16,7 +16,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use guinea_devtools_model::sessions::Incoming;
 use guinea_devtools_protocol::devtools_capnp::peer;
 use guinea_devtools_protocol::{Command, Report, key, wire};
-use ogurpchik::rpc::accept_session;
+use ogurpchik::rpc::SessionAcceptor;
 
 /// Where commands for the applications go in.
 pub type Commands = UnboundedSender<(u64, Command)>;
@@ -109,33 +109,30 @@ async fn listen(out: Sender<Incoming>, queued: UnboundedReceiver<(u64, Command)>
         }
     };
 
-    let mode = key::handshake(secret);
+    let mut acceptor = SessionAcceptor::new(
+        &listener,
+        key::handshake(secret),
+        guinea_devtools_protocol::PROTOCOL,
+    );
     let _ = out.send(Incoming::Listening(endpoint.to_string()));
 
     let mut next = 1;
 
     loop {
         let id = next;
-        next += 1;
 
         let session = Session {
             id,
             out: out.clone(),
         };
-        let accepted = accept_session::<peer::Client, _>(
-            &listener,
-            &mode,
-            guinea_devtools_protocol::PROTOCOL,
-            session,
-        )
-        .await;
-        let session = match accepted {
+        let session = match acceptor.next::<peer::Client, _>(session).await {
             Ok(session) => session,
             Err(report) => {
-                tracing::warn!(?report, "a connection was turned away");
-                continue;
+                let _ = out.send(Incoming::Failed(format!("{endpoint}: {report:?}")));
+                return;
             }
         };
+        next += 1;
 
         if out.send(Incoming::Opened(id)).is_err() {
             return;
