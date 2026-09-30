@@ -2,6 +2,8 @@
 //! and the HTTP API both read.
 
 mod http;
+#[cfg(windows)]
+mod integrity;
 mod listen;
 
 use std::sync::mpsc::{Receiver, channel};
@@ -127,6 +129,18 @@ pub fn attach_native_in(sessions: &Sessions, id: u64) -> Result<(), String> {
     }
     let pid = session.info.pid;
 
+    match (integrity::own(), integrity::of(pid)) {
+        (Some(ours), Some(theirs)) if ours <= theirs => {}
+        (Some(_), Some(_)) => {
+            return Err(
+                "devtools run elevated and the application does not: attaching would load its \
+                 WinUI runtime into devtools. Start devtools without elevation"
+                    .into(),
+            );
+        }
+        _ => return Err(format!("cannot tell how far process {pid} is trusted")),
+    }
+
     let built = std::env::current_exe()
         .map_err(|error| error.to_string())?
         .with_file_name(guinea_xaml_tap::DLL);
@@ -134,9 +148,26 @@ pub fn attach_native_in(sessions: &Sessions, id: u64) -> Result<(), String> {
         return Err(format!("no tap at {}", built.display()));
     }
 
-    let loaded = std::env::temp_dir().join(format!("guinea-xaml-tap-{pid}.dll"));
+    let temp = std::env::temp_dir();
+    let copies = |entry: &std::fs::DirEntry| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        name.starts_with(TAP_COPY) && name.ends_with(".dll")
+    };
+    for stale in std::fs::read_dir(&temp).into_iter().flatten().flatten().filter(copies) {
+        let _ = std::fs::remove_file(stale.path());
+    }
+
+    let mut unique = [0u8; 8];
+    getrandom::fill(&mut unique).map_err(|error| format!("no name for the tap's copy: {error}"))?;
+    let loaded = temp.join(format!("{TAP_COPY}{pid}-{:016x}.dll", u64::from_le_bytes(unique)));
     std::fs::copy(&built, &loaded)
         .map_err(|error| format!("copying the tap to {}: {error}", loaded.display()))?;
 
     guinea_xaml_tap::inject::inject(pid, &loaded)
 }
+
+/// What every copy of the tap in the temporary directory is named from. A
+/// copy still loaded somewhere cannot be removed, and is left alone.
+#[cfg(windows)]
+const TAP_COPY: &str = "guinea-xaml-tap-";
