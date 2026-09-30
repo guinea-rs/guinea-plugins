@@ -2,12 +2,14 @@
 //!
 //! A session's remote end lives here too: capnp clients belong to the runtime
 //! that made them, so a command from anywhere else is queued to this thread
-//! and sent from it.
+//! and sent from it - each session from a queue of its own, so one that stops
+//! answering holds up nobody else.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
+use std::time::Duration;
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
@@ -19,7 +21,11 @@ use ogurpchik::rpc::accept_session;
 /// Where commands for the applications go in.
 pub type Commands = UnboundedSender<(u64, Command)>;
 
-type Remotes = Rc<RefCell<HashMap<u64, peer::Client>>>;
+/// Each connected session's own queue.
+type Queues = Rc<RefCell<HashMap<u64, UnboundedSender<Command>>>>;
+
+/// How long a session has to take a command before it is given up on.
+const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn spawn(out: Sender<Incoming>) -> Commands {
     let (commands, queued) = unbounded();
@@ -57,23 +63,34 @@ impl peer::Server for Session {
     }
 }
 
-/// Sends each queued command to its session, one at a time and in order.
-async fn deliver(remotes: Remotes, mut queued: UnboundedReceiver<(u64, Command)>) {
+/// Hands each queued command to its session's queue.
+async fn deliver(queues: Queues, mut queued: UnboundedReceiver<(u64, Command)>) {
     while let Some((id, command)) = queued.next().await {
-        let Some(remote) = remotes.borrow().get(&id).cloned() else {
+        let Some(queue) = queues.borrow().get(&id).cloned() else {
             tracing::debug!(id, ?command, "no such session to send to");
             continue;
         };
 
-        if let Err(error) = wire::send(&remote, &command).await {
-            tracing::debug!(id, ?error, "a command did not reach its session");
+        if queue.unbounded_send(command).is_err() {
+            tracing::debug!(id, "the session closed before its command went");
+        }
+    }
+}
+
+/// Sends one session its commands, one at a time and in order.
+async fn send_each(id: u64, remote: peer::Client, mut commands: UnboundedReceiver<Command>) {
+    while let Some(command) = commands.next().await {
+        match compio::time::timeout(SEND_TIMEOUT, wire::send(&remote, &command)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => tracing::debug!(id, ?error, "a command did not reach its session"),
+            Err(_) => tracing::warn!(id, ?command, "a session did not take a command in time"),
         }
     }
 }
 
 async fn listen(out: Sender<Incoming>, queued: UnboundedReceiver<(u64, Command)>) {
-    let remotes = Remotes::default();
-    compio::runtime::spawn(deliver(remotes.clone(), queued)).detach();
+    let queues = Queues::default();
+    compio::runtime::spawn(deliver(queues.clone(), queued)).detach();
 
     let endpoint = guinea_devtools_protocol::endpoint();
     let listener = match endpoint.listen().await {
@@ -124,16 +141,18 @@ async fn listen(out: Sender<Incoming>, queued: UnboundedReceiver<(u64, Command)>
             return;
         }
 
-        remotes.borrow_mut().insert(id, session.remote().clone());
+        let (queue, commands) = unbounded();
+        queues.borrow_mut().insert(id, queue);
+        compio::runtime::spawn(send_each(id, session.remote().clone(), commands)).detach();
 
         let out = out.clone();
-        let remotes = remotes.clone();
+        let queues = queues.clone();
         compio::runtime::spawn(async move {
             if let Err(report) = session.wait().await {
                 tracing::debug!(id, ?report, "session ended");
             }
 
-            remotes.borrow_mut().remove(&id);
+            queues.borrow_mut().remove(&id);
             let _ = out.send(Incoming::Closed(id));
         })
         .detach();
