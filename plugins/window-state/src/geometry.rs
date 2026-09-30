@@ -3,6 +3,10 @@
 use guinea::app::windows::{Geometry, Position, Size};
 use serde::{Deserialize, Serialize};
 
+/// Farther than any desktop reaches, in either direction: Windows keeps
+/// coordinates within 16 bits.
+const LARGEST: f64 = 32_767.0;
+
 /// One window's remembered state.
 ///
 /// Its own type rather than [`Geometry`] itself: what goes in a file is a
@@ -42,10 +46,23 @@ impl Saved {
         (self != Self::default()).then_some(self)
     }
 
+    /// What to open the window with. A size or a position no screen could
+    /// show - not finite, not positive, or past any desktop - is left out,
+    /// and the shell places the window as it would the first time.
     pub(crate) fn geometry(self) -> Geometry {
+        let sensible = |value: f64| value.is_finite() && value.abs() <= LARGEST;
+
         Geometry {
-            size: self.size.map(|(width, height)| Size { width, height }),
-            position: self.position.map(|(x, y)| Position { x, y }),
+            size: self
+                .size
+                .filter(|&(width, height)| {
+                    sensible(width) && sensible(height) && width >= 1.0 && height >= 1.0
+                })
+                .map(|(width, height)| Size { width, height }),
+            position: self
+                .position
+                .filter(|&(x, y)| sensible(x) && sensible(y))
+                .map(|(x, y)| Position { x, y }),
             maximized: self.maximized,
             fullscreen: self.fullscreen,
             minimized: false,
@@ -124,6 +141,33 @@ mod tests {
     #[test]
     fn a_window_that_says_nothing_is_not_written_down() {
         assert_eq!(Saved::default().update(Geometry::default()), None);
+    }
+
+    #[test]
+    fn a_size_or_place_no_screen_could_show_is_not_restored() {
+        let written = |size, position| Saved {
+            size: Some(size),
+            position: Some(position),
+            ..Saved::default()
+        };
+
+        for size in [(0.0, 600.0), (-800.0, 600.0), (f64::NAN, 600.0), (800.0, 1e9)] {
+            let geometry = written(size, (100.0, 50.0)).geometry();
+            assert_eq!(geometry.size, None, "{size:?}");
+            assert!(geometry.position.is_some(), "the place stands on its own");
+        }
+
+        for position in [(f64::INFINITY, 0.0), (0.0, -1e6)] {
+            let geometry = written((800.0, 600.0), position).geometry();
+            assert_eq!(geometry.position, None, "{position:?}");
+            assert!(geometry.size.is_some(), "the size stands on its own");
+        }
+
+        let fine = written((800.0, 600.0), (-1_920.0, 0.0)).geometry();
+        assert!(
+            fine.size.is_some() && fine.position.is_some(),
+            "a monitor left of the main one is fine"
+        );
     }
 
     #[test]
