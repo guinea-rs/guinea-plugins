@@ -70,7 +70,7 @@ assert!(app.shutdown().is_empty());
 Each plugin is its own crate under `plugins/`, versioned and released
 independently.
 
-guinea and the WinUI stack come from crates.io: `guinea` 0.16, and the
+guinea and the WinUI stack come from crates.io: `guinea` 0.18, and the
 windows-rs reactor and canvas guinea is written against as
 `windows-reactor-pre` and `windows-canvas-pre`, under their usual lib names.
 An application must take guinea and the `-pre` crates from the same source as
