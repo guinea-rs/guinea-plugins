@@ -1,7 +1,8 @@
 use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
 use fluent_syntax::parser::parse;
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use syn::Path as SynPath;
@@ -143,6 +144,91 @@ fn push_unique(out: &mut Vec<String>, name: &str) {
     }
 }
 
+/// Rust's keywords, strict and reserved, through edition 2024: a name among
+/// them is written raw.
+const KEYWORDS: &[&str] = &[
+    "abstract", "as", "async", "await", "become", "box", "break", "const", "continue", "do", "dyn",
+    "else", "enum", "extern", "false", "final", "fn", "for", "gen", "if", "impl", "in", "let",
+    "loop", "macro", "match", "mod", "move", "mut", "override", "priv", "pub", "ref", "return",
+    "static", "struct", "trait", "true", "try", "type", "typeof", "unsafe", "unsized", "use",
+    "virtual", "where", "while", "yield",
+];
+
+/// Keywords that cannot be written raw either.
+const UNRAWABLE: &[&str] = &["self", "Self", "super", "crate"];
+
+/// What `fluent_loader!` already defines on the resolver, and the
+/// `Localization` methods an accessor would shadow.
+const RESOLVER_METHODS: &[&str] = &[
+    "new",
+    "language",
+    "current",
+    "get_raw",
+    "for_tag",
+    "tag",
+    "keys",
+    "languages",
+    "value",
+];
+
+/// What an accessor's own body calls its arguments.
+const ACCESSOR_LOCALS: &[&str] = &["args"];
+
+/// `name` as a Rust identifier: `-` and `.` become `_`, a keyword is written
+/// raw, and a name that is taken, or cannot be raw, gets a `_` after it.
+fn ident_for(name: &str, taken: &[&str]) -> Ident {
+    let snake = name.replace(['-', '.'], "_");
+
+    if taken.contains(&snake.as_str()) || UNRAWABLE.contains(&snake.as_str()) {
+        format_ident!("{snake}_")
+    } else if KEYWORDS.contains(&snake.as_str()) {
+        Ident::new_raw(&snake, Span::call_site())
+    } else {
+        Ident::new(&snake, Span::call_site())
+    }
+}
+
+/// Where `message` is written, for an error to point at.
+fn written_at(message: &L10nMessage) -> String {
+    let file = if message.file.is_empty() {
+        "the reference locale"
+    } else {
+        message.file.as_str()
+    };
+    format!("{file}:{}", message.line)
+}
+
+/// Panics, naming both, when two messages come out as one method or two
+/// variables of a message as one argument.
+fn refuse_collisions(messages: &[L10nMessage]) {
+    let mut methods: HashMap<String, &L10nMessage> = HashMap::new();
+
+    for message in messages {
+        let method = ident_for(&message.id, RESOLVER_METHODS).to_string();
+        if let Some(first) = methods.insert(method.clone(), message) {
+            panic!(
+                "l10n: `{}` ({}) and `{}` ({}) would both be the method `{method}`; rename one",
+                first.id,
+                written_at(first),
+                message.id,
+                written_at(message),
+            );
+        }
+
+        let mut arguments: HashMap<String, &str> = HashMap::new();
+        for variable in &message.variables {
+            let argument = ident_for(variable, ACCESSOR_LOCALS).to_string();
+            if let Some(first) = arguments.insert(argument.clone(), variable) {
+                panic!(
+                    "l10n: `{}` ({}) has `${first}` and `${variable}`, which would both be the argument `{argument}`; rename one",
+                    message.id,
+                    written_at(message),
+                );
+            }
+        }
+    }
+}
+
 pub fn generate_l10n_accessors(
     messages: &[L10nMessage],
     resolver_path: &str,
@@ -156,12 +242,14 @@ pub fn generate_l10n_accessors(
     let fluent_value_path: SynPath = syn::parse_str(fluent_value_path)
         .unwrap_or_else(|e| panic!("invalid fluent_value_path {fluent_value_path:?}: {e}"));
 
+    refuse_collisions(messages);
+
     let methods = messages.iter().map(|msg| {
-        let method_name = format_ident!("{}", msg.id.replace(['-', '.'], "_"));
+        let method_name = ident_for(&msg.id, RESOLVER_METHODS);
         let id = &msg.id;
 
         let params = msg.variables.iter().map(|v| {
-            let param = format_ident!("{}", v);
+            let param = ident_for(v, ACCESSOR_LOCALS);
             quote! { #param: impl Into<#fluent_value_path<'static>> }
         });
 
@@ -173,7 +261,7 @@ pub fn generate_l10n_accessors(
             }
         } else {
             let inserts = msg.variables.iter().map(|v| {
-                let param = format_ident!("{}", v);
+                let param = ident_for(v, ACCESSOR_LOCALS);
                 quote! { args.set(#v, #param.into()); }
             });
             quote! {
@@ -546,6 +634,60 @@ mod tests {
             generated.find("count").unwrap() < generated.find("sender").unwrap(),
             "params must appear in first-seen order: {generated}"
         );
+    }
+
+    fn accessors(messages: &[L10nMessage]) -> String {
+        generate_l10n_accessors(
+            messages,
+            "crate::l10n::L10n",
+            "fluent_bundle::FluentArgs",
+            "fluent_bundle::FluentValue",
+        )
+        .to_string()
+    }
+
+    #[test]
+    fn names_rust_will_not_take_are_raw_or_moved_aside() {
+        let generated = accessors(&[
+            message("continue", &[], 1, "Continue"),
+            message("language", &[], 2, "Language"),
+            message("self", &[], 3, "Me"),
+            message("greeting", &["user-name", "type", "args"], 4, "Hi"),
+        ]);
+
+        assert!(generated.contains("fn r#continue (& self)"), "{generated}");
+        assert!(generated.contains("fn language_ (& self)"), "{generated}");
+        assert!(generated.contains("fn self_ (& self)"), "{generated}");
+        assert!(generated.contains("user_name : impl Into"), "{generated}");
+        assert!(generated.contains("r#type : impl Into"), "{generated}");
+        assert!(generated.contains("args_ : impl Into"), "{generated}");
+        assert!(
+            generated.contains("args . set (\"user-name\" , user_name . into ())"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("args . set (\"args\" , args_ . into ())"),
+            "{generated}"
+        );
+        syn::parse_file(&generated).expect("the accessors parse as Rust");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "`sign-in` (main.ftl:1) and `sign_in` (main.ftl:2) would both be the method `sign_in`"
+    )]
+    fn two_messages_that_would_be_one_method_are_refused() {
+        let mut first = message("sign-in", &[], 1, "Sign in");
+        let mut second = message("sign_in", &[], 2, "Sign in");
+        first.file = "main.ftl".into();
+        second.file = "main.ftl".into();
+        accessors(&[first, second]);
+    }
+
+    #[test]
+    #[should_panic(expected = "`$user-name` and `$user_name`")]
+    fn two_variables_that_would_be_one_argument_are_refused() {
+        accessors(&[message("hi", &["user-name", "user_name"], 1, "Hi")]);
     }
 
     #[test]
