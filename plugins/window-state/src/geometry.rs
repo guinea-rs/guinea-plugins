@@ -15,8 +15,11 @@ const LARGEST: f64 = 32_767.0;
 #[derive(Serialize, Deserialize, Clone, Copy, Default, PartialEq, Debug)]
 pub(crate) struct Saved {
     /// The size the window has when it is neither maximised nor fullscreen -
-    /// the one worth restoring, because the others are a flag away.
+    /// the one worth restoring, because the others are a flag away. Logical
+    /// pixels.
     size: Option<(f64, f64)>,
+    /// The desktop's physical pixels; the shell fits it to a monitor that is
+    /// still there.
     position: Option<(f64, f64)>,
     maximized: bool,
     fullscreen: bool,
