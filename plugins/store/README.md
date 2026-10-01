@@ -32,6 +32,7 @@ View code that already talks to amethystate directly keeps working -
 |---|---|
 | `StorePlugin::for_app(app, config)` | platform configuration directory |
 | `StorePlugin::at(path)` | explicit path |
+| `StorePlugin::in_memory()` | no file: gone at shutdown, for tests |
 | `StorePlugin::with(\|\| ..)` | a `StoreBuilder` you open yourself |
 
 `migrations(|m| ..)` adds steps written by hand, which run with the

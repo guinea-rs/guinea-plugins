@@ -37,6 +37,7 @@ enum Open {
         layout: Option<Layout>,
     },
     Path(PathBuf),
+    Memory,
     Custom(Box<dyn FnOnce() -> anyhow::Result<StoreBuilder> + Send>),
 }
 
@@ -65,6 +66,13 @@ impl StorePlugin {
     /// Stores at an explicit path.
     pub fn at(path: impl Into<PathBuf>) -> Self {
         Self::with_open(Open::Path(path.into()))
+    }
+
+    /// A store with no file: what is written lives until the application
+    /// shuts down. For tests, and for an application that keeps nothing.
+    /// [`backend`](Self::backend) does not apply to it.
+    pub fn in_memory() -> Self {
+        Self::with_open(Open::Memory)
     }
 
     /// Builds the store from a closure. Runs on the UI thread during
@@ -126,6 +134,7 @@ impl Plugin for StorePlugin {
     const ID: &'static str = "guinea.store";
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+        let in_memory = matches!(self.open, Open::Memory);
         let mut builder = match self.open {
             Open::App {
                 app,
@@ -137,9 +146,10 @@ impl Plugin for StorePlugin {
             })
             .map_err(|error| anyhow::anyhow!("opening the store: {error:?}"))?,
             Open::Path(path) => StoreBuilder::new(path),
+            Open::Memory => StoreBuilder::in_memory(),
             Open::Custom(f) => f()?,
         };
-        if let Some(backend) = self.backend {
+        if let Some(backend) = self.backend.filter(|_| !in_memory) {
             builder = builder.backend(backend);
         }
         if let Some(configure) = self.configure {
