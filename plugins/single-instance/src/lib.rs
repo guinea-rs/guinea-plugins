@@ -10,17 +10,18 @@
 //!
 //! The first copy holds a lock on a file named after the application's
 //! identifier, in the user's own profile, for as long as it runs. A copy that
-//! finds the lock taken leaves before it opens a window. The operating system
-//! drops the lock when the holder exits, however it exits, so a crash leaves
-//! nothing to clean up.
+//! finds the lock taken stops before it opens a window: this plugin's `build`
+//! returns [`Stop`](guinea::app::Stop), the plugins installed before it are
+//! cleaned up again, and `run` returns `Ok`. The operating system drops the
+//! lock when the holder exits, however it exits, so a crash leaves nothing to
+//! clean up.
 //!
 //! Another program can ask [`running`] whether the application is up - to
 //! start it only when it is not.
 //!
-//! Install it before every other plugin. A second copy leaves from inside
-//! this plugin's `build`, with the process's exit: what plugins installed
-//! earlier have done by then - a store opened, migrations run - is done, and
-//! their cleanup does not run.
+//! Where it sits among the plugins is up to the application. What the ones
+//! before it do that their cleanup does not undo - a migration run - a second
+//! copy does too.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
@@ -117,7 +118,7 @@ fn try_claim(path: &PathBuf) -> io::Result<Option<File>> {
     }
 }
 
-/// Leaves when another copy of the application is running.
+/// Stops the application when another copy of it is running.
 ///
 /// The identifier is the application's [`AppMeta`] one unless
 /// [`named`](Self::named) says otherwise.
@@ -152,7 +153,7 @@ impl Plugin for SingleInstancePlugin {
 
         let Some(instance) = claim(&identifier)? else {
             tracing::info!(%identifier, "another copy is already running");
-            std::process::exit(0);
+            return Err(guinea::app::Stop.into());
         };
 
         app.on_cleanup(move |_| {
@@ -180,6 +181,39 @@ mod tests {
 
         drop(first);
         assert!(claim_at(path).expect("claim").is_some());
+    }
+
+    struct Earlier(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+    impl Plugin for Earlier {
+        const ID: &'static str = "test.earlier";
+
+        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
+            app.on_cleanup(move |_| {
+                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            });
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_second_copy_stops_and_what_came_before_it_is_cleaned_up() {
+        let identifier = format!("guinea-plugins.single-instance-test.{}", std::process::id());
+        let first = claim(&identifier).expect("claim").expect("the first copy");
+
+        let cleaned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let installed = guinea::app::GuineaApp::new()
+            .plugin(Earlier(cleaned.clone()))
+            .plugin(SingleInstancePlugin::new().named(identifier.as_str()))
+            .install(guinea::core::actor::UiThreadToken::dangerously_create_token_unchecked());
+
+        let error = installed.err().expect("the second copy stops");
+        assert!(error.is::<guinea::app::Stop>());
+        assert!(cleaned.load(std::sync::atomic::Ordering::SeqCst));
+
+        drop(first);
+        let _ = std::fs::remove_file(path(&identifier).expect("a path"));
     }
 
     #[test]
