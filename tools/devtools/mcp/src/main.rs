@@ -62,10 +62,13 @@ impl Default for Devtools {
     fn default() -> Self {
         Self {
             found: RefCell::new(None),
-            agent: ureq::AgentBuilder::new()
-                .timeout_connect(CONNECT)
-                .timeout(ANSWER)
-                .build(),
+            agent: ureq::Agent::new_with_config(
+                ureq::Agent::config_builder()
+                    .timeout_connect(Some(CONNECT))
+                    .timeout_global(Some(ANSWER))
+                    .http_status_as_error(false)
+                    .build(),
+            ),
         }
     }
 }
@@ -127,29 +130,38 @@ impl Devtools {
         };
         let url = format!("{}{path}", found.url);
 
-        let request = match tool.method {
-            "POST" => self.agent.post(&url),
-            "PUT" => self.agent.put(&url),
-            "DELETE" => self.agent.delete(&url),
-            _ => self.agent.get(&url),
+        let bearer = found.bearer.as_str();
+        let sent = match tool.method {
+            "POST" => self.agent.post(&url).header("Authorization", bearer).send_empty(),
+            "PUT" => self.agent.put(&url).header("Authorization", bearer).send_empty(),
+            "DELETE" => self.agent.delete(&url).header("Authorization", bearer).call(),
+            _ => self.agent.get(&url).header("Authorization", bearer).call(),
         };
 
-        match request.set("Authorization", &found.bearer).call() {
-            Ok(response) => Tried::Answered(match response.into_string() {
+        let mut response = match sent {
+            Ok(response) => response,
+            Err(error) => {
+                return Tried::Stale(said(&format!("devtools are not answering: {error}"), true));
+            }
+        };
+        let status = response.status().as_u16();
+        let body = response.body_mut().read_to_string();
+
+        if status < 400 {
+            return Tried::Answered(match body {
                 Ok(body) => said(&body, false),
                 Err(error) => said(&format!("devtools answered unreadably: {error}"), true),
-            }),
-            Err(ureq::Error::Status(status, response)) => {
-                let body = response.into_string().unwrap_or_default();
-                let refused = said(&format!("devtools refused with {status}: {body}"), true);
+            });
+        }
 
-                if status == 401 {
-                    Tried::Stale(refused)
-                } else {
-                    Tried::Answered(refused)
-                }
-            }
-            Err(error) => Tried::Stale(said(&format!("devtools are not answering: {error}"), true)),
+        let refused = said(
+            &format!("devtools refused with {status}: {}", body.unwrap_or_default()),
+            true,
+        );
+        if status == 401 {
+            Tried::Stale(refused)
+        } else {
+            Tried::Answered(refused)
         }
     }
 }

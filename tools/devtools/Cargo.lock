@@ -978,26 +978,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b84ee96a86948d04388f3a0b8c36b9f0a6b40b3528ac0d65737e53632fb37fe"
 dependencies = [
  "compio-buf",
- "compio-driver 0.11.4",
+ "compio-driver",
  "compio-fs",
- "compio-io 0.9.1",
- "compio-log 0.1.0",
+ "compio-io",
+ "compio-log",
  "compio-macros",
  "compio-net",
  "compio-process",
- "compio-runtime 0.11.0",
-]
-
-[[package]]
-name = "compio"
-version = "0.19.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c19d81c636b0f47aa50041d25b02d9d8289a3319727a8051209f71bea10e89d6"
-dependencies = [
- "compio-buf",
- "compio-driver 0.12.5",
- "compio-log 0.2.1",
- "compio-runtime 0.12.6",
+ "compio-runtime",
 ]
 
 [[package]]
@@ -1020,7 +1008,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "compio-buf",
- "compio-log 0.1.0",
+ "compio-log",
  "crossbeam-queue",
  "flume",
  "futures-util",
@@ -1035,50 +1023,8 @@ dependencies = [
  "smallvec",
  "socket2",
  "synchrony",
- "thin-cell 0.1.2",
+ "thin-cell",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "compio-driver"
-version = "0.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "293e8086a35f52b5002402937cf4e69b5e414917e511c29c5e7ba2cebe6ef7b3"
-dependencies = [
- "bitflags 2.13.2",
- "cfg_aliases",
- "compio-buf",
- "compio-log 0.2.1",
- "compio-send-wrapper",
- "crossbeam-queue",
- "flume",
- "futures-util",
- "io-uring",
- "libc",
- "linux-raw-sys 0.12.1",
- "mod_use",
- "once_cell",
- "pastey",
- "polling",
- "rustix 1.1.5",
- "smallvec",
- "socket2",
- "synchrony",
- "thin-cell 0.2.1",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "compio-executor"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94961c5908b02bbb082e046968b8ee3d18995845a5c261376f0b0b5c95c87c2b"
-dependencies = [
- "compio-log 0.2.1",
- "compio-send-wrapper",
- "crossbeam-queue",
- "loom",
- "slotmap",
 ]
 
 [[package]]
@@ -1090,9 +1036,9 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "compio-buf",
- "compio-driver 0.11.4",
- "compio-io 0.9.1",
- "compio-runtime 0.11.0",
+ "compio-driver",
+ "compio-io",
+ "compio-runtime",
  "libc",
  "os_pipe",
  "pin-project-lite",
@@ -1113,32 +1059,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "compio-io"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a354e085c4046dd8d2d9d514cf8c15c615eb8adf6c5f41dbf7899420457e9b"
-dependencies = [
- "compio-buf",
- "futures-util",
- "pastey",
- "pin-project-lite",
- "synchrony",
-]
-
-[[package]]
 name = "compio-log"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc4e560213c1996b618da369b7c9109564b41af9033802ae534465c4ee4e132f"
-dependencies = [
- "tracing",
-]
-
-[[package]]
-name = "compio-log"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dd867f29de59e4eff577dfeee3744cb0a264249f3faaf11945e8be79a3c3c62"
 dependencies = [
  "tracing",
 ]
@@ -1163,9 +1087,9 @@ checksum = "becd7d40522c885113752a3640cba9f9d347f205b646bb3f8ff3967173a228f2"
 dependencies = [
  "cfg-if",
  "compio-buf",
- "compio-driver 0.11.4",
- "compio-io 0.9.1",
- "compio-runtime 0.11.0",
+ "compio-driver",
+ "compio-io",
+ "compio-runtime",
  "either",
  "libc",
  "once_cell",
@@ -1182,9 +1106,9 @@ checksum = "9c50eeca88d4af096c9986d71c52038a234c9b4d9ee22b4724a9680e7b7fd1d0"
 dependencies = [
  "cfg-if",
  "compio-buf",
- "compio-driver 0.11.4",
- "compio-io 0.9.1",
- "compio-runtime 0.11.0",
+ "compio-driver",
+ "compio-io",
+ "compio-runtime",
  "futures-util",
  "windows-sys 0.61.2",
 ]
@@ -1198,8 +1122,8 @@ dependencies = [
  "async-task",
  "cfg-if",
  "compio-buf",
- "compio-driver 0.11.4",
- "compio-log 0.1.0",
+ "compio-driver",
+ "compio-log",
  "core_affinity",
  "crossbeam-queue",
  "futures-util",
@@ -1210,36 +1134,6 @@ dependencies = [
  "slab",
  "socket2",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "compio-runtime"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20406f0a4e69cdd0c0a58c4a7cf51bcc965a543fb5da2fe931e970354e291ded"
-dependencies = [
- "compio-buf",
- "compio-driver 0.12.5",
- "compio-executor",
- "compio-io 0.10.1",
- "compio-log 0.2.1",
- "compio-send-wrapper",
- "futures-util",
- "libc",
- "pin-project-lite",
- "scoped-tls",
- "synchrony",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "compio-send-wrapper"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa4a63ae089032966c7eb5411267dd14524fb249e6833818b2d6d9d9548bf504"
-dependencies = [
- "cfg-if",
- "loom",
 ]
 
 [[package]]
@@ -2532,7 +2426,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "capnp",
- "compio 0.19.2",
+ "compio",
  "futures",
  "getrandom 0.4.3",
  "guinea-devtools-api",
@@ -2698,7 +2592,7 @@ name = "guinea-xaml-tap"
 version = "0.1.0"
 dependencies = [
  "capnp",
- "compio 0.19.2",
+ "compio",
  "guinea-devtools-protocol",
  "ogurpchik",
  "tracing",
@@ -3298,12 +3192,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
-name = "local-event"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23ab4b951e96ffb2da6e25cec3d038d0e2930f4c406d1ec194b5120ae41ec6d3"
-
-[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3328,8 +3216,6 @@ dependencies = [
  "generator",
  "pin-utils",
  "scoped-tls",
- "serde",
- "serde_json",
  "tracing",
  "tracing-subscriber",
 ]
@@ -3410,12 +3296,6 @@ dependencies = [
  "wasi",
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "mod_use"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21909324aa58f5c284d91cac514c6d081210901dc372d7c8ea6a9d7e0406097a"
 
 [[package]]
 name = "moxcms"
@@ -3883,7 +3763,7 @@ dependencies = [
  "binrw",
  "capnp",
  "capnp-rpc",
- "compio 0.18.0",
+ "compio",
  "ed25519-dalek",
  "error-stack",
  "futures",
@@ -5039,9 +4919,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9d6d5fbc4583cf3e5eee953506f13853a42ee6b4a21a983dffffb10c765cb80"
 dependencies = [
- "event-listener",
  "futures-util",
- "local-event",
  "loom",
 ]
 
@@ -5074,15 +4952,6 @@ name = "thin-cell"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4164c6c316ba9733b0ab021e7f9852c788a4b991b49c25820f1be48e1d41345b"
-
-[[package]]
-name = "thin-cell"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9d3c47fea6e344ef1ac01be266c27945ec30ae8049c3292c897f0878de5c784"
-dependencies = [
- "synchrony",
-]
 
 [[package]]
 name = "thiserror"

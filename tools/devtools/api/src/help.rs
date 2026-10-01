@@ -3,8 +3,8 @@
 //! Rendered from the same OpenAPI the API serves, so a route that exists is
 //! a route that is documented, and one that is gone stops being mentioned.
 
-use utoipa::openapi::path::{Operation, ParameterIn};
-use utoipa::openapi::{HttpMethod, OpenApi};
+use utoipa::openapi::path::{Operation, Parameter, ParameterIn};
+use utoipa::openapi::{HttpMethod, OpenApi, RefOr};
 
 /// How wide the whole thing is allowed to be.
 const WIDTH: usize = 80;
@@ -86,6 +86,19 @@ fn operations(document: &OpenApi) -> Vec<(String, HttpMethod, &Operation)> {
         .collect()
 }
 
+/// The parameters an operation spells out; the handlers declare every one
+/// in place, so none is a reference.
+fn parameters(operation: &Operation) -> impl Iterator<Item = &Parameter> {
+    operation
+        .parameters
+        .iter()
+        .flatten()
+        .filter_map(|parameter| match parameter {
+            RefOr::T(parameter) => Some(parameter),
+            RefOr::Ref(_) => None,
+        })
+}
+
 fn line(path: &str, method: HttpMethod, operation: &Operation) -> String {
     let verb = match method {
         HttpMethod::Get => "GET",
@@ -112,7 +125,7 @@ fn line(path: &str, method: HttpMethod, operation: &Operation) -> String {
         format!("{left}{padding}{}\n", wrapped.trim_start())
     };
 
-    for query in operation.parameters.iter().flatten() {
+    for query in parameters(operation) {
         if !matches!(query.parameter_in, ParameterIn::Query) {
             continue;
         }
@@ -185,7 +198,15 @@ mod tests {
     #[test]
     fn a_parameter_is_in_the_path_only_when_the_path_names_it() {
         for (path, _, operation) in operations(&crate::document()) {
-            for parameter in operation.parameters.iter().flatten() {
+            assert!(
+                operation
+                    .parameters
+                    .iter()
+                    .flatten()
+                    .all(|parameter| matches!(parameter, RefOr::T(_))),
+                "{path} refers to a parameter rather than declaring it, so --help would skip it"
+            );
+            for parameter in parameters(operation) {
                 let named = path.contains(&format!("{{{}}}", parameter.name));
                 let in_path = matches!(parameter.parameter_in, ParameterIn::Path);
 
