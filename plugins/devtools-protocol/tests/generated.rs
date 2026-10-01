@@ -1,6 +1,8 @@
 //! The compiled schema in the tree is the schema as it is written now.
 //!
-//! Needs the `capnp` binary. After changing `schema/devtools.capnp`, compile
+//! Needs the `capnp` binary, 1.1 or newer: from 1.1 every node it hands the
+//! plugin carries where it was declared, and the plugin embeds the node, so
+//! what 1.0 compiles differs. After changing `schema/devtools.capnp`, compile
 //! it into `src/generated/` with `capnp compile -orust:src/generated
 //! --src-prefix=schema schema/devtools.capnp`, run from the crate's directory.
 
