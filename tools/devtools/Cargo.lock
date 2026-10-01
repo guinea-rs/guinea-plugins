@@ -2309,9 +2309,9 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc0fac230701f1578685e3e5514c70d9f0fd8b8935be113ab3ed26e9be7af195"
+checksum = "29bd7d42e3407e962ba3135763d1767dbc3822ee94482ae1f02088bf6d6d9417"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -2324,9 +2324,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "978bb51e3205ee09095c7d737dd14e7aa495919e97b299c317f2b6ef495955fb"
+checksum = "41d387ef9d1bd1d39f23330f648682c9823007ef4a11f02b96ad8d478ef58c7a"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2336,9 +2336,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa5d85a636f0a09434676fdb19d0d675e62f6f25aae1337fc1a03957ead252c8"
+checksum = "5cedaf4e1423454631792751e760e3d37441bd75ef94d980d52f45efe8709c34"
 dependencies = [
  "guinea-meta-build",
  "heck",
@@ -2352,9 +2352,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77a7d763c67e5ebe8bca91b25729e7b9b9aa03c4ce208bf5a35ff9c5928d894c"
+checksum = "9f679ac258ceac0846fd8e2f9c58a8a6b21e247b495c04c2a5210aa5582870f6"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2478,9 +2478,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1aac7ff8091e2781c0e368a51a38a3be25dc8051bfcbdf0d53d4672130049fb"
+checksum = "f4aa2208ed564fb0e4e2bbb47b13497161cd3ebd11b3ea58ba6c7b0929f1a39d"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2493,9 +2493,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e2b70f662e3879f32db2eee73b036979ef1684fb6e8e8a2455e54747899aa51"
+checksum = "75f6b162be67a9ad8e1bab46fbeaa40d8c4b99d17551d57bfd1f93f9eacb953b"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -2509,21 +2509,21 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24750d98a6ba6302464f6cc04a70dcc41fe63ebe8e4c35b8bb56a467dff317e5"
+checksum = "d871eca9b09abf4016a916d66f34663b6f9ed3a705ef45be9772f0bdbc4a7fd1"
 
 [[package]]
 name = "guinea-meta"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2b346cefe0607ed3be645672ac3f450efebf7d2123caabe545a12a8cc279bcc"
+checksum = "a4f7206a7da9cd381c6f0100b12f5f615408a3460f5ed22fb8ff9badeaae221d"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7efe2638807114a4ec0cde14e89762755ec668a5ebb23c3c75a4f7c1dca473e"
+checksum = "261c5eaf8194d8ac0df9d2bc5fb1e09196d9fb278b198302f5503c448547ac7a"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -2552,9 +2552,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3a702b82ed40f7e524a81ad5121f314b8d2d419744c6c445ed98218c127171a"
+checksum = "b054372f1f60128b1f3e3b531d4f0b41d4c136d7129b7605903845ddb442f5d2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2564,9 +2564,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c47b3190d16854509203bfc5819f0617839983ab35fa762fe916a529cad8273"
+checksum = "a51aeba6a6767b0fb580e0cc83f1dac8c919c9e62a4b824b1d0b0029ccba09a1"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2578,9 +2578,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.18.1"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec5462802075378bac1e60932ca3a692c9ef4f6c94a869008995bf2555701bc2"
+checksum = "98cb2566ce087446a785c09ec100390a8674091c2c642657c2e4733326b44193"
 dependencies = [
  "serde_json",
  "tracing",
