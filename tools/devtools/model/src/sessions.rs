@@ -251,6 +251,7 @@ impl Sessions {
                             enums.into_iter().map(|kind| (kind.name, kind.values)).collect();
                     }
                     Report::Profiler { at } => session.profiler = at,
+                    Report::Unknown => {}
                     Report::Refused { command, reason } => {
                         session.inspection.refused = Some((command, reason));
                     }

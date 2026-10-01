@@ -32,7 +32,9 @@ pub fn received<T: DeserializeOwned>(params: &peer::SendParams) -> Result<T, cap
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AppInfo, BusKind, Capability, Command, End, Report, Span, TraceBatch, TracePoint};
+    use crate::{
+        Answer, AppInfo, BusKind, Capability, Command, End, Report, Span, TraceBatch, TracePoint,
+    };
 
     #[test]
     fn commands_come_back_as_they_went() {
@@ -133,6 +135,36 @@ mod tests {
         assert_eq!(
             info.capabilities,
             [Capability::Snapshot, Capability::Unknown]
+        );
+    }
+
+    #[test]
+    fn what_a_newer_peer_sends_and_this_one_cannot_name_reads_as_unknown() {
+        let report = r#"{"kind":"teleported","to":"mars","by":3}"#;
+        assert_eq!(decode::<Report>(report).unwrap(), Report::Unknown);
+
+        let batch = r#"{"kind":"trace","spans":[
+            {"id":1,"parent":null,"at":0,"took":null,"point":{"kind":"note","text":"before"}},
+            {"id":2,"parent":1,"at":5,"took":null,"point":{"kind":"teleport","to":"mars"}},
+            {"id":3,"parent":null,"at":9,"took":null,"point":{"kind":"note","text":"after"}}
+        ],"ends":[],"dropped":0}"#;
+        let Report::Trace(batch) = decode::<Report>(batch).unwrap() else {
+            panic!("a batch");
+        };
+        let points: Vec<_> = batch.spans.iter().map(|span| span.point.kind()).collect();
+        assert_eq!(
+            points,
+            ["note", "unknown", "note"],
+            "the rest of the batch still reads"
+        );
+
+        let answered = r#"{"kind":"answered","request":7,"answer":{"kind":"beamed","at":1}}"#;
+        assert_eq!(
+            decode::<Report>(answered).unwrap(),
+            Report::Answered {
+                request: 7,
+                answer: Answer::Unknown
+            }
         );
     }
 

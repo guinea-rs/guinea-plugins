@@ -92,7 +92,7 @@ impl Kind {
             TracePoint::Tick { .. } => Kind::Tick,
             TracePoint::Store { .. } => Kind::Store,
             TracePoint::Log { .. } => Kind::Log,
-            TracePoint::Note { .. } => Kind::Note,
+            TracePoint::Note { .. } | TracePoint::Unknown => Kind::Note,
             TracePoint::Span { .. } => Kind::Span,
         }
     }
@@ -342,6 +342,7 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
 
             said
         }
+        TracePoint::Unknown => vec![text(point.describe())],
     }
 }
 

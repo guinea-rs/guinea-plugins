@@ -340,6 +340,7 @@ fn key(point: &TracePoint, timers: &Timers) -> u64 {
         TracePoint::Log { level, target, .. } => ("log", level, target).hash(h),
         TracePoint::Note { text } => ("note", text).hash(h),
         TracePoint::Span { name, target, .. } => ("span", name, target).hash(h),
+        TracePoint::Unknown => "unknown".hash(h),
     }
 
     hasher.finish()

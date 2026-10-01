@@ -26,6 +26,10 @@ pub mod devtools_capnp {
 /// field with a default, a variant nobody older is sent - bumps the minor;
 /// anything an older peer would misread bumps the major, and peers of
 /// different majors refuse each other.
+///
+/// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
+/// a peer that cannot name it reads it as `Unknown` and reads the rest of
+/// the message.
 pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 0, 0);
 
 use ogurpchik::auth::handshake::Protocol;
@@ -77,6 +81,10 @@ pub enum Report {
     Refused { command: String, reason: String },
     /// What a command that carries a `request` came to.
     Answered { request: u64, answer: Answer },
+    /// A report a newer peer sends and this version cannot name. Never
+    /// sent; read in its place, and passed over.
+    #[serde(other)]
+    Unknown,
 }
 
 /// What a command that carries a `request` came to.
@@ -95,6 +103,10 @@ pub enum Answer {
     Done,
     /// Not done, and why.
     Refused { reason: String },
+    /// An answer a newer peer gives and this version cannot name. Never
+    /// sent.
+    #[serde(other)]
+    Unknown,
 }
 
 /// One message from devtools, to a peer that listed what it needs.
@@ -395,6 +407,10 @@ pub enum TracePoint {
         #[serde(default)]
         declared: Option<Declared>,
     },
+    /// A point a newer peer records and this version cannot name. Never
+    /// sent; read in place of one, so the rest of the batch still reads.
+    #[serde(other)]
+    Unknown,
 }
 
 impl TracePoint {
@@ -419,6 +435,7 @@ impl TracePoint {
             TracePoint::Log { .. } => "log",
             TracePoint::Note { .. } => "note",
             TracePoint::Span { .. } => "span",
+            TracePoint::Unknown => "unknown",
         }
     }
 
@@ -499,6 +516,7 @@ impl TracePoint {
             TracePoint::Note { text } => text.clone(),
             TracePoint::Span { name, fields, .. } if fields.is_empty() => name.clone(),
             TracePoint::Span { name, fields, .. } => format!("{name} {fields}"),
+            TracePoint::Unknown => "something a newer application records".to_string(),
         }
     }
 }
