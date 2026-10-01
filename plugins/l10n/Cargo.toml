@@ -15,7 +15,7 @@ anyhow.workspace = true
 tracing.workspace = true
 
 # Fluent, re-exported so the application declares none of these itself.
-fluent-templates = { version = "0.14.0", optional = true }
+fluent-templates = { version = "0.15.1", optional = true }
 fluent-bundle = { version = "0.16.0", optional = true }
 unic-langid = { version = "0.9.6", features = ["macros"], optional = true }
 

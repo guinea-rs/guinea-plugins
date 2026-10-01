@@ -16,5 +16,5 @@ guinea-devtools-api = { path = "../api" }
 guinea-devtools-model = { path = "../model" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ureq = { version = "2.12", default-features = false }
+ureq = { version = "3.4", default-features = false }
 anyhow = "1.0"
