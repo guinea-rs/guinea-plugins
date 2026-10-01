@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::names::{period, took, type_name};
 use crate::timers::Timers;
-use crate::trace::{Reading, TREE_LIMIT};
+use crate::trace::{Class, Reading, TREE_LIMIT};
 use crate::trace_log::TraceLog;
 use crate::words::{self, Kind, Level, Tone, Word};
 
@@ -41,8 +41,13 @@ const LOOP_REACH: usize = 32;
 pub enum Stream {
     /// Every chain, with each timer and loop as one line.
     All,
-    /// Not chains: every record, one per line.
+    /// Not chains: what the application's own code wrote, one record per
+    /// line.
     Records,
+    /// Not chains: the application's own records at one level.
+    Level(Level),
+    /// Not chains: the framework's work that took a millisecond or more.
+    Slow,
     /// Chains an action started, by the action's message.
     Action(String),
     /// Chains a timer started, by where the timer was set up.
@@ -60,12 +65,14 @@ pub enum Stream {
 }
 
 impl fmt::Display for Stream {
-    /// `all`, `records`, `action/c::Kill`, `timer/src/a.rs:4:9`, `loop/…`,
-    /// `navigation`, `store`, `log`, `loose`.
+    /// `all`, `records`, `level/warn`, `slow`, `action/c::Kill`,
+    /// `timer/src/a.rs:4:9`, `loop/…`, `navigation`, `store`, `log`, `loose`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Stream::All => f.write_str("all"),
             Stream::Records => f.write_str("records"),
+            Stream::Level(level) => write!(f, "level/{}", level.name()),
+            Stream::Slow => f.write_str("slow"),
             Stream::Action(message) => write!(f, "action/{message}"),
             Stream::Timer(site) => write!(f, "timer/{site}"),
             Stream::Source(key) => write!(f, "source/{key}"),
@@ -87,10 +94,15 @@ impl FromStr for Stream {
             Some(("timer", site)) => Stream::Timer(site.to_string()),
             Some(("source", key)) => Stream::Source(key.to_string()),
             Some(("loop", step)) => Stream::Loop(step.to_string()),
+            Some(("level", name)) => match Level::parse(name) {
+                Some(level) => Stream::Level(level),
+                None => return Err(format!("not a level: {name}")),
+            },
             Some(_) => return Err(format!("not a stream: {id}")),
             None => match id {
                 "all" => Stream::All,
                 "records" => Stream::Records,
+                "slow" => Stream::Slow,
                 "navigation" => Stream::Navigation,
                 "store" => Stream::Store,
                 "log" => Stream::Log,
@@ -106,6 +118,17 @@ impl Stream {
     /// source of one kind is one stream, the way every timer of one site is.
     pub fn source_of(actor: &str, output: &str) -> String {
         format!("{actor}|{output}")
+    }
+
+    /// The class of records it lists, for a stream that lists records
+    /// rather than chains.
+    pub fn class(&self) -> Option<Class> {
+        match self {
+            Stream::Records => Some(Class::Own),
+            Stream::Level(level) => Some(Class::Level(*level)),
+            Stream::Slow => Some(Class::Slow),
+            _ => None,
+        }
     }
 }
 
@@ -137,7 +160,7 @@ pub enum Section {
 impl Stream {
     pub fn section(&self) -> Option<Section> {
         match self {
-            Stream::All | Stream::Records => None,
+            Stream::All | Stream::Records | Stream::Level(_) | Stream::Slow => None,
             Stream::Action(_) => Some(Section::Actions),
             Stream::Timer(_) => Some(Section::Timers),
             Stream::Source(_) => Some(Section::Sources),
@@ -397,6 +420,15 @@ pub fn title(chains: &Chains, reading: Reading, stream: &Stream) -> String {
     match stream {
         Stream::All => "Everything".to_string(),
         Stream::Records => "Records".to_string(),
+        Stream::Level(level) => match level {
+            Level::Error => "Errors",
+            Level::Warn => "Warnings",
+            Level::Info => "Info",
+            Level::Debug => "Debug",
+            Level::Trace => "Trace",
+        }
+        .to_string(),
+        Stream::Slow => format!("Slower than {}", took(crate::trace::SLOW_US)),
         Stream::Action(message) => {
             let actor = chains
                 .roots_of(stream)
@@ -707,6 +739,22 @@ fn steps(chains: &Chains, reading: Reading, root: u64) -> Vec<Word> {
 mod tests {
     use super::*;
     use crate::clock::Clock;
+
+    #[test]
+    fn a_stream_of_records_is_named_and_says_its_class() {
+        for (id, stream, class) in [
+            ("records", Stream::Records, Some(Class::Own)),
+            ("level/warn", Stream::Level(Level::Warn), Some(Class::Level(Level::Warn))),
+            ("slow", Stream::Slow, Some(Class::Slow)),
+            ("all", Stream::All, None),
+            ("timer/src/a.rs:4:9", Stream::Timer("src/a.rs:4:9".into()), None),
+        ] {
+            assert_eq!(id.parse::<Stream>(), Ok(stream.clone()), "{id}");
+            assert_eq!(stream.to_string(), id);
+            assert_eq!(stream.class(), class, "{id}");
+        }
+        assert!("level/loud".parse::<Stream>().is_err());
+    }
     use guinea_devtools_protocol::{Timer, TraceBatch};
 
     fn span(id: u64, parent: Option<u64>, point: TracePoint) -> Span {

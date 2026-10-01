@@ -10,9 +10,9 @@ resolver = "2"
 members = ["plugins/*", "widgets"]
 
 [workspace.dependencies]
-guinea = { version = "0.18.1", default-features = false }
-guinea-core = "0.18.1"
-guinea-mark = "0.18.1"
+guinea = { version = "0.18.8", default-features = false }
+guinea-core = "0.18.8"
+guinea-mark = "0.18.8"
 
 windows-reactor = { package = "windows-reactor-pre", version = "0.100.0" }
 windows-canvas = { package = "windows-canvas-pre", version = "0.100.0" }

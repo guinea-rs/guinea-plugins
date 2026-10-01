@@ -21,6 +21,8 @@ pub enum Go {
     Open(Stream),
     /// Opens or closes a group of chains, by its key.
     Toggle(String),
+    /// Drops the filter, staying where it is.
+    Unfilter,
 }
 
 /// One row: the font's height and a hair.
@@ -58,6 +60,30 @@ pub fn sentence(ui: &mut egui::Ui, words: &[Word], go: &mut Option<Go>) {
                 if response.clicked() {
                     *go = Some(Go::Link(target.clone()));
                 }
+            }
+        }
+    }
+}
+
+/// Words that wrap and lead nowhere; a name says its whole path on hover.
+pub fn said(ui: &mut egui::Ui, words: &[Word]) {
+    ui.spacing_mut().item_spacing.x = 0.0;
+
+    for word in words {
+        let text = components::mono(&word.text);
+        match &word.link {
+            None => {
+                ui.label(text.color(theme::tone_color(&word.tone)));
+            }
+            Some(target) => {
+                let full = match target {
+                    Target::Actor(full) | Target::Reducer(full) | Target::Records(full) | Target::Key(full) => {
+                        full.clone()
+                    }
+                    Target::Stream(id) => id.clone(),
+                };
+                ui.label(text.color(ui.visuals().strong_text_color()))
+                    .on_hover_text(full);
             }
         }
     }
@@ -170,40 +196,73 @@ impl Line {
         }
     }
 
+    /// Words that lead nowhere: a name stands out, and its whole path is
+    /// said on hover.
+    pub fn still_words(&mut self, words: &[Word]) {
+        for word in words {
+            match &word.link {
+                None => self.text(&word.text, theme::tone_color(&word.tone)),
+                Some(Target::Actor(full) | Target::Reducer(full) | Target::Records(full) | Target::Key(full)) => {
+                    self.hinted(&word.text, self.strong, full.clone())
+                }
+                Some(Target::Stream(_)) => self.text(&word.text, self.strong),
+            }
+        }
+    }
+
     pub fn took(&mut self, took: Option<&String>) {
         if let Some(took) = took {
             self.weak(&format!("  {took}"));
         }
     }
 
-    pub fn cause(&mut self, cause: Option<&Cause>) {
-        match cause {
-            None => {}
-            Some(Cause::Known { id, gist, tone }) => {
-                self.weak(" ← ");
-                self.link(
-                    gist,
-                    theme::tone_color(tone),
-                    Go::Record(*id),
-                    "go to the cause".to_string(),
-                );
-            }
-            Some(Cause::Forgotten) => {
-                self.weak(" ← ");
-                self.weak("something devtools no longer keep");
-            }
-        }
-    }
-
-    /// A record as the list shows it.
-    pub fn record(ui: &egui::Ui, row: &Row) -> Self {
+    /// A record as a list of records shows it: nothing in it leads away, and
+    /// what caused it is said, not linked.
+    pub fn own(ui: &egui::Ui, row: &Row) -> Self {
         let mut line = Self::new(ui);
         line.hinted(&format!("{}  ", row.time), line.weak, row.when.clone());
-        line.words(&row.words);
+        line.still_words(&row.words);
         line.took(row.took.as_ref());
-        line.cause(row.cause.as_ref());
+        if let Some(Cause::Known { gist, .. }) = &row.cause {
+            line.weak(&format!("  in {gist}"));
+        }
 
         line
+    }
+}
+
+/// A full-width row that only says: no click, its hints on hover.
+pub fn still(ui: &mut egui::Ui, height: f32, line: Line) {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+
+    let text = rect.shrink2(egui::vec2(4.0, 0.0));
+    if text.width() < 1.0 {
+        return;
+    }
+
+    let Line { mut job, spots, .. } = line;
+    job.wrap = TextWrapping::truncate_at_width(text.width());
+    let galley = ui.painter().layout_job(job);
+
+    let origin = egui::pos2(text.left(), text.center().y - galley.size().y / 2.0);
+    let under = response.hover_pos().and_then(|pointer| {
+        let at = pointer - origin;
+        spots.iter().find(|spot| {
+            let from = galley.pos_from_cursor(CCursor::new(spot.chars.start)).min.x;
+            let to = galley.pos_from_cursor(CCursor::new(spot.chars.end)).min.x;
+            (from..to).contains(&at.x)
+        })
+    });
+
+    ui.painter()
+        .with_clip_rect(rect.intersect(ui.clip_rect()))
+        .galley(origin, galley, ui.visuals().text_color());
+
+    if let Some(spot) = under {
+        response.on_hover_text_at_pointer(&spot.hint);
     }
 }
 

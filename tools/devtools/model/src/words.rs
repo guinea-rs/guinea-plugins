@@ -124,7 +124,7 @@ impl Kind {
 }
 
 /// A `tracing` level.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum Level {
     Error,
@@ -143,6 +143,35 @@ impl Level {
             "INFO" => Level::Info,
             "DEBUG" => Level::Debug,
             _ => Level::Trace,
+        }
+    }
+
+    pub const ALL: [Level; 5] = [Level::Error, Level::Warn, Level::Info, Level::Debug, Level::Trace];
+
+    /// Lowercase, as a stream names it: `warn`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Level::Error => "error",
+            Level::Warn => "warn",
+            Level::Info => "info",
+            Level::Debug => "debug",
+            Level::Trace => "trace",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Level> {
+        Level::ALL.into_iter().find(|level| level.name() == name)
+    }
+
+    /// The level of a record the application's own code wrote, a log line or
+    /// a span; a span from an application that did not say is `INFO`, as
+    /// `info_span!` is. `None` for the framework's records.
+    pub fn of(point: &TracePoint) -> Option<Level> {
+        match point {
+            TracePoint::Log { level, .. } => Some(Level::named(level)),
+            TracePoint::Span { level, .. } if level.is_empty() => Some(Level::Info),
+            TracePoint::Span { level, .. } => Some(Level::named(level)),
+            _ => None,
         }
     }
 }
@@ -483,11 +512,36 @@ mod tests {
             target: "uniproc::processes".into(),
             fields: fields.into(),
             declared: None,
+            level: String::new(),
         };
 
         assert_eq!(text(&sentence(&span("rows=12"), &timers)), "span rows_from_report rows=12");
         assert_eq!(text(&sentence(&span(""), &timers)), "span rows_from_report");
         assert_eq!(Kind::of(&span("")).name(), span("").kind());
+    }
+
+    #[test]
+    fn only_what_the_application_wrote_has_a_level() {
+        let span = |level: &str| TracePoint::Span {
+            name: "scan".into(),
+            target: "app".into(),
+            fields: String::new(),
+            declared: None,
+            level: level.into(),
+        };
+        let log = TracePoint::Log {
+            level: "ERROR".into(),
+            target: "app".into(),
+            text: "failed".into(),
+            written: None,
+        };
+
+        assert_eq!(Level::of(&log), Some(Level::Error));
+        assert_eq!(Level::of(&span("DEBUG")), Some(Level::Debug));
+        assert_eq!(Level::of(&span("")), Some(Level::Info), "a span that did not say");
+        assert_eq!(Level::of(&TracePoint::Tick { timer: None }), None);
+        assert_eq!(Level::parse("warn"), Some(Level::Warn));
+        assert_eq!(Level::parse("loud"), None);
     }
 
     #[test]

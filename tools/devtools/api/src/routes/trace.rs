@@ -3,7 +3,8 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use guinea_devtools_model::chains::{self, Stream, StreamLine, StreamView};
-use guinea_devtools_model::trace::{self, Record, Row};
+use guinea_devtools_model::trace::{self, About, Class, Record, Row};
+use guinea_devtools_model::words::Level;
 use serde::Deserialize;
 use utoipa::IntoParams;
 use utoipa_axum::router::OpenApiRouter;
@@ -19,13 +20,19 @@ pub fn router() -> OpenApiRouter<crate::State> {
     OpenApiRouter::new()
         .routes(routes!(records))
         .routes(routes!(record))
+        .routes(routes!(about))
         .routes(routes!(streams))
         .routes(routes!(chains))
 }
 
-#[derive(Deserialize, IntoParams)]
+#[derive(Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 struct Filter {
+    /// Only these: `own` for what the application's code wrote, a level -
+    /// `error`, `warn`, `info`, `debug`, `trace` - for its own at that level,
+    /// `slow` for the framework's work of a millisecond or more. Every record
+    /// when left out.
+    class: Option<String>,
     /// Kinds left out, comma-separated: `action send handle spawn settled
     /// cancelled publish deliver push navigate store render log tick note`.
     #[serde(default)]
@@ -41,12 +48,22 @@ struct Filter {
 }
 
 impl Filter {
-    fn query(&self) -> trace::Query {
-        trace::Query {
+    fn query(&self) -> Result<trace::Query, String> {
+        let class = match self.class.as_deref() {
+            None => Class::Every,
+            Some("own") => Class::Own,
+            Some("slow") => Class::Slow,
+            Some(name) => Level::parse(name)
+                .map(Class::Level)
+                .ok_or_else(|| format!("not a class of records: {name}"))?,
+        };
+
+        Ok(trace::Query {
+            class,
             hidden: list(&self.hide),
             text: self.text.clone(),
             upto: None,
-        }
+        })
     }
 }
 
@@ -64,7 +81,7 @@ async fn records(
     Path(app): Path<String>,
     Query(filter): Query<Filter>,
 ) -> Result<Json<Vec<Row>>, Failure> {
-    let query = filter.query();
+    let query = filter.query().map_err(Failure::bad_request)?;
     let limit = filter.limit.unwrap_or(LIMIT);
 
     state.read(|sessions| {
@@ -115,8 +132,7 @@ async fn record(
 ) -> Result<Json<Record>, Failure> {
     let query = trace::Query {
         hidden: list(&between.hide),
-        text: String::new(),
-        upto: None,
+        ..trace::Query::default()
     };
 
     state.read(|sessions| {
@@ -125,6 +141,35 @@ async fn record(
             .ok_or_else(|| Failure::not_found(format!("no record {id}")))?;
 
         Ok(Json(record))
+    })
+}
+
+/// One record as the trace page's side panel reads it: what it says, where
+/// it was written, what the framework was doing and what ran inside it.
+#[utoipa::path(
+    get,
+    path = "/apps/{app}/trace/{record}/about",
+    tag = "trace",
+    operation_id = "get_about",
+    params(
+        ("app" = String, Path, description = "An application's id, or `latest`"),
+        ("record" = u64, Path, description = "The record's id")
+    ),
+    responses(
+        (status = 200, description = "The record, what it ran in and what ran inside it"),
+        (status = 404, description = "No record with that id is kept")
+    )
+)]
+async fn about(
+    State(state): State<crate::State>,
+    Path((app, id)): Path<(String, u64)>,
+) -> Result<Json<About>, Failure> {
+    state.read(|sessions| {
+        let session = session(sessions, &app)?;
+        let about = trace::about(session.reading(), id)
+            .ok_or_else(|| Failure::not_found(format!("no record {id}")))?;
+
+        Ok(Json(about))
     })
 }
 
@@ -191,4 +236,27 @@ async fn chains(
             &which.text,
         )))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_class_is_asked_for_by_name() {
+        let class = |name: Option<&str>| {
+            Filter {
+                class: name.map(str::to_string),
+                ..Filter::default()
+            }
+            .query()
+            .map(|query| query.class)
+        };
+
+        assert_eq!(class(None), Ok(Class::Every));
+        assert_eq!(class(Some("own")), Ok(Class::Own));
+        assert_eq!(class(Some("warn")), Ok(Class::Level(Level::Warn)));
+        assert_eq!(class(Some("slow")), Ok(Class::Slow));
+        assert!(class(Some("loud")).is_err());
+    }
 }

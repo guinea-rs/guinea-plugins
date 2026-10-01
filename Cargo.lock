@@ -702,7 +702,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -776,7 +776,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1001,7 +1001,7 @@ dependencies = [
  "libc",
  "log",
  "rustversion",
- "windows-link 0.1.3",
+ "windows-link 0.2.1",
  "windows-result 0.4.1",
 ]
 
@@ -1052,9 +1052,9 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3851f3856b39f77a1a580bdfadfce51f1a8bac8cf4ee8740113b11a73c0733fc"
+checksum = "a6da0800fd940f5d40d987d8a721ca5117a9ed1d448dc9df172e51f63391743e"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -1067,9 +1067,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc6e72d35dbabb2b8ea0302f09e0b357a7660aa9c26f580c4f4cd4291dfdb89f"
+checksum = "04ae8b8a99c84f7bddb3a5727a334ce49c5fc2f26553c961cdab29c8be34a30b"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -1080,9 +1080,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a52f14c75da127f5234ce8f9d13988881aa098526a9c9de02e61d86288bdd9f"
+checksum = "a62c1931498398eb72670abd18366c9098095d47c51265ba60842da078b6cdd0"
 dependencies = [
  "guinea-meta-build",
  "heck",
@@ -1096,9 +1096,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79d0eb1888b71db8dcfe76e998ebe8b3590e6df3d022052df326c007300e9932"
+checksum = "f24042fbbc32b97f58cd00682a098727e6b904503127f1c1bbc5970227412b4f"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1135,9 +1135,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a6044e9a95259669140bd030084533de587efaf8b5f045fddba6a96c8195aba"
+checksum = "c628254635c90413e32656715161bfef38417eb89fad80c0472ea8d2ac0b9a2c"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -1151,21 +1151,21 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37bc51738385c8dd205abf9f5ed8e475082e0daed8b5564edbe0b271ebb27fff"
+checksum = "1926425b0816c0bf045f8d044dbb4c63e87d173483abaa98d2c15a95c0bc7c59"
 
 [[package]]
 name = "guinea-meta"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0de6939584b47721e26ad909218139dbaadc6b29839d87632307e169bb0796a2"
+checksum = "2b998ff614ab8afd13d27b242866c5b9d6460ed327cede465476a08b204b1cda"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de59cb50c514c2d5a7d1b504cdadff5efe74436eed70ee40a4f49e7d9740725a"
+checksum = "284c301c76c85d1ddd8734c25caa77910a6a075a1480dafe77014edd6e2a9641"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -1254,9 +1254,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "975c6e178e4ca5cc0c5916f1ea5af0520dda17336ae08e29654560e9859de33f"
+checksum = "98c1ea7e4345da5ae1587474dee3ef3147f257e06854bbcd345b80a34fee7808"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1266,9 +1266,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51b091e6395a6d9dccc4ef526e5e0381d6eccb8ccb8c00117745a705168e9e20"
+checksum = "d9d550245b4d7f4245d59073b14800d9fab4fac7c6a90ac4d39b253d1df25f7c"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1280,9 +1280,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f1a7b9a65f237424b7d9a1baa5cb3b07cf49b2db1b8099bc065cb0ba0242b9c"
+checksum = "7e607903f81b8c25ef89d3671611b8dc80b95f82d583105d425dbaea72d07974"
 dependencies = [
  "serde_json",
  "tracing",
@@ -1306,9 +1306,9 @@ dependencies = [
 
 [[package]]
 name = "guinea-winui"
-version = "0.18.6"
+version = "0.18.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84f566807eda4472f5327909f3d8433d15f9bb5223e751f7797873ee6dc44d5b"
+checksum = "ece9e57b51c48355b3a6ccaf2ee97b4a02b2ad23795ed6236232bef70a0c49a0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -1638,7 +1638,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1727,7 +1727,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1997,7 +1997,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2242,7 +2242,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2656,7 +2656,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

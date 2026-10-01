@@ -3,6 +3,7 @@
 
 use egui::ImageSource;
 use guinea_devtools_model::chains::Stream;
+use guinea_devtools_model::words::Level;
 
 pub fn once(ctx: &egui::Context) {
     let done = egui::Id::new("image-loaders");
@@ -24,6 +25,12 @@ pub fn stream(stream: &Stream) -> ImageSource<'static> {
     match stream {
         Stream::All => guicons::icon!(everything),
         Stream::Records => guicons::icon!(records),
+        Stream::Level(Level::Error) => guicons::icon!(error),
+        Stream::Level(Level::Warn) => guicons::icon!(warn),
+        Stream::Level(Level::Info) => guicons::icon!(info),
+        Stream::Level(Level::Debug) => guicons::icon!(debug),
+        Stream::Level(Level::Trace) => guicons::icon!(trace),
+        Stream::Slow => guicons::icon!(slow),
         Stream::Action(_) => guicons::icon!(action),
         Stream::Timer(_) => guicons::icon!(timer),
         Stream::Source(_) => guicons::icon!(source),

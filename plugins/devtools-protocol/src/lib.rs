@@ -406,6 +406,10 @@ pub enum TracePoint {
         /// Where it was declared, when the span said.
         #[serde(default)]
         declared: Option<Declared>,
+        /// As tracing spells it, `INFO`; empty from an application that did
+        /// not say.
+        #[serde(default)]
+        level: String,
     },
     /// A point a newer peer records and this version cannot name. Never
     /// sent; read in place of one, so the rest of the batch still reads.

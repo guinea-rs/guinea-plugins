@@ -31,6 +31,24 @@ iconify = "tabler:notes"
 [loose]
 iconify = "tabler:help-circle"
 
+[error]
+iconify = "tabler:alert-octagon"
+
+[warn]
+iconify = "tabler:alert-triangle"
+
+[info]
+iconify = "tabler:info-circle"
+
+[debug]
+iconify = "tabler:bug"
+
+[trace]
+iconify = "tabler:dots"
+
+[slow]
+iconify = "tabler:gauge"
+
 [close]
 iconify = "tabler:x"
 

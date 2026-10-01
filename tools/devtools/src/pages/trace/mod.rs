@@ -1,5 +1,7 @@
 //! What the application did: the chains of records that set each other off,
-//! by what started them, or every record in turn; and one record, whole.
+//! by what started them; or what its own code wrote, by level, and the
+//! framework's work that took long, each beside what it ran in and what ran
+//! inside it.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -8,13 +10,13 @@ use guinea::feature::FeatureInitContext;
 use guinea_core::feature::Dispatch;
 use guinea_devtools_model::chains::Stream;
 use guinea_devtools_model::sessions::Session;
-use guinea_devtools_model::trace::{self, Consequence, Origins, Query, Record, Shown};
-use guinea_devtools_model::words::{Kind, Target};
+use guinea_devtools_model::trace::{self, About, Consequence, Origins, Query, Record, Row, Shown};
+use guinea_devtools_model::words::Target;
 
 mod lines;
 mod streams;
 
-use lines::{Go, Line, row, row_height, sentence};
+use lines::{Go, Line, row, row_height, sentence, still};
 use streams::Open;
 
 use crate::components;
@@ -22,7 +24,7 @@ use crate::components::source;
 use crate::features::editor::contracts::{Editor, EditorChoice};
 use crate::features::focus::contracts::{Focus, Show};
 use crate::features::trace::TraceFeature;
-use crate::features::trace::contracts::{Filter, Freeze, OpenStream, Select, Toggle, TraceState};
+use crate::features::trace::contracts::{Filter, Freeze, OpenStream, Select, TraceState};
 use crate::features::sessions::contracts::Live;
 use crate::routes::Route;
 use crate::theme;
@@ -47,7 +49,7 @@ impl Page for Traces {
         let ui = cx.ui();
 
         let query = view.query();
-        let records = view.stream == Stream::Records;
+        let records = view.stream.class().is_some();
         let mut go = None;
 
         let kept = {
@@ -60,7 +62,7 @@ impl Page for Traces {
             egui::Panel::top("trace-tools")
                 .resizable(false)
                 .frame(components::bare(ui))
-                .show(ui, |ui| toolbar(ui, &view, &dispatch, log.len(), log.dropped));
+                .show(ui, |ui| toolbar(ui, &view, &dispatch, log.len(), log.dropped, records));
 
             egui::Panel::left("trace-streams")
                 .resizable(true)
@@ -69,20 +71,26 @@ impl Page for Traces {
                 .frame(components::side())
                 .show(ui, |ui| streams::rail(ui, session, &view.stream, &mut go));
 
-            let record = view
-                .selected
-                .and_then(|id| trace::record(session.reading(), id, &query));
-            if let Some(record) = &record {
-                let closed = egui::Panel::right("trace-detail")
+            let side = |ui: &mut egui::Ui, show: &mut dyn FnMut(&mut egui::Ui) -> bool| {
+                egui::Panel::right("trace-detail")
                     .resizable(true)
                     .size_range(320.0..=720.0)
                     .default_size(460.0)
                     .frame(components::side())
-                    .show(ui, |ui| detail(ui, record, editor.0, &mut go))
-                    .inner;
-                if closed {
-                    go = Some(Go::Close);
-                }
+                    .show(ui, |ui| show(ui))
+                    .inner
+            };
+            let closed = if records {
+                view.selected
+                    .and_then(|id| trace::about(session.reading(), id))
+                    .is_some_and(|about| side(ui, &mut |ui| about_panel(ui, &about, editor.0)))
+            } else {
+                view.selected
+                    .and_then(|id| trace::record(session.reading(), id, &query))
+                    .is_some_and(|record| side(ui, &mut |ui| detail(ui, &record, editor.0, &mut go)))
+            };
+            if closed {
+                go = Some(Go::Close);
             }
 
             egui::CentralPanel::default().frame(components::bare(ui)).show(ui, |ui| {
@@ -117,6 +125,7 @@ impl Page for Traces {
                 }
             }
             Some(Go::Open(stream)) => dispatch.emit(OpenStream(stream)),
+            Some(Go::Unfilter) => dispatch.emit(Filter(String::new())),
             Some(Go::Toggle(key)) => ui.data_mut(|data| {
                 let open = data.get_temp_mut_or_default::<Open>(streams::open_id());
                 if !open.remove(&key) {
@@ -148,11 +157,11 @@ fn jump_id() -> egui::Id {
     egui::Id::new("trace-jump")
 }
 
-fn toolbar(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize, dropped: u64) {
-    components::block(ui, |ui| tools(ui, view, dispatch, kept, dropped));
+fn toolbar(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize, dropped: u64, records: bool) {
+    components::block(ui, |ui| tools(ui, view, dispatch, kept, dropped, records));
 }
 
-fn tools(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize, dropped: u64) {
+fn tools(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize, dropped: u64, records: bool) {
     ui.horizontal_wrapped(|ui| {
         let mut query = view.query.clone();
         if components::search(ui, &mut query, "filter", 220.0).changed() {
@@ -166,22 +175,8 @@ fn tools(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize,
             );
         }
 
-        if view.stream != Stream::Records {
+        if !records {
             return;
-        }
-
-        components::rule(ui);
-
-        for kind in Kind::ALL {
-            let on = view.shows(kind);
-            let text = egui::RichText::new(kind.name()).color(if on {
-                theme::kind_color(kind)
-            } else {
-                ui.visuals().weak_text_color()
-            });
-            if ui.selectable_label(on, text).clicked() {
-                dispatch.emit(Toggle(kind));
-            }
         }
 
         components::rule(ui);
@@ -196,7 +191,9 @@ fn tools(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize,
     });
 }
 
-/// Every record the query lets through, one per line.
+/// Every record the query lets through, one per line. A class unfiltered is
+/// the session's own list, kept as the trace arrives; filtered or frozen,
+/// the page keeps one of its own.
 fn list(ui: &mut egui::Ui, session: &Session, view: &TraceState, query: &Query, go: &mut Option<Go>) {
     let log = &session.trace;
     let reading = session.reading();
@@ -205,13 +202,25 @@ fn list(ui: &mut egui::Ui, session: &Session, view: &TraceState, query: &Query, 
         data.get_temp_mut_or_default::<Arc<Mutex<Shown>>>(egui::Id::new(("trace-shown", session.id)))
             .clone()
     });
-    let mut shown = kept.lock().unwrap_or_else(PoisonError::into_inner);
-    shown.refresh(reading, query);
+    let mut own = kept.lock().unwrap_or_else(PoisonError::into_inner);
+    let unfiltered = query.text.is_empty() && query.upto.is_none();
+    let shown: &Shown = match session.classes.list(query.class).filter(|_| unfiltered) {
+        Some(listed) => listed,
+        None => {
+            own.refresh(reading, query);
+            &own
+        }
+    };
 
     ui.horizontal(|ui| {
-        ui.label(components::dim(format!("{} of {}", shown.len(), log.len())));
-        if !view.query.is_empty() && ui.link("show everything").clicked() {
-            *go = Some(Go::Link(Target::Records(String::new())));
+        let all = session.classes.count(query.class);
+        ui.label(components::dim(if unfiltered {
+            format!("{all}")
+        } else {
+            format!("{} of {all}", shown.len())
+        }));
+        if !view.query.is_empty() && ui.link("show them all").clicked() {
+            *go = Some(Go::Unfilter);
         }
     });
 
@@ -230,7 +239,7 @@ fn list(ui: &mut egui::Ui, session: &Session, view: &TraceState, query: &Query, 
         ui.spacing_mut().item_spacing.y = 0.0;
 
         for span in shown.spans(log, range) {
-            let line = Line::record(ui, &trace::row(reading, span));
+            let line = Line::own(ui, &trace::row(reading, span));
             row(ui, height, view.selected == Some(span.id), go, Go::Select(span.id), line);
         }
     });
@@ -283,6 +292,121 @@ fn detail(ui: &mut egui::Ui, record: &Record, editor: Editor, go: &mut Option<Go
     });
 
     closed
+}
+
+/// A record of a list of records, beside it: what it says, what the framework
+/// was doing when it happened and what ran inside it. Nothing leads away;
+/// whether it was closed.
+fn about_panel(ui: &mut egui::Ui, about: &About, editor: Editor) -> bool {
+    let closed = components::head(ui, |ui| {
+        ui.horizontal_wrapped(|ui| lines::said(ui, &about.row.words));
+
+        ui.horizontal(|ui| {
+            match about.level {
+                Some(level) => ui.colored_label(theme::level_color(level), level.name()),
+                None => ui.colored_label(theme::kind_color(about.row.kind), about.row.kind.name()),
+            };
+            ui.label(components::dim(&about.row.when));
+            if let Some(took) = &about.row.took {
+                ui.label(components::dim(format!("took {took}")));
+            }
+            if let Some(target) = &about.target {
+                ui.label(components::dim(target));
+            }
+        });
+
+        if let Some(written) = &about.written {
+            ui.horizontal(|ui| {
+                ui.label(components::dim("written at"));
+                source::link(ui, written, editor);
+            });
+        }
+        if let Some(fields) = &about.fields {
+            ui.label(components::mono(fields));
+        }
+    });
+
+    let height = row_height(ui);
+
+    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        components::heading(ui, "Ran in");
+        components::block(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ran_in(ui, about, height);
+        });
+
+        if !about.inside.is_empty() || about.row.took.is_some() {
+            components::heading(ui, "Inside it");
+            components::block(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+
+                if about.inside.is_empty() {
+                    ui.label(components::dim("nothing devtools saw"));
+                }
+                inside(ui, &about.inside, height);
+                if about.inside_cut {
+                    ui.label(components::dim("… more than devtools draw at once"));
+                }
+            });
+        }
+    });
+
+    closed
+}
+
+/// What started the record, down to what it ran in.
+fn ran_in(ui: &mut egui::Ui, about: &About, height: f32) {
+    if about.within_cut {
+        ui.label(components::dim("… started earlier than devtools keep"));
+    }
+    if about.within.is_empty() {
+        ui.label(components::dim("nothing observed started it"));
+    }
+
+    for (at, step) in about.within.iter().enumerate() {
+        still(ui, height, step_line(ui, step, at));
+    }
+}
+
+fn step_line(ui: &egui::Ui, step: &Row, at: usize) -> Line {
+    let mut line = Line::new(ui);
+    line.indent(at.min(MAX_INDENT) as f32 * 12.0);
+    line.weak(if at == 0 { "  " } else { "└ " });
+    line.still_words(&step.words);
+    line.took(step.took.as_ref());
+
+    line
+}
+
+fn inside(ui: &mut egui::Ui, ran: &[Consequence], height: f32) {
+    for next in ran {
+        let line = |ui: &egui::Ui| {
+            let mut line = Line::new(ui);
+            line.still_words(&next.row.words);
+            line.took(next.row.took.as_ref());
+
+            line
+        };
+
+        if next.children.is_empty() {
+            ui.horizontal(|ui| {
+                ui.add_space(18.0);
+                let line = line(ui);
+                still(ui, height, line);
+            });
+        } else {
+            egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                egui::Id::new(("inside", next.row.id)),
+                true,
+            )
+            .show_header(ui, |ui| {
+                let line = line(ui);
+                still(ui, height, line)
+            })
+            .body(|ui| inside(ui, &next.children, height));
+        }
+    }
 }
 
 /// How far a chain of causes steps to the right before it goes straight down.

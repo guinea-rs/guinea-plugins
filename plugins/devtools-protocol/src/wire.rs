@@ -169,6 +169,25 @@ mod tests {
     }
 
     #[test]
+    fn a_span_says_its_level_and_one_from_before_levels_says_none() {
+        let level = |json: &str| match decode::<Report>(json).unwrap() {
+            Report::Trace(batch) => match &batch.spans[0].point {
+                TracePoint::Span { level, .. } => level.clone(),
+                other => panic!("a span, not {other:?}"),
+            },
+            other => panic!("a batch, not {other:?}"),
+        };
+
+        let said = r#"{"kind":"trace","spans":[{"id":1,"parent":null,"at":0,"took":null,
+            "point":{"kind":"span","name":"scan","target":"app","level":"WARN"}}],"ends":[],"dropped":0}"#;
+        assert_eq!(level(said), "WARN");
+
+        let older = r#"{"kind":"trace","spans":[{"id":1,"parent":null,"at":0,"took":null,
+            "point":{"kind":"span","name":"scan","target":"app"}}],"ends":[],"dropped":0}"#;
+        assert_eq!(level(older), "");
+    }
+
+    #[test]
     fn a_hello_from_before_capabilities_lists_none() {
         let json = r#"{"kind":"hello","name":"","identifier":"","version":"","backend":"","pid":1,"plugins":[]}"#;
 

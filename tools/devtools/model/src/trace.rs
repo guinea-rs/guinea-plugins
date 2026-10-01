@@ -10,7 +10,7 @@ use crate::clock::Clock;
 use crate::names::took;
 use crate::timers::Timers;
 use crate::trace_log::TraceLog;
-use crate::words::{self, Kind, Tone, Word};
+use crate::words::{self, Kind, Level, Tone, Word};
 
 /// How many records between two steps of a chain are listed.
 pub const BETWEEN_LIMIT: usize = 8;
@@ -34,9 +34,77 @@ pub struct Reading<'a> {
     pub timers: &'a Timers,
 }
 
+/// How long the framework's work has to take to be worth a look, in
+/// microseconds.
+pub const SLOW_US: u64 = 1_000;
+
+/// Which records a list is about.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "class", content = "level", rename_all = "snake_case")]
+pub enum Class {
+    /// Every record, the framework's as well.
+    #[default]
+    Every,
+    /// What the application's own code wrote: its log lines and spans.
+    Own,
+    /// The application's own, at one level.
+    Level(Level),
+    /// The framework's work that took [`SLOW_US`] or more - only the
+    /// outermost, what ran inside it is its breakdown.
+    Slow,
+}
+
+/// Whether `span` is framework work of [`SLOW_US`] or more that nothing
+/// slow it ran inside of already accounts for.
+pub fn slow(log: &TraceLog, span: &Span) -> bool {
+    if worked(span).is_none_or(|took| took < SLOW_US) {
+        return false;
+    }
+
+    let mut inner = span;
+    for _ in 0..DEPTH_LIMIT * 4 {
+        let Some(outer) = inner.parent.and_then(|parent| log.get(parent)) else {
+            return true;
+        };
+        if !holds(outer, span) {
+            return true;
+        }
+        if worked(outer).is_some_and(|took| took >= SLOW_US) {
+            return false;
+        }
+        inner = outer;
+    }
+
+    true
+}
+
+/// How long the framework spent on `span` itself. `None` for what the
+/// application wrote, and for what was waited on rather than worked at:
+/// background work, a source's life.
+fn worked(span: &Span) -> Option<u64> {
+    match &span.point {
+        TracePoint::Log { .. }
+        | TracePoint::Span { .. }
+        | TracePoint::Settled { .. }
+        | TracePoint::Cancelled { .. }
+        | TracePoint::Closed { .. }
+        | TracePoint::Unknown => None,
+        TracePoint::Render { took_us, .. } => Some(*took_us),
+        _ => span.took,
+    }
+}
+
+/// Whether `inner` started while `outer` was running.
+fn holds(outer: &Span, inner: &Span) -> bool {
+    let took = outer.took.or_else(|| measured(&outer.point));
+    took.is_some_and(|took| inner.at >= outer.at && inner.at <= outer.at + took)
+}
+
 /// Which records to show.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Query {
+    #[serde(default)]
+    pub class: Class,
     /// Kinds left out.
     #[serde(default)]
     pub hidden: Vec<String>,
@@ -53,9 +121,17 @@ impl Query {
         !self.hidden.iter().any(|hidden| hidden == kind)
     }
 
-    /// By kind, then by the text: as shown, or with whole type paths.
-    pub fn matches(&self, span: &Span, timers: &Timers) -> bool {
-        if !self.shows(span.point.kind()) {
+    /// By class and kind, then by the text: as shown, or with whole type
+    /// paths.
+    pub fn matches(&self, reading: Reading, span: &Span) -> bool {
+        let timers = reading.timers;
+        let in_class = match self.class {
+            Class::Every => true,
+            Class::Own => Level::of(&span.point).is_some(),
+            Class::Level(level) => Level::of(&span.point) == Some(level),
+            Class::Slow => slow(reading.log, span),
+        };
+        if !in_class || !self.shows(span.point.kind()) {
             return false;
         }
         if self.text.is_empty() {
@@ -88,6 +164,8 @@ pub struct Shown {
     ids: VecDeque<u64>,
     /// Where in the log's arrivals it stands.
     cursor: u64,
+    /// Where in the log's ends it stands.
+    ended: u64,
     /// The newest record the query's limit let in last time.
     limit: u64,
 }
@@ -108,6 +186,7 @@ impl Shown {
             *self = Shown {
                 query: Some(criteria.clone()),
                 limit,
+                ended: log.endings(),
                 ..Shown::default()
             };
         }
@@ -118,7 +197,7 @@ impl Shown {
             }
         } else if limit > self.limit {
             for span in log.between(self.limit, limit.saturating_add(1)) {
-                if criteria.matches(span, reading.timers) {
+                if criteria.matches(reading, span) {
                     self.insert(span.id);
                 }
             }
@@ -132,11 +211,41 @@ impl Shown {
         }
 
         for span in log.since(self.cursor) {
-            if span.id <= limit && criteria.matches(span, reading.timers) {
+            if span.id <= limit && criteria.matches(reading, span) {
                 self.insert(span.id);
             }
         }
         self.cursor = log.arrivals();
+
+        for span in log.ended_since(self.ended) {
+            if span.id > limit {
+                continue;
+            }
+            if criteria.matches(reading, span) {
+                self.insert(span.id);
+            }
+            if criteria.class == Class::Slow {
+                self.recheck_inside(reading, &criteria, span);
+            }
+        }
+        self.ended = log.endings();
+    }
+
+    /// Takes out what ran inside `outer` and no longer matches: work that
+    /// was listed as slow until `outer`'s end said it ran inside something
+    /// slower.
+    fn recheck_inside(&mut self, reading: Reading, criteria: &Query, outer: &Span) {
+        let from = self.ids.partition_point(|id| *id <= outer.id);
+        let stale: Vec<u64> = self
+            .ids
+            .range(from..)
+            .filter_map(|id| reading.log.get(*id))
+            .take_while(|inner| holds(outer, inner))
+            .filter(|inner| !criteria.matches(reading, inner))
+            .map(|inner| inner.id)
+            .collect();
+
+        self.ids.retain(|id| !stale.contains(id));
     }
 
     fn insert(&mut self, id: u64) {
@@ -165,6 +274,50 @@ impl Shown {
         range: std::ops::Range<usize>,
     ) -> impl Iterator<Item = &'a Span> {
         self.ids.range(range).filter_map(|id| log.get(*id))
+    }
+}
+
+/// Each class's records, brought up to date as the trace arrives rather
+/// than read again when something asks.
+#[derive(Clone, Debug, Default)]
+pub struct Classes {
+    lists: Vec<(Class, Shown)>,
+}
+
+impl Classes {
+    /// Every class a list of records is offered for, apart from every record.
+    pub fn offered() -> impl Iterator<Item = Class> {
+        std::iter::once(Class::Own)
+            .chain(Level::ALL.into_iter().map(Class::Level))
+            .chain(std::iter::once(Class::Slow))
+    }
+
+    /// Takes in what arrived and what ended since the last time.
+    pub fn absorb(&mut self, reading: Reading) {
+        if self.lists.is_empty() {
+            self.lists = Classes::offered().map(|class| (class, Shown::default())).collect();
+        }
+
+        for (class, shown) in &mut self.lists {
+            shown.refresh(
+                reading,
+                &Query {
+                    class: *class,
+                    ..Query::default()
+                },
+            );
+        }
+    }
+
+    pub fn count(&self, class: Class) -> usize {
+        self.list(class).map_or(0, Shown::len)
+    }
+
+    pub fn list(&self, class: Class) -> Option<&Shown> {
+        self.lists
+            .iter()
+            .find(|(listed, _)| *listed == class)
+            .map(|(_, shown)| shown)
     }
 }
 
@@ -405,6 +558,110 @@ pub fn record(reading: Reading, id: u64, query: &Query) -> Option<Record> {
             _ => None,
         },
     })
+}
+
+/// One record as the panel beside a list reads it: what it says, where it
+/// was written, what the framework was doing at the time and what ran
+/// inside it, with how long each part took. Nothing in it leads elsewhere.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct About {
+    pub row: Row,
+    pub level: Option<Level>,
+    pub target: Option<String>,
+    /// A span's fields as they were when it opened, `name=value`.
+    pub fields: Option<String>,
+    pub written: Option<Declared>,
+    /// From what started it down to what it ran in, itself left out; a send
+    /// followed by its handling is the handling.
+    pub within: Vec<Row>,
+    /// Whether older causes than [`CHAIN_LIMIT`] were left out.
+    pub within_cut: bool,
+    /// What ran inside it while it ran: the application's own records, and
+    /// the framework's work that took time.
+    pub inside: Vec<Consequence>,
+    /// Whether what ran inside stopped at [`TREE_LIMIT`] records or
+    /// [`DEPTH_LIMIT`] levels.
+    pub inside_cut: bool,
+}
+
+pub fn about(reading: Reading, id: u64) -> Option<About> {
+    let span = reading.log.get(id)?;
+
+    let (mut chain, within_cut) = reading.log.provenance(id, CHAIN_LIMIT + 1);
+    chain.pop();
+    let within = chain
+        .iter()
+        .enumerate()
+        .filter(|(at, step)| {
+            let next = chain.get(at + 1).copied().unwrap_or(span);
+            !says_it_again(step, next)
+        })
+        .map(|(_, step)| row(reading, step))
+        .collect();
+
+    let mut walk = Walk {
+        budget: TREE_LIMIT,
+        cut: false,
+    };
+    let inside = ran_inside(reading, span, span.id, 0, &mut walk);
+
+    let (target, fields, written) = match &span.point {
+        TracePoint::Log { target, written, .. } => (Some(target.clone()), None, written.clone()),
+        TracePoint::Span {
+            target,
+            fields,
+            declared,
+            ..
+        } => (
+            Some(target.clone()),
+            Some(fields.clone()).filter(|fields| !fields.is_empty()),
+            declared.clone(),
+        ),
+        _ => (None, None, None),
+    };
+
+    Some(About {
+        row: row(reading, span),
+        level: Level::of(&span.point),
+        target,
+        fields,
+        written,
+        within,
+        within_cut,
+        inside,
+        inside_cut: walk.cut,
+    })
+}
+
+/// What `from` set off while `outer` ran, as the tree of what is worth a
+/// line: the application's own records and work that took time. A mark in
+/// between - a send, a push - is passed through to what it set off.
+fn ran_inside(reading: Reading, outer: &Span, from: u64, depth: usize, walk: &mut Walk) -> Vec<Consequence> {
+    let mut out = Vec::new();
+
+    for child in reading.log.children(from) {
+        if !holds(outer, child) {
+            continue;
+        }
+        if walk.budget == 0 || depth == DEPTH_LIMIT {
+            walk.cut = true;
+            break;
+        }
+
+        let worth_a_line =
+            Level::of(&child.point).is_some() || worked(child).is_some_and(|took| took > 0);
+        if worth_a_line {
+            walk.budget -= 1;
+            out.push(Consequence {
+                row: row(reading, child),
+                children: ran_inside(reading, child, child.id, depth + 1, walk),
+            });
+        } else {
+            out.extend(ran_inside(reading, outer, child.id, depth, walk));
+        }
+    }
+
+    out
 }
 
 #[cfg(test)]
@@ -650,11 +907,259 @@ mod tests {
         assert_eq!(ids(&shown, &log), [1, 2, 3, 4, 5, 6, 7]);
     }
 
+    fn at(id: u64, parent: Option<u64>, at: u64, took: Option<u64>, point: TracePoint) -> Span {
+        Span {
+            id,
+            parent,
+            at,
+            took,
+            point,
+        }
+    }
+
+    fn handle(message: &str) -> TracePoint {
+        TracePoint::Handle {
+            actor: "a::Worker".into(),
+            message: message.into(),
+        }
+    }
+
+    fn logged(level: &str) -> TracePoint {
+        TracePoint::Log {
+            level: level.into(),
+            target: "app".into(),
+            text: "said".into(),
+            written: None,
+        }
+    }
+
+    fn spanned(level: &str) -> TracePoint {
+        TracePoint::Span {
+            name: "scan".into(),
+            target: "app".into(),
+            fields: String::new(),
+            declared: None,
+            level: level.into(),
+        }
+    }
+
+    fn of(class: Class) -> Query {
+        Query {
+            class,
+            ..Query::default()
+        }
+    }
+
+    fn ids(reading: Reading, query: &Query) -> Vec<u64> {
+        shown(reading, query).iter().map(|span| span.id).collect()
+    }
+
+    #[test]
+    fn what_the_application_wrote_is_listed_apart_and_by_level() {
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![
+                at(1, None, 0, None, TracePoint::Action { message: "a::Kill".into() }),
+                at(2, Some(1), 10, Some(5), handle("a::Kill")),
+                at(3, Some(2), 11, None, logged("INFO")),
+                at(4, Some(2), 12, Some(2), spanned("DEBUG")),
+                at(5, None, 20, None, TracePoint::Tick { timer: None }),
+                at(6, Some(5), 21, Some(1), spanned("")),
+                at(7, Some(5), 22, None, logged("WARN")),
+            ],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+        let timers = Timers::default();
+        let reading = read(&log, &timers);
+
+        assert_eq!(ids(reading, &of(Class::Own)), [3, 4, 6, 7]);
+        assert_eq!(ids(reading, &of(Class::Level(Level::Info))), [3, 6], "a span that did not say is info");
+        assert_eq!(ids(reading, &of(Class::Level(Level::Debug))), [4]);
+        assert_eq!(ids(reading, &of(Class::Level(Level::Warn))), [7]);
+        assert_eq!(ids(reading, &of(Class::Every)).len(), 7);
+    }
+
+    #[test]
+    fn slow_is_the_outermost_framework_work_of_a_millisecond_or_more() {
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![
+                at(1, None, 0, Some(3_000), handle("a::Outer")),
+                at(2, Some(1), 100, Some(1_500), handle("a::Inner")),
+                at(3, Some(2), 200, None, TracePoint::Send {
+                    actor: "a::Worker".into(),
+                    message: "a::Later".into(),
+                }),
+                at(4, Some(3), 5_000, Some(1_200), handle("a::Later")),
+                at(5, None, 6_000, None, TracePoint::Render {
+                    segment: "Processes".into(),
+                    took_us: 2_000,
+                }),
+                at(6, None, 6_500, None, TracePoint::Settled {
+                    actor: "a::Worker".into(),
+                    actor_id: 1,
+                    output: "a::Scan".into(),
+                    took_us: 90_000,
+                }),
+                at(7, None, 7_000, Some(5_000), spanned("INFO")),
+                at(8, None, 9_000, Some(900), handle("a::Quick")),
+            ],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+        let timers = Timers::default();
+
+        assert_eq!(
+            ids(read(&log, &timers), &of(Class::Slow)),
+            [1, 4, 5],
+            "not what ran inside a slow one, not background work waited on, not the application's own, not under a millisecond"
+        );
+    }
+
+    #[test]
+    fn work_turns_slow_when_its_end_arrives_and_what_ran_inside_it_stops_being_listed() {
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![
+                at(1, None, 0, None, TracePoint::Publish {
+                    event: "a::Changed".into(),
+                    bus: guinea_devtools_protocol::BusKind::Global,
+                    subscribers: 1,
+                }),
+                at(2, Some(1), 100, None, handle("a::Changed")),
+            ],
+            ends: vec![guinea_devtools_protocol::End { id: 2, took: 1_500 }],
+            dropped: 0,
+        });
+        let timers = Timers::default();
+        let query = of(Class::Slow);
+        let listed = |shown: &Shown, log: &TraceLog| -> Vec<u64> {
+            shown.spans(log, 0..shown.len()).map(|span| span.id).collect()
+        };
+
+        let mut shown = Shown::default();
+        shown.refresh(read(&log, &timers), &query);
+        assert_eq!(listed(&shown, &log), [2]);
+
+        log.absorb(TraceBatch {
+            spans: Vec::new(),
+            ends: vec![guinea_devtools_protocol::End { id: 1, took: 3_000 }],
+            dropped: 0,
+        });
+        shown.refresh(read(&log, &timers), &query);
+        assert_eq!(listed(&shown, &log), [1], "the handling is the publish's breakdown now");
+    }
+
+    #[test]
+    fn about_a_record_says_what_it_ran_in_and_what_ran_inside_it() {
+        let mut scan = spanned("DEBUG");
+        if let TracePoint::Span { fields, declared, .. } = &mut scan {
+            *fields = "rows=3".into();
+            *declared = Some(Declared {
+                file: "src/scan.rs".into(),
+                line: 7,
+                ..Declared::default()
+            });
+        }
+
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![
+                at(1, None, 0, None, TracePoint::Tick { timer: None }),
+                at(2, Some(1), 10, Some(3_000), handle("a::Scan")),
+                at(3, Some(2), 20, None, TracePoint::Send {
+                    actor: "a::Worker".into(),
+                    message: "a::Later".into(),
+                }),
+                at(4, Some(2), 30, Some(2_000), scan),
+                at(5, Some(4), 40, None, logged("INFO")),
+                at(6, Some(4), 50, None, TracePoint::Push { reducer: "a::Rows".into() }),
+                at(7, Some(3), 5_000, Some(100), handle("a::Later")),
+                at(8, Some(4), 60, None, TracePoint::Render {
+                    segment: "Processes".into(),
+                    took_us: 500,
+                }),
+            ],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+        let timers = Timers::default();
+        let reading = read(&log, &timers);
+        let rows = |rows: &[Row]| -> Vec<u64> { rows.iter().map(|row| row.id).collect() };
+        let tree = |inside: &[Consequence]| -> Vec<(u64, Vec<u64>)> {
+            inside
+                .iter()
+                .map(|next| (next.row.id, next.children.iter().map(|child| child.row.id).collect()))
+                .collect()
+        };
+
+        let span = about(reading, 4).expect("kept");
+        assert_eq!(span.level, Some(Level::Debug));
+        assert_eq!(span.target.as_deref(), Some("app"));
+        assert_eq!(span.fields.as_deref(), Some("rows=3"));
+        assert_eq!(span.written.as_ref().map(|at| at.line), Some(7));
+        assert_eq!(rows(&span.within), [1, 2]);
+        assert_eq!(
+            tree(&span.inside),
+            [(5, vec![]), (8, vec![])],
+            "its log line and the render that ran in it; a push took no time"
+        );
+
+        let handling = about(reading, 2).expect("kept");
+        assert_eq!(handling.level, None);
+        assert_eq!(rows(&handling.within), [1]);
+        assert_eq!(
+            tree(&handling.inside),
+            [(4, vec![5, 8])],
+            "the handling its send caused ran later, not inside"
+        );
+
+        let later = about(reading, 7).expect("kept");
+        assert_eq!(rows(&later.within), [1, 2], "the send is its handling");
+
+        let line = about(reading, 5).expect("kept");
+        assert_eq!(rows(&line.within), [1, 2, 4]);
+        assert!(line.inside.is_empty());
+    }
+
+    #[test]
+    fn each_class_is_counted_as_the_trace_arrives() {
+        let mut log = TraceLog::default();
+        let timers = Timers::default();
+        let mut classes = Classes::default();
+
+        log.absorb(TraceBatch {
+            spans: vec![
+                at(1, None, 0, None, handle("a::Scan")),
+                at(2, Some(1), 10, None, logged("WARN")),
+                at(3, Some(1), 20, Some(5), spanned("")),
+            ],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+        classes.absorb(read(&log, &timers));
+        assert_eq!(classes.count(Class::Own), 2);
+        assert_eq!(classes.count(Class::Level(Level::Warn)), 1);
+        assert_eq!(classes.count(Class::Level(Level::Info)), 1);
+        assert_eq!(classes.count(Class::Slow), 0, "not ended yet");
+
+        log.absorb(TraceBatch {
+            spans: Vec::new(),
+            ends: vec![guinea_devtools_protocol::End { id: 1, took: 4_000 }],
+            dropped: 0,
+        });
+        classes.absorb(read(&log, &timers));
+        assert_eq!(classes.count(Class::Slow), 1);
+        assert_eq!(Classes::offered().count(), 7);
+    }
+
     #[test]
     fn a_query_leaves_out_kinds_and_matches_whole_paths() {
         let log = log();
         let timers = Timers::default();
         let query = Query {
+            class: Class::Every,
             hidden: vec!["tick".into()],
             text: "A::TABS".into(),
             upto: None,

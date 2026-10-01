@@ -208,12 +208,14 @@ fn point(point: &Point) -> TracePoint {
             file,
             line,
             fields,
+            level,
             ..
         } => TracePoint::Span {
             name: name.to_string(),
             target: target.to_string(),
             fields: fields.clone(),
             declared: file.zip(*line).map(|(file, line)| written(file, line)),
+            level: level.to_string(),
         },
         Point::Note(text) => TracePoint::Note { text: text.clone() },
     }
@@ -587,6 +589,24 @@ mod tests {
             "the action ended inside the batch"
         );
         assert_eq!(batch.spans[1].parent, Some(batch.spans[0].id));
+    }
+
+    #[test]
+    fn a_span_says_its_level() {
+        let sent = point(&Point::Span {
+            name: "scan",
+            target: "app",
+            file: None,
+            line: None,
+            module: None,
+            fields: String::new(),
+            level: tracing::Level::WARN,
+        });
+
+        match sent {
+            TracePoint::Span { level, .. } => assert_eq!(level, "WARN"),
+            other => panic!("a span, not {other:?}"),
+        }
     }
 
     #[test]

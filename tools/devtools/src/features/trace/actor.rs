@@ -1,7 +1,7 @@
 use guinea_core::feature::Push;
 use guinea_macros::{actor, handler};
 
-use super::contracts::{Change, Filter, Freeze, OpenStream, Select, Toggle, TraceState};
+use super::contracts::{Change, Filter, Freeze, OpenStream, Select, TraceState};
 use super::settings::TraceSettings;
 
 #[derive(Debug)]
@@ -18,7 +18,7 @@ impl TraceActor {
 
 actor! {
     TraceActor {
-        handlers { OpenStream, Filter, Toggle, Freeze, Select }
+        handlers { OpenStream, Filter, Freeze, Select }
     }
 }
 
@@ -32,20 +32,6 @@ fn open_stream(this: &mut TraceActor, OpenStream(stream): OpenStream) {
 fn filter(this: &mut TraceActor, Filter(query): Filter) {
     let _ = this.settings.query().set(query.clone());
     this.push.send(Change::Query(query));
-}
-
-#[handler]
-fn toggle(this: &mut TraceActor, Toggle(kind): Toggle) {
-    let mut hidden = this.settings.hidden().get();
-    match hidden.iter().position(|named| named == kind.name()) {
-        Some(at) => {
-            hidden.remove(at);
-        }
-        None => hidden.push(kind.name().to_string()),
-    }
-    let _ = this.settings.hidden().set(hidden);
-
-    this.push.send(Change::Toggle(kind));
 }
 
 #[handler]

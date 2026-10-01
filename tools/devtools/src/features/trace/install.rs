@@ -1,6 +1,5 @@
 use guinea::feature::FeatureInitContext;
 use guinea_devtools_model::chains::Stream;
-use guinea_devtools_model::words::Kind;
 use guinea_macros::{feature, installs};
 
 use super::actor::TraceActor;
@@ -16,15 +15,10 @@ feature! {
 #[installs]
 fn trace(cx: &FeatureInitContext) -> anyhow::Result<TraceFeature> {
     let settings = TraceSettings::new()?;
-    let hidden = settings.hidden().get();
 
     let seed = TraceState {
         stream: settings.stream().get().parse().unwrap_or(Stream::All),
         query: settings.query().get(),
-        hidden: Kind::ALL
-            .into_iter()
-            .filter(|kind| hidden.iter().any(|named| named == kind.name()))
-            .collect(),
         ..TraceState::default()
     };
 

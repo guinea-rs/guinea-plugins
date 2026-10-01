@@ -10,7 +10,7 @@ use crate::clock::Clock;
 use crate::tasks::Tasks;
 use crate::native::{Inspection, Picked};
 use crate::timers::Timers;
-use crate::trace::Reading;
+use crate::trace::{Classes, Reading};
 use crate::trace_log::TraceLog;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -46,6 +46,8 @@ pub struct Session {
     pub info: AppInfo,
     pub snapshot: Snapshot,
     pub trace: TraceLog,
+    /// The trace's records by class, kept up to date as it arrives.
+    pub classes: Classes,
     /// Every timer the snapshots mentioned.
     pub timers: Timers,
     /// The trace, as chains of records that set each other off.
@@ -235,6 +237,11 @@ impl Sessions {
                     }
                     Report::Trace(batch) => {
                         session.trace.absorb(batch);
+                        session.classes.absorb(Reading {
+                            log: &session.trace,
+                            clock: session.clock(),
+                            timers: &session.timers,
+                        });
                         session.chains.absorb(&session.trace, &session.timers);
                         session.tasks.absorb(&session.trace);
                     }
@@ -336,6 +343,38 @@ mod tests {
         let answers = &sessions.get(100).expect("there").answers;
         assert_eq!(answers.len(), ANSWERS_KEPT);
         assert!(!answers.contains_key(&0) && answers.contains_key(&(ANSWERS_KEPT as u64 + 9)));
+    }
+
+    #[test]
+    fn the_classes_of_records_follow_the_trace_as_it_arrives() {
+        use crate::trace::Class;
+        use guinea_devtools_protocol::{Span, TraceBatch, TracePoint};
+
+        let mut sessions = Sessions::default();
+        sessions.apply(Incoming::Opened(1));
+        sessions.apply(Incoming::Report(
+            1,
+            Box::new(Report::Trace(TraceBatch {
+                spans: vec![Span {
+                    id: 1,
+                    parent: None,
+                    at: 0,
+                    took: None,
+                    point: TracePoint::Log {
+                        level: "ERROR".into(),
+                        target: "app".into(),
+                        text: "failed".into(),
+                        written: None,
+                    },
+                }],
+                ends: Vec::new(),
+                dropped: 0,
+            })),
+        ));
+
+        let classes = &sessions.get(1).expect("there").classes;
+        assert_eq!(classes.count(Class::Own), 1);
+        assert_eq!(classes.count(Class::Level(crate::words::Level::Error)), 1);
     }
 
     #[test]

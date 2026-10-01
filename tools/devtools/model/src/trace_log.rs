@@ -21,6 +21,10 @@ pub struct TraceLog {
     arrived: VecDeque<u64>,
     /// How many ever arrived.
     arrivals: u64,
+    /// Records whose end arrived, in that order; the last [`KEPT`] of them.
+    ended: VecDeque<u64>,
+    /// How many ends of kept records ever arrived.
+    endings: u64,
     pub dropped: u64,
 }
 
@@ -47,6 +51,8 @@ impl TraceLog {
         for end in batch.ends {
             if let Some(span) = self.spans.get_mut(&end.id) {
                 span.took = Some(end.took);
+                self.ended.push_back(end.id);
+                self.endings += 1;
             }
         }
 
@@ -59,12 +65,29 @@ impl TraceLog {
         while self.arrived.len() > KEPT {
             self.arrived.pop_front();
         }
+        while self.ended.len() > KEPT {
+            self.ended.pop_front();
+        }
     }
 
     /// How many records ever arrived: where a reader that has taken in
     /// everything so far stands.
     pub fn arrivals(&self) -> u64 {
         self.arrivals
+    }
+
+    /// How many ends ever arrived: where a reader of [`ended_since`]
+    /// (Self::ended_since) that has taken in every end stands.
+    pub fn endings(&self) -> u64 {
+        self.endings
+    }
+
+    /// The records whose end arrived after the reader stood at `cursor`, in
+    /// the order the ends arrived: what they took is known only now.
+    pub fn ended_since(&self, cursor: u64) -> impl Iterator<Item = &Span> {
+        let first = self.endings - self.ended.len() as u64;
+        let skip = (cursor.saturating_sub(first) as usize).min(self.ended.len());
+        self.ended.range(skip..).filter_map(|id| self.spans.get(id))
     }
 
     /// What arrived after the reader stood at `cursor`, in the order it
@@ -283,6 +306,21 @@ mod tests {
 
         assert_eq!(log.get(2).and_then(|s| s.took), Some(77));
         assert_eq!(log.dropped, 3);
+    }
+
+    #[test]
+    fn a_reader_learns_which_records_ended_since_it_last_looked() {
+        let mut log = log();
+        let cursor = log.endings();
+        log.absorb(TraceBatch {
+            spans: Vec::new(),
+            ends: vec![End { id: 3, took: 5 }, End { id: 1, took: 9 }, End { id: 42, took: 1 }],
+            dropped: 0,
+        });
+
+        let ended: Vec<u64> = log.ended_since(cursor).map(|s| s.id).collect();
+        assert_eq!(ended, [3, 1], "an end for a record never kept is not one");
+        assert_eq!(log.ended_since(log.endings()).count(), 0);
     }
 
     #[test]

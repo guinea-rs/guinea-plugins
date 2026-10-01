@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 
 use guinea_devtools_model::chains::{self, GroupLine, Section, Stream, StreamLine, TimerView};
 use guinea_devtools_model::sessions::Session;
+use guinea_devtools_model::words::Level;
 
 use super::lines::{Go, Line, row, row_height};
 use crate::components;
@@ -39,9 +40,27 @@ pub fn rail(ui: &mut egui::Ui, session: &Session, current: &Stream, go: &mut Opt
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
 
+        let reading = session.reading();
+        let counted = |stream: &Stream| stream.class().map_or(0, |class| session.classes.count(class));
+
         components::block(ui, |ui| {
             entry(ui, height, current, &Stream::All, "Everything", chains, go);
-            entry(ui, height, current, &Stream::Records, "Records", session.trace.len(), go);
+            entry(ui, height, current, &Stream::Records, "Records", counted(&Stream::Records), go);
+        });
+
+        components::heading(ui, "Levels");
+        components::block(ui, |ui| {
+            for level in Level::ALL {
+                let stream = Stream::Level(level);
+                let title = chains::title(&session.chains, reading, &stream);
+                entry(ui, height, current, &stream, &title, counted(&stream), go);
+            }
+        });
+
+        components::heading(ui, "Performance");
+        components::block(ui, |ui| {
+            let title = chains::title(&session.chains, reading, &Stream::Slow);
+            entry(ui, height, current, &Stream::Slow, &title, counted(&Stream::Slow), go);
         });
 
         let mut sections: Vec<(Section, Vec<&StreamLine>)> = Vec::new();
