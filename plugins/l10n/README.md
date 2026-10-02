@@ -14,20 +14,26 @@ with any type implementing `Localization`, which the loader implements for
 you.
 
 The language is state the application owns: the plugin claims
-`Language<L10n>` and exports it to every window. A page reads it like any
-other state, and is drawn again when it changes:
+`Language<L10n>` and exports it to every window. A page or a layout reads
+it, and is drawn again when it changes:
 
 ```rust
-let (language, dispatch) = cx.use_reducer::<Language<L10n>, _>();
-let strings = language.strings();
+use guinea_plugin_l10n::L10nAccess;
 
+let strings = cx.l10n::<L10n>();
+```
+
+That works on every backend whose pages read as they draw - WinUI, eframe,
+ratatui, iced; on slint, bind `Language<L10n>` as any other state. A switch
+is an action on it:
+
+```rust
+let (_, dispatch) = cx.read::<Language<L10n>, _>();
 dispatch.emit(SwitchLanguage("ru".into()));
 ```
 
-`cx.state::<Language<L10n>, _>()` on the backends without hooks. A tag the
-application has no strings for leaves the language as it was. Code outside
-a page - an actor, a feature - reads it through its context, or
-`observe::<Language<L10n>>` to hear every switch.
+A tag the application has no strings for leaves the language as it was.
+A feature or an actor hears every switch with `observe::<Language<L10n>>`.
 
 ## Persistence
 

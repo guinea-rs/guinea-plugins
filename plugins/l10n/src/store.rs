@@ -31,6 +31,21 @@ impl<S: Clone + Default + 'static> Reducer for Language<S> {
 
 impl<S: Clone + Default + 'static> guinea::feature::AppExport for Language<S> {}
 
+/// The language from a page or a layout of any backend that reads as it
+/// draws.
+pub trait L10nAccess {
+    /// The strings the application shows; the segment is drawn again when
+    /// they change.
+    fn l10n<S: Localization + PartialEq>(&mut self) -> S;
+}
+
+impl<C: guinea::feature::Reads> L10nAccess for C {
+    fn l10n<S: Localization + PartialEq>(&mut self) -> S {
+        let (language, _) = self.read::<Language<S>, guinea::feature::FromApp>();
+        language.strings().clone()
+    }
+}
+
 /// Asks for the strings of a BCP-47 tag. A tag the application has no
 /// strings for leaves the language as it was.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -14,18 +14,17 @@
 //! ```
 //!
 //! The plugin claims [`Language`] for the application and exports it, so
-//! every page of every window reads it as it reads any state:
-//! `cx.use_reducer::<Language<L10n>, _>()` on WinUI, `cx.state::<Language<L10n>,
-//! _>()` elsewhere, redrawn when it changes. A switch is an action on it,
-//! [`SwitchLanguage`] with a tag. With the `persist` feature the plugin
-//! remembers the choice.
+//! every page of every window reads it - `cx.l10n::<L10n>()` through
+//! [`L10nAccess`], on any backend that reads as it draws - and is drawn again
+//! when it changes. A switch is an action on it, [`SwitchLanguage`] with a
+//! tag. With the `persist` feature the plugin remembers the choice.
 
 mod devtools;
 #[cfg(feature = "fluent")]
 pub mod fluent;
 mod store;
 
-pub use store::{Key, Language, Localization, SwitchLanguage};
+pub use store::{Key, L10nAccess, Language, Localization, SwitchLanguage};
 
 use std::marker::PhantomData;
 

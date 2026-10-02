@@ -36,3 +36,7 @@ workspace = true
 [dev-dependencies]
 guinea = { workspace = true, features = ["test-utils"] }
 tempfile = "3.27.0"
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+guinea = { workspace = true, features = ["test-utils", "winui", "harness"] }
+windows-reactor.workspace = true

@@ -1201,6 +1201,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "unic-langid",
+ "windows-reactor-pre",
 ]
 
 [[package]]
