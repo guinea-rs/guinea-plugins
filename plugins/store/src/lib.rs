@@ -12,6 +12,7 @@
 //! [`amethystate::global_store`] - the plugin initialises the same global.
 
 mod devtools;
+mod settings;
 
 use std::path::PathBuf;
 
@@ -23,6 +24,7 @@ use guinea::app::{Plugin, PluginBuilder};
 /// Re-exported so an application can read and write through the store without
 /// depending on amethystate itself.
 pub use amethystate;
+pub use settings::StoreAccess;
 
 /// The store this plugin provides.
 pub type Store = amethystate::Store;

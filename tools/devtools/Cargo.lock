@@ -145,9 +145,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate"
-version = "0.22.1"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66c1f51eb47d463ee97491ddfceb5d5043d738b8d81f117e726340e0b6f6e5f0"
+checksum = "58c64b0f10780e270e989719226464118fba92c48586b9ffc03ea277df20c400"
 dependencies = [
  "amethystate-core",
  "amethystate-macros",
@@ -177,9 +177,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-core"
-version = "0.22.1"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c3040285466d4fb852a77136bee5cd108710f18d67f8f8b2d91b17a66a56019"
+checksum = "adcfdf4140967a89727144e7be05b635dc816776aa4fe8c3373bc0b5144165f5"
 dependencies = [
  "arc-swap",
  "dashmap",
@@ -197,9 +197,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros"
-version = "0.22.1"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b3b01581f0ac82d068b84ef3c7a7be4a7c63d1bfa4e324c5fa8fae469ac4666"
+checksum = "a71a5ca994d64f23e2bb0ce4b197d753ce9cbb40769629b83c96c2a00e170546"
 dependencies = [
  "amethystate-macros-core",
  "darling",
@@ -211,9 +211,9 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros-core"
-version = "0.22.1"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a231e3615b976a5653ac08b04dff9acf01ffdd9e3869af9138b99fb5e9764603"
+checksum = "adafd2f32dcd88ad22f8b295f859019172e832eee224304cf1ed581162547e11"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -2466,7 +2466,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.14.3"
+version = "0.15.0"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2532,7 +2532,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.14.3"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "guinea",
@@ -2541,7 +2541,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.22.1"
+version = "0.23.0"
 dependencies = [
  "amethystate",
  "anyhow",

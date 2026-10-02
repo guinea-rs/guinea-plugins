@@ -5,7 +5,7 @@ description = "Persistent key-value store for guinea applications, backed by ame
 # `guinea_plugin_store::amethystate` gets types that are not ours, so the
 # version has to say which ones. Follow whichever part of amethystate's version
 # means incompatibility - its minor while it is 0.x, its major afterwards.
-version = "0.22.1"
+version = "0.23.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,13 +14,17 @@ repository.workspace = true
 [dependencies]
 guinea.workspace = true
 guinea-core.workspace = true
-amethystate = { version = "0.22.1", features = ["redb", "json", "memory"] }
+amethystate = { version = "0.23.0", features = ["redb", "json", "memory"] }
 anyhow.workspace = true
 tracing.workspace = true
+
+[features]
+test-utils = ["guinea/test-utils"]
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 guinea = { workspace = true, features = ["test-utils"] }
+guinea-plugin-store = { path = ".", features = ["test-utils"] }
 tempfile = "3.27.0"

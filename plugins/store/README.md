@@ -26,6 +26,21 @@ own.
 View code that already talks to amethystate directly keeps working -
 `amethystate::global_store()` returns the same store the plugin initialised.
 
+A struct with a place in the store opens over it from any context that can
+require a service - a feature's, a plugin's, a harness segment's with the
+`test-utils` feature:
+
+```rust
+use guinea_plugin_store::StoreAccess;
+
+let general = cx.settings::<GeneralSettings>();
+let window = cx.try_settings::<WindowSettings>()?;
+```
+
+`settings` panics when the struct will not open; `try_settings` hands back
+amethystate's `OpenStruct`, for a struct whose own `Open` can refuse. Both
+panic without `StorePlugin`: that is how the application was put together.
+
 ## Configuration
 
 | Constructor | Location |

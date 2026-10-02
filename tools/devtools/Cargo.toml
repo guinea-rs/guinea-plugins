@@ -20,7 +20,7 @@ guinea-macros = "0.18.8"
 guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
 guinea-plugin-store = { path = "../../plugins/store" }
 guinea-plugin-single-instance = { path = "../../plugins/single-instance" }
-amethystate = { version = "0.22.1", features = ["json"] }
+amethystate = { version = "0.23.0", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
 egui = "0.36"
