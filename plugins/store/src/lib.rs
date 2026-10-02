@@ -7,9 +7,9 @@
 //!     # ;
 //! ```
 //!
-//! Features reach the store with `app.require::<Store>()`; view code that
-//! already talks to `amethystate` directly can keep using
-//! [`amethystate::global_store`] - the plugin initialises the same global.
+//! Features reach the store with `app.require::<Store>()`, and open a struct
+//! over it with [`StoreAccess::settings`]. It is not amethystate's global
+//! store: nothing reads it through `global_store()` or a struct's `new()`.
 
 mod devtools;
 mod settings;
@@ -43,11 +43,12 @@ enum Open {
     Custom(Box<dyn FnOnce() -> anyhow::Result<StoreBuilder> + Send>),
 }
 
-/// Opens the application's store as the process-wide global, runs pending
-/// migrations, provides it as a service and closes it on shutdown.
+/// Opens the application's store, runs pending migrations, provides it as a
+/// service and closes it on shutdown.
 ///
-/// The global can only be initialised once per process, so this plugin must be
-/// the only thing calling [`amethystate::init_global`].
+/// The store is not amethystate's process-wide one: it is reached through
+/// the context, with `require::<Store>()` or [`StoreAccess`], so any number
+/// of them can be open in one process.
 pub struct StorePlugin {
     open: Open,
     backend: Option<Backend>,
@@ -158,46 +159,30 @@ impl Plugin for StorePlugin {
             builder = configure(builder);
         }
 
-        // `migrate_global` rather than `build_global`: since amethystate 0.21
-        // a build runs no step, so an application that declared migrations and
-        // opened with `build` would quietly read yesterday's shape. A plugin
-        // that is handed steps runs them.
-        // A step that fails now refuses the open and carries the report out
-        // with it, where 0.20 opened anyway and left the caller to notice.
-        // Which is the better refusal - an application does not want a store
-        // holding yesterday's shape - so it is said plainly rather than
-        // printed as a debug blob.
-        // The report itself is amethystate's to log: `migrate_global` writes
-        // it through tracing, a level per outcome.
         let steps = self.steps;
         let migrating = builder.migrations(move |migrations| {
             for step in steps {
                 step(migrations);
             }
         });
-        let (guard, report) = migrating
-            .migrate_global()
-            .map_err(|refused| match refused {
-                amethystate::InitGlobal::Open(amethystate::store::OpenStore::Migrating {
-                    why,
-                    report,
-                }) => {
-                    let failed = report
-                        .as_ref()
-                        .map(|report| report.failures().count())
-                        .unwrap_or_default();
+        let (store, report) = migrating.migrate().map_err(|refused| match refused {
+            amethystate::store::OpenStore::Migrating { why, report } => {
+                let failed = report
+                    .as_ref()
+                    .map(|report| report.failures().count())
+                    .unwrap_or_default();
 
-                    anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
-                }
-                other => anyhow::anyhow!("opening the store: {other:?}"),
-            })?;
+                anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
+            }
+            other => anyhow::anyhow!("opening the store: {other:?}"),
+        })?;
 
-        let store = amethystate::global_store();
         let watching = devtools::Watching::start(&store, &report);
+        let closing = store.clone();
 
         app.on_cleanup(move |_| {
             drop(watching);
-            guard
+            closing
                 .close()
                 .map_err(|error| anyhow::anyhow!("closing the store: {error:?}"))
         });
@@ -223,12 +208,7 @@ mod tests {
 
         let store = app.require::<Store>().expect("store provided");
         store.kv().set("greeting", &"hello").expect("set");
-
-        let mut second = TestApp::new();
-        second
-            .install(StorePlugin::at(dir.path().join("other")).backend(Backend::Json))
-            .map(|_| ())
-            .expect_err("a second global store is an installation error");
+        drop(store);
 
         assert!(app.shutdown().is_empty(), "no actors should leak");
 

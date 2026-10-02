@@ -23,8 +23,9 @@ store.set("app.launches", &launches)?;
 amethystate is re-exported, so an application needs no dependency on it of its
 own.
 
-View code that already talks to amethystate directly keeps working -
-`amethystate::global_store()` returns the same store the plugin initialised.
+The store is not amethystate's process-wide one: `amethystate::global_store()`
+and a struct's `new()` do not reach it. Any number of applications - tests
+running side by side, say - each open their own.
 
 A struct with a place in the store opens over it from any context that can
 require a service - a feature's, a plugin's, a harness segment's with the
@@ -52,10 +53,3 @@ An open that fails comes back as amethystate's `OpenStruct`. Without
 `#[migrate]` ones when the store opens; a step that fails refuses the open.
 `configure(|builder| ..)` takes any other `StoreBuilder` setting, `backend(..)`
 picks the engine. The store is closed, and so written out, on shutdown.
-
-## Caveats
-
-amethystate's global store can only be initialised once per process, so this
-plugin must be the only caller of `amethystate::init_global`. Since plugin
-installation is idempotent per `Plugin::ID`, listing it more than once is
-harmless - calling `init_global` yourself as well is not.
