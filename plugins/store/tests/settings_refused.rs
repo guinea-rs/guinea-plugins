@@ -27,10 +27,10 @@ fn a_refused_open_comes_back_to_whoever_tried() {
     let mut app = TestApp::new();
     app.install(StorePlugin::in_memory()).expect("install");
 
-    let window: Window = app.settings();
+    let window: Window = app.settings().expect("opens with its defaults");
     window.min().set(2000).expect("set");
 
-    let Err(OpenStruct::Declined(said)) = app.try_settings::<Window>() else {
+    let Err(OpenStruct::Declined(said)) = app.settings::<Window>() else {
         panic!("a window wider at its smallest than at its largest opened");
     };
     assert_eq!(said.reason(), "the smallest window is wider than the largest");

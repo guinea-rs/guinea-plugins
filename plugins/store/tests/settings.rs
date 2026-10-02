@@ -11,20 +11,21 @@ pub struct General {
 }
 
 #[test]
-fn settings_open_over_the_store_the_plugin_installed() {
+fn settings_open_over_the_store_the_plugin_installed() -> anyhow::Result<()> {
     let mut h = Harness::new(1);
-    h.plugin(StorePlugin::in_memory()).expect("install");
+    h.plugin(StorePlugin::in_memory())?;
 
     let segment = h.segment();
-    let written: General = segment.settings();
-    written.port().set(9000).expect("set");
+    let written: General = segment.settings()?;
+    written.port().set(9000)?;
 
-    let read: General = segment.context().settings();
+    let read: General = segment.context().settings()?;
     assert_eq!(read.port().get(), 9000, "a feature's context reads what a segment wrote");
 
     let store = segment.store().expect("the plugin provides it");
-    let opened = General::new_with(&store).expect("opens");
+    let opened = General::new_with(&store)?;
     assert_eq!(opened.port().get(), 9000);
+    Ok(())
 }
 
 #[test]

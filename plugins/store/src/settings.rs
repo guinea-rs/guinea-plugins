@@ -21,7 +21,7 @@ pub trait StoreAccess {
     ///
     /// When [`StorePlugin`](crate::StorePlugin) was not installed: that is
     /// how the application was put together, not something to recover from.
-    fn try_settings<S: Open>(&self) -> Result<S, OpenStruct> {
+    fn settings<S: Open>(&self) -> Result<S, OpenStruct> {
         let Some(store) = self.store() else {
             panic!(
                 "{} is kept in the store, and no store was installed - install StorePlugin",
@@ -29,18 +29,6 @@ pub trait StoreAccess {
             );
         };
         S::new_with(&store)
-    }
-
-    /// `S` opened over the store.
-    ///
-    /// # Panics
-    ///
-    /// When [`StorePlugin`](crate::StorePlugin) was not installed, and when
-    /// `S` will not open - see [`try_settings`](Self::try_settings) for a
-    /// struct whose open can be refused.
-    fn settings<S: Open>(&self) -> S {
-        self.try_settings::<S>()
-            .unwrap_or_else(|refused| panic!("{}: {refused}", std::any::type_name::<S>()))
     }
 }
 
