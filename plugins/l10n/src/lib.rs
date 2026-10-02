@@ -15,8 +15,8 @@
 //!
 //! The plugin claims [`Language`] for the application and exports it, so
 //! every page of every window reads it - `cx.l10n::<L10n>()` through
-//! [`L10nAccess`], on any backend that reads as it draws - and is drawn again
-//! when it changes. A switch is an action on it, [`SwitchLanguage`] with a
+//! [`L10nAccess`] on WinUI, eframe and ratatui, `state::<Language<L10n>, _>()`
+//! on iced - and is drawn again when it changes. A switch is an action on it, [`SwitchLanguage`] with a
 //! tag. With the `persist` feature the plugin remembers the choice.
 
 mod devtools;

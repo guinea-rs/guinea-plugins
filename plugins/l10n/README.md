@@ -23,9 +23,11 @@ use guinea_plugin_l10n::L10nAccess;
 let strings = cx.l10n::<L10n>();
 ```
 
-That works on every backend whose pages read as they draw - WinUI, eframe,
-ratatui, iced; on slint, bind `Language<L10n>` as any other state. A switch
-is an action on it:
+That works where a view is handed its context to read through - WinUI,
+eframe, ratatui. iced hands `view` a shared one, which `Reads` cannot read
+through until guinea 0.20: read `cx.state::<Language<L10n>, _>()` there.
+On slint, bind `Language<L10n>` as any other state. A switch is an action
+on it:
 
 ```rust
 let (_, dispatch) = cx.read::<Language<L10n>, _>();
