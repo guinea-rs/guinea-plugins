@@ -6845,3 +6845,63 @@ dependencies = [
  "syn 3.0.6",
  "winnow 1.0.4",
 ]
+
+[[patch.unused]]
+name = "guinea"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-app"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-codegen"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-core"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-eframe"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-macros"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-mark"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-meta"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-meta-build"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-route-dsl"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-router"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-trace"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "guinea-winui"
+version = "0.19.0"
+
+[[patch.unused]]
+name = "windows-canvas-pre"
+version = "0.100.0"
+
+[[patch.unused]]
+name = "windows-reactor-pre"
+version = "0.100.0"
