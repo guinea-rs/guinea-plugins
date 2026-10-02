@@ -2310,6 +2310,8 @@ dependencies = [
 [[package]]
 name = "guinea"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8d2125441271458ea5b0ea96afc655ca0055e896194e12e6af18c37112fde77"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -2323,6 +2325,8 @@ dependencies = [
 [[package]]
 name = "guinea-app"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61ac2aafb2c2b3a326f03b00419550060617a6aa425a6e02a1c4bd9143a19f97"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2333,6 +2337,8 @@ dependencies = [
 [[package]]
 name = "guinea-codegen"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0beb48e5ffefb871a5e233e0d2309ff32ca4bf28bbdeca7064d99190117c9784"
 dependencies = [
  "guinea-meta-build",
  "heck",
@@ -2347,6 +2353,8 @@ dependencies = [
 [[package]]
 name = "guinea-core"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d544f2a1644a9743629efd10d1f8d0f8422ea05cc41a9e1c109435a6d9cf4b35"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2457,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2470,6 +2478,8 @@ dependencies = [
 [[package]]
 name = "guinea-eframe"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31e883cb51d0c129bfa2276fee2599e833c47a6f7a12b3cefdbe3b453a68b67"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2483,6 +2493,8 @@ dependencies = [
 [[package]]
 name = "guinea-macros"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c158f594e335a15e0e414a5763cb0fd249cd1cdf90d9683a0d1d919786f232b"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -2497,14 +2509,20 @@ dependencies = [
 [[package]]
 name = "guinea-mark"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47a5b7a87bccf7eadd63f1a0eec7d310ec9ee4bc6d122d1ca8bfadb840269005"
 
 [[package]]
 name = "guinea-meta"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87821f1488b9e48cea11238dbee5b3a2ff81b030961eda93c04a9bd787b15315"
 
 [[package]]
 name = "guinea-meta-build"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b91141d4a2c2156e23fe827a0991ad30a26e9532ab6c4723f0a943157565aefb"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -2513,7 +2531,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.16.0"
+version = "0.17.0"
 dependencies = [
  "anyhow",
  "guinea",
@@ -2522,7 +2540,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.23.3"
+version = "0.23.4"
 dependencies = [
  "amethystate",
  "anyhow",
@@ -2534,6 +2552,8 @@ dependencies = [
 [[package]]
 name = "guinea-route-dsl"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3e6fd472f89c00d1f1502d9c6d6a6b4dc4222753ff3285fb5561efbc790d118"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2544,6 +2564,8 @@ dependencies = [
 [[package]]
 name = "guinea-router"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75f188d9045aac0e055a9c8e35dc0e592d12d52b7357903fac783331df00f422"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2556,6 +2578,8 @@ dependencies = [
 [[package]]
 name = "guinea-trace"
 version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f2351b2a5b657d9839c33a9cfdc8b9db4195f7fdbd8174778f20e44cdee5124"
 dependencies = [
  "serde_json",
  "tracing",
@@ -6820,15 +6844,3 @@ dependencies = [
  "syn 3.0.6",
  "winnow 1.0.4",
 ]
-
-[[patch.unused]]
-name = "guinea-winui"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "windows-canvas-pre"
-version = "0.100.0"
-
-[[patch.unused]]
-name = "windows-reactor-pre"
-version = "0.100.0"
