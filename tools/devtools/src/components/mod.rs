@@ -4,6 +4,7 @@
 mod block;
 mod fields;
 mod input;
+mod memo;
 mod panel;
 mod runner;
 pub mod source;
@@ -14,6 +15,7 @@ pub mod tree;
 pub use block::{PADDING, block, head, heading, rule};
 pub use fields::fields;
 pub use input::{FIELD_HEIGHT, field_look, search, select};
+pub use memo::memo;
 pub use panel::{bare, side};
 pub use runner::{run_cycle, runner};
 pub use tabs::{TABS_HEIGHT, tabs};

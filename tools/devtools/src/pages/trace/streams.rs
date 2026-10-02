@@ -33,7 +33,9 @@ fn section_title(section: Section) -> &'static str {
 
 /// The streams, by section.
 pub fn rail(ui: &mut egui::Ui, session: &Session, current: &Stream, go: &mut Option<Go>) {
-    let lines = chains::streams(&session.chains, session.reading());
+    let lines = components::memo(ui.ctx(), egui::Id::new(("streams", session.id)), session.revision, || {
+        chains::streams(&session.chains, session.reading())
+    });
     let chains: usize = lines.iter().map(|line| line.chains).sum();
     let height = row_height(ui);
 
@@ -64,7 +66,7 @@ pub fn rail(ui: &mut egui::Ui, session: &Session, current: &Stream, go: &mut Opt
         });
 
         let mut sections: Vec<(Section, Vec<&StreamLine>)> = Vec::new();
-        for line in &lines {
+        for line in lines.iter() {
             match sections.last_mut() {
                 Some((section, members)) if *section == line.section => members.push(line),
                 _ => sections.push((line.section, vec![line])),
@@ -155,7 +157,10 @@ pub fn stream(
     editor: Editor,
     go: &mut Option<Go>,
 ) {
-    let view = chains::view(&session.chains, session.reading(), stream, text);
+    let key = (session.revision, stream.clone(), text.to_string());
+    let view = components::memo(ui.ctx(), egui::Id::new(("chains", session.id)), key, || {
+        chains::view(&session.chains, session.reading(), stream, text)
+    });
     let open: Open = ui.data(|data| data.get_temp(open_id())).unwrap_or_default();
 
     match &view.timer {

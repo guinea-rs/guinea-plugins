@@ -30,9 +30,22 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 0, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 1, 0);
 
-use ogurpchik::auth::handshake::Protocol;
+/// The first version whose devtools take [`Report::Changed`] in place of
+/// one snapshot after another.
+pub const CHANGES_SINCE: Version = Version {
+    major: 3,
+    minor: 1,
+    patch: 0,
+};
+
+/// Whether devtools that speak `version` take changes rather than snapshots.
+pub fn takes_changes(version: Version) -> bool {
+    version.major == CHANGES_SINCE.major && version.minor >= CHANGES_SINCE.minor
+}
+
+use ogurpchik::auth::handshake::{Protocol, Version};
 use ogurpchik::endpoint::Endpoint;
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +68,10 @@ pub enum Report {
     Hello(AppInfo),
     /// The whole observable state, replacing the previous one.
     Snapshot(Snapshot),
+    /// What changed in the observable state since the last snapshot or
+    /// change: sent instead of snapshots to devtools that speak
+    /// [`CHANGES_SINCE`] or newer.
+    Changed(Changes),
     /// What happened since the last batch, oldest first.
     Trace(TraceBatch),
     /// How the native tree changed. The first batch is the whole tree.
@@ -567,6 +584,74 @@ pub struct Snapshot {
     /// The timers running now.
     #[serde(default)]
     pub timers: Vec<Timer>,
+}
+
+/// What changed in a [`Snapshot`]: what appeared or changed whole, what went
+/// away by id, and a list that changed as a whole list.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Changes {
+    /// Milliseconds since the application connected.
+    pub at: u64,
+    #[serde(default)]
+    pub actors: Vec<Actor>,
+    #[serde(default)]
+    pub actors_gone: Vec<u64>,
+    #[serde(default)]
+    pub roots: Vec<Root>,
+    #[serde(default)]
+    pub roots_gone: Vec<u64>,
+    #[serde(default)]
+    pub panels: Option<Vec<Panel>>,
+    #[serde(default)]
+    pub global_bus: Option<Vec<BusSubscription>>,
+    #[serde(default)]
+    pub timers: Option<Vec<Timer>>,
+}
+
+impl Changes {
+    pub fn is_empty(&self) -> bool {
+        self.actors.is_empty()
+            && self.actors_gone.is_empty()
+            && self.roots.is_empty()
+            && self.roots_gone.is_empty()
+            && self.panels.is_none()
+            && self.global_bus.is_none()
+            && self.timers.is_none()
+    }
+}
+
+impl Snapshot {
+    /// Brings it up to what `changes` say: by id for actors and roots, whole
+    /// for the lists that came.
+    pub fn apply(&mut self, changes: Changes) {
+        self.at = changes.at;
+
+        self.actors.retain(|actor| !changes.actors_gone.contains(&actor.id));
+        for actor in changes.actors {
+            match self.actors.iter_mut().find(|known| known.id == actor.id) {
+                Some(known) => *known = actor,
+                None => self.actors.push(actor),
+            }
+        }
+
+        self.roots.retain(|root| !changes.roots_gone.contains(&root.id));
+        for root in changes.roots {
+            match self.roots.iter_mut().find(|known| known.id == root.id) {
+                Some(known) => *known = root,
+                None => self.roots.push(root),
+            }
+        }
+
+        if let Some(panels) = changes.panels {
+            self.panels = panels;
+        }
+        if let Some(global_bus) = changes.global_bus {
+            self.global_bus = global_bus;
+        }
+        if let Some(timers) = changes.timers {
+            self.timers = timers;
+        }
+    }
 }
 
 /// A running timer.

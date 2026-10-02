@@ -36,7 +36,9 @@ impl Page for Graphs {
             let Some(session) = sessions.get(focus.app) else {
                 return;
             };
-            graph::build(&session.snapshot, &session.trace)
+            components::memo(ui.ctx(), egui::Id::new(("graph", session.id)), session.revision, || {
+                graph::build(&session.snapshot, &session.trace)
+            })
         };
 
         components::block(ui, legend);

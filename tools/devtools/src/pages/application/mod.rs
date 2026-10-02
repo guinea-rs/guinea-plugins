@@ -51,7 +51,9 @@ impl Page for Application {
             let Some(session) = sessions.get(focus.app) else {
                 return;
             };
-            panels::listed(&session.snapshot)
+            components::memo(ui.ctx(), egui::Id::new(("panels", session.id)), session.revision, || {
+                panels::listed(&session.snapshot)
+            })
         };
 
         if listed.is_empty() {

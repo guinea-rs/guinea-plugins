@@ -152,7 +152,15 @@ impl Page for Elements {
         let answer = egui::CentralPanel::default()
             .frame(components::bare(ui))
             .show(ui, |ui| {
-                tree::show(ui, snapshot, native, picked.as_ref(), wanted.as_ref(), &mut self.flipped)
+                tree::show(
+                    ui,
+                    (session.id, session.revision, inspector.map(|inspector| inspector.revision)),
+                    snapshot,
+                    native,
+                    picked.as_ref(),
+                    wanted.as_ref(),
+                    &mut self.flipped,
+                )
             })
             .inner;
 

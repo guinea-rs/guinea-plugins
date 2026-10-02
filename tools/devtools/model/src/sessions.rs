@@ -62,6 +62,9 @@ pub struct Session {
     /// by request id.
     pub answers: BTreeMap<u64, Answer>,
     pub received: u64,
+    /// Moves whenever something it shows changed: what is drawn from it is
+    /// drawn again only then.
+    pub revision: u64,
     pub connected: bool,
 }
 
@@ -136,9 +139,16 @@ pub enum Incoming {
 pub struct Sessions {
     pub listening: Listening,
     pub by_id: BTreeMap<u64, Session>,
+    moved: u64,
 }
 
 impl Sessions {
+    /// Moves whenever anything shown changed: a session came or went, or one
+    /// of them moved its own [`Session::revision`].
+    pub fn revision(&self) -> u64 {
+        self.moved
+    }
+
     pub fn get(&self, id: u64) -> Option<&Session> {
         self.by_id.get(&id)
     }
@@ -211,9 +221,16 @@ impl Sessions {
 
     pub fn apply(&mut self, incoming: Incoming) {
         match incoming {
-            Incoming::Listening(addr) => self.listening = Listening::On(addr),
-            Incoming::Failed(why) => self.listening = Listening::Failed(why),
+            Incoming::Listening(addr) => {
+                self.listening = Listening::On(addr);
+                self.moved += 1;
+            }
+            Incoming::Failed(why) => {
+                self.listening = Listening::Failed(why);
+                self.moved += 1;
+            }
             Incoming::Opened(id) => {
+                self.moved += 1;
                 self.by_id.insert(
                     id,
                     Session {
@@ -229,9 +246,19 @@ impl Sessions {
                 };
 
                 session.received += 1;
+                let shown = !matches!(
+                    *report,
+                    Report::Answered { .. } | Report::Profiler { .. } | Report::Unknown
+                );
                 match *report {
                     Report::Hello(info) => session.info = info,
-                    Report::Snapshot(snapshot) => {
+                    Report::Snapshot(mut snapshot) => {
+                        let at = std::mem::replace(&mut snapshot.at, session.snapshot.at);
+                        if snapshot == session.snapshot {
+                            session.snapshot.at = at;
+                            return;
+                        }
+                        snapshot.at = at;
                         session.timers.note(&snapshot.timers);
                         session.snapshot = snapshot;
                     }
@@ -257,6 +284,12 @@ impl Sessions {
                         session.inspection.enums =
                             enums.into_iter().map(|kind| (kind.name, kind.values)).collect();
                     }
+                    Report::Changed(changes) => {
+                        if let Some(timers) = &changes.timers {
+                            session.timers.note(timers);
+                        }
+                        session.snapshot.apply(changes);
+                    }
                     Report::Profiler { at } => session.profiler = at,
                     Report::Unknown => {}
                     Report::Refused { command, reason } => {
@@ -269,8 +302,13 @@ impl Sessions {
                         }
                     }
                 }
+                if shown {
+                    session.revision += 1;
+                    self.moved += 1;
+                }
             }
             Incoming::Closed(id) => {
+                self.moved += 1;
                 if let Some(session) = self.by_id.get_mut(&id) {
                     session.connected = false;
                 }
@@ -375,6 +413,122 @@ mod tests {
         let classes = &sessions.get(1).expect("there").classes;
         assert_eq!(classes.count(Class::Own), 1);
         assert_eq!(classes.count(Class::Level(crate::words::Level::Error)), 1);
+    }
+
+    #[test]
+    fn changes_bring_the_snapshot_and_the_timers_up_to_date() {
+        use guinea_devtools_protocol::{Actor, Changes, Snapshot, Timer};
+
+        let mut sessions = Sessions::default();
+        sessions.apply(Incoming::Opened(1));
+        sessions.apply(Incoming::Report(
+            1,
+            Box::new(Report::Snapshot(Snapshot {
+                actors: vec![Actor {
+                    id: 1,
+                    state: "before".into(),
+                    ..Actor::default()
+                }],
+                ..Snapshot::default()
+            })),
+        ));
+        sessions.apply(Incoming::Report(
+            1,
+            Box::new(Report::Changed(Changes {
+                actors: vec![Actor {
+                    id: 1,
+                    state: "after".into(),
+                    ..Actor::default()
+                }],
+                timers: Some(vec![Timer {
+                    id: 7,
+                    name: Some("ping".into()),
+                    ..Timer::default()
+                }]),
+                ..Changes::default()
+            })),
+        ));
+
+        let session = sessions.get(1).expect("there");
+        assert_eq!(session.snapshot.actors[0].state, "after");
+        assert_eq!(session.snapshot.timers.len(), 1);
+        assert!(
+            session.timers.get(7).is_some(),
+            "a timer that came with changes is known by its id"
+        );
+    }
+
+    #[test]
+    fn the_revision_moves_only_when_something_shown_changed() {
+        use guinea_devtools_protocol::{Actor, Changes, Snapshot, TraceBatch};
+
+        let mut sessions = Sessions::default();
+        sessions.apply(Incoming::Opened(1));
+        let revision = |sessions: &Sessions| sessions.get(1).expect("there").revision;
+        let report = |report| Incoming::Report(1, Box::new(report));
+        let snapshot = Snapshot {
+            actors: vec![Actor {
+                id: 1,
+                ..Actor::default()
+            }],
+            ..Snapshot::default()
+        };
+
+        let before = revision(&sessions);
+        sessions.apply(report(Report::Snapshot(snapshot.clone())));
+        let first = revision(&sessions);
+        assert!(first > before);
+
+        sessions.apply(report(Report::Snapshot(snapshot)));
+        assert_eq!(revision(&sessions), first, "the same snapshot again");
+
+        sessions.apply(report(Report::Answered {
+            request: 1,
+            answer: Answer::Done,
+        }));
+        assert_eq!(revision(&sessions), first, "an answer is not shown");
+
+        sessions.apply(report(Report::Changed(Changes {
+            actors_gone: vec![1],
+            ..Changes::default()
+        })));
+        let changed = revision(&sessions);
+        assert!(changed > first);
+
+        sessions.apply(report(Report::Trace(TraceBatch::default())));
+        assert!(revision(&sessions) > changed);
+    }
+
+    #[test]
+    fn the_sessions_move_when_one_comes_goes_or_moves() {
+        let mut sessions = Sessions::default();
+        let start = sessions.revision();
+
+        sessions.apply(Incoming::Opened(1));
+        let opened = sessions.revision();
+        assert!(opened > start);
+
+        sessions.apply(Incoming::Report(
+            1,
+            Box::new(Report::Answered {
+                request: 1,
+                answer: Answer::Done,
+            }),
+        ));
+        assert_eq!(sessions.revision(), opened);
+
+        sessions.apply(Incoming::Report(1, Box::new(Report::Profiler { at: None })));
+        assert_eq!(sessions.revision(), opened);
+
+        sessions.apply(Incoming::Report(
+            1,
+            Box::new(Report::Trace(guinea_devtools_protocol::TraceBatch::default())),
+        ));
+        let traced = sessions.revision();
+        assert!(traced > opened);
+
+        sessions.apply(Incoming::Closed(1));
+        assert!(sessions.revision() > traced);
     }
 
     #[test]

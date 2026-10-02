@@ -94,7 +94,8 @@ impl Hub {
         attach_native_in(&self.read(), id)
     }
 
-    /// Calls `watcher` on the applying thread after every batch of reports.
+    /// Calls `watcher` on the applying thread after a batch of reports that
+    /// changed something shown.
     pub fn on_change(&self, watcher: impl Fn() + Send + Sync + 'static) {
         self.watchers
             .lock()
@@ -104,13 +105,18 @@ impl Hub {
 
     fn apply_all(&self, inbox: Receiver<Incoming>) {
         while let Ok(first) = inbox.recv() {
-            {
+            let moved = {
                 let mut sessions = self.sessions.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let before = sessions.revision();
                 sessions.apply(first);
 
                 for next in inbox.try_iter().take(BATCH) {
                     sessions.apply(next);
                 }
+                sessions.revision() != before
+            };
+            if !moved {
+                continue;
             }
 
             for watcher in self.watchers.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).iter() {
@@ -176,3 +182,41 @@ pub fn attach_native_in(sessions: &Sessions, id: u64) -> Result<(), String> {
 /// copy still loaded somewhere cannot be removed, and is left alone.
 #[cfg(windows)]
 const TAP_COPY: &str = "guinea-xaml-tap-";
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use guinea_devtools_protocol::{Answer, Report};
+
+    use super::*;
+
+    #[test]
+    fn watchers_are_called_only_when_something_shown_changed() {
+        let hub = Hub::default();
+        let called = Arc::new(AtomicUsize::new(0));
+        let counted = called.clone();
+        hub.on_change(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let (out, inbox) = channel();
+        out.send(Incoming::Opened(1)).expect("sent");
+        drop(out);
+        hub.apply_all(inbox);
+        assert_eq!(called.load(Ordering::SeqCst), 1);
+
+        let (out, inbox) = channel();
+        out.send(Incoming::Report(
+            1,
+            Box::new(Report::Answered {
+                request: 1,
+                answer: Answer::Done,
+            }),
+        ))
+        .expect("sent");
+        drop(out);
+        hub.apply_all(inbox);
+        assert_eq!(called.load(Ordering::SeqCst), 1, "an answer alone draws nothing again");
+    }
+}

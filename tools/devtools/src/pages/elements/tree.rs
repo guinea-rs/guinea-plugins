@@ -18,16 +18,22 @@ pub struct Answer {
 }
 
 /// Draws the tree, flipping a row open or closed in `flipped` when its arrow
-/// is clicked.
+/// is clicked. Its rows are built again only when `revision` - the session,
+/// its revision and its inspector's - or what is open moved.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
+    revision: (u64, u64, Option<u64>),
     snapshot: &Snapshot,
     native: Option<&NativeTree>,
     picked: Option<&Element>,
     reveal: Option<&Element>,
     flipped: &mut HashSet<Element>,
 ) -> Answer {
-    let lines = elements::lines(snapshot, native, flipped, reveal);
+    let key = (revision, flipped.clone(), reveal.cloned());
+    let lines = components::memo(ui.ctx(), egui::Id::new(("elements", revision.0)), key, || {
+        elements::lines(snapshot, native, flipped, reveal)
+    });
 
     let wanted = reveal.and_then(|wanted| lines.iter().position(|line| &line.element == wanted));
     let answer = tree::show(ui, lines.len(), wanted, |ui, index| {
