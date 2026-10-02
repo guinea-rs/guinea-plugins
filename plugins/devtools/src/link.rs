@@ -1,10 +1,8 @@
 //! The connection, on a thread and a runtime of its own.
 //!
-//! Reports go through a short queue. When devtools are not there, or not
-//! keeping up, they are dropped: a snapshot is replaced by the next one anyway,
-//! and the application must never wait on its own debugger.
+//! Reports go through a short queue. When devtools are not there they are
+//! dropped, and the application must never wait on its own debugger.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -26,25 +24,29 @@ impl Drop for Outbox {
 }
 
 impl Outbox {
-    pub fn send(&mut self, report: Report) {
-        if let Err(error) = self.0.try_send(report)
-            && error.is_disconnected()
-        {
-            tracing::trace!("the devtools link is gone");
+    /// Queues `report`; `false` when the queue was full and it was dropped.
+    pub fn send(&mut self, report: Report) -> bool {
+        match self.0.try_send(report) {
+            Ok(()) => true,
+            Err(error) if error.is_disconnected() => {
+                tracing::trace!("the devtools link is gone");
+                true
+            }
+            Err(_) => false,
         }
     }
 }
 
-/// Starts the link. `connected` is true while devtools are there, so that
-/// nothing is collected for nobody. With `launch`, the first attempt that
-/// finds nobody starts devtools.
-pub fn spawn(info: Arc<Mutex<AppInfo>>, connected: Arc<AtomicBool>, launch: bool) -> Outbox {
+/// Starts the link. The UI thread is told when devtools come and go, so that
+/// nothing is read for nobody. With `launch`, the first attempt that finds
+/// nobody starts devtools.
+pub fn spawn(info: Arc<Mutex<AppInfo>>, launch: bool) -> Outbox {
     let (sender, receiver) = channel(QUEUE);
     let answers = sender.clone();
     let spawned = std::thread::Builder::new()
         .name("guinea-devtools".into())
         .spawn(move || match compio::runtime::Runtime::new() {
-            Ok(runtime) => runtime.block_on(run(info, connected, launch, receiver, answers)),
+            Ok(runtime) => runtime.block_on(run(info, launch, receiver, answers)),
             Err(error) => tracing::warn!(%error, "the devtools link has no runtime"),
         });
     if let Err(error) = spawned {
@@ -132,11 +134,11 @@ impl peer::Server for Inbound {
 
 async fn run(
     info: Arc<Mutex<AppInfo>>,
-    connected: Arc<AtomicBool>,
     mut launch: bool,
     mut reports: Receiver<Report>,
     answers: Sender<Report>,
 ) {
+    let mut generation = 0u64;
     loop {
         let endpoint = match guinea_devtools_protocol::endpoint() {
             Ok(endpoint) => endpoint,
@@ -172,7 +174,12 @@ async fn run(
             continue;
         };
         tracing::debug!(%endpoint, "connected to devtools");
-        connected.store(true, Ordering::Relaxed);
+        generation += 1;
+        let current = generation;
+        let takes_changes = session
+            .peer_version()
+            .is_some_and(guinea_devtools_protocol::takes_changes);
+        guinea_core::actor::invoke_on_ui(move || crate::live::connected(current, takes_changes));
 
         let remote = session.remote();
         let mut announced = AppInfo::default();
@@ -202,7 +209,7 @@ async fn run(
         }
 
         crate::profiler::stop();
-        connected.store(false, Ordering::Relaxed);
+        guinea_core::actor::invoke_on_ui(move || crate::live::disconnected(current));
     }
 }
 

@@ -221,7 +221,7 @@ fn point(point: &Point) -> TracePoint {
     }
 }
 
-fn since(started: Instant) -> u64 {
+pub fn since(started: Instant) -> u64 {
     started.elapsed().as_millis() as u64
 }
 
@@ -229,9 +229,15 @@ pub struct Collected {
     pub report: Snapshot,
     pub backend: Option<&'static str>,
     pub plugins: Vec<&'static str>,
+    /// Each window's segments, outermost first, as their scopes' keys.
+    pub segments: Vec<(u64, Vec<usize>)>,
 }
 
-fn actor(snapshot: &ActorSnapshot, root: Option<u64>, segments: &[usize]) -> Actor {
+/// Where a scope sits: its key, its window, how deep in the chain.
+pub type Scopes = [(usize, u64, usize)];
+
+pub fn actor(snapshot: &ActorSnapshot, root: Option<u64>, segments: &[usize]) -> Actor {
+    note_crate(snapshot);
     let shape = snapshot.shape;
     let owner = snapshot.owner;
     Actor {
@@ -313,43 +319,21 @@ pub fn snapshot(started: Instant) -> Collected {
     let backend = routers.first().map(|router| router.backend);
 
     let app = app_actors();
-    let mut crate_dirs: Vec<&'static str> = Vec::new();
-    let mut scopes: Vec<(usize, u64, usize)> = Vec::new();
-
-    let mut actors: Vec<Actor> = app
-        .iter()
-        .inspect(|snapshot| note_crate(&mut crate_dirs, snapshot))
-        .map(|snapshot| actor(snapshot, None, &[]))
-        .collect();
+    let mut actors: Vec<Actor> = app.iter().map(|snapshot| actor(snapshot, None, &[])).collect();
+    let mut chains: Vec<(u64, Vec<usize>)> = Vec::new();
 
     let roots = routers
         .into_iter()
         .map(|router| {
             let id = router.root.get();
-            let segments: Vec<usize> = router
-                .segments
-                .iter()
-                .map(|segment| segment.scope)
-                .collect();
-            scopes.extend(
-                segments
-                    .iter()
-                    .enumerate()
-                    .map(|(depth, key)| (*key, id, depth)),
-            );
-
+            let segments = segments(&router);
             for snapshot in &router.actors {
-                note_crate(&mut crate_dirs, snapshot);
                 actors.push(actor(snapshot, Some(id), &segments));
             }
+            chains.push((id, segments));
 
             root(router)
         })
-        .collect();
-
-    let timers = running()
-        .into_iter()
-        .map(|info| timer(info, &scopes, &crate_dirs))
         .collect();
 
     Collected {
@@ -357,16 +341,45 @@ pub fn snapshot(started: Instant) -> Collected {
             at: since(started),
             roots,
             actors,
-            panels: guinea_core::devtools::app_panels()
-                .into_iter()
-                .map(panel)
-                .collect(),
-            global_bus: subscriptions(&GlobalEventBus::bus().subscriptions()),
-            timers,
+            panels: app_panels(),
+            global_bus: global_bus(),
+            timers: timers(&scopes(chains.iter().map(|(root, keys)| (root, keys)))),
         },
         backend,
         plugins: installed_plugins(),
+        segments: chains,
     }
+}
+
+/// A window's segments, outermost first, as their scopes' keys.
+pub fn segments(router: &RouterView) -> Vec<usize> {
+    router.segments.iter().map(|segment| segment.scope).collect()
+}
+
+/// Every scope of every window's chain.
+pub fn scopes<'a>(
+    chains: impl IntoIterator<Item = (&'a u64, &'a Vec<usize>)>,
+) -> Vec<(usize, u64, usize)> {
+    chains
+        .into_iter()
+        .flat_map(|(root, keys)| keys.iter().enumerate().map(|(depth, key)| (*key, *root, depth)))
+        .collect()
+}
+
+pub fn timers(scopes: &Scopes) -> Vec<Timer> {
+    let crate_dirs = CRATE_DIRS.with_borrow(Clone::clone);
+    running()
+        .into_iter()
+        .map(|info| timer(info, scopes, &crate_dirs))
+        .collect()
+}
+
+pub fn app_panels() -> Vec<Panel> {
+    guinea_core::devtools::app_panels().into_iter().map(panel).collect()
+}
+
+pub fn global_bus() -> Vec<BusSubscription> {
+    subscriptions(&GlobalEventBus::bus().subscriptions())
 }
 
 thread_local! {
@@ -380,11 +393,8 @@ thread_local! {
 
 /// Remembers the crate an actor was declared in: where a timer's or a log's
 /// file, which carries no crate of its own, is looked for.
-fn note_crate(crate_dirs: &mut Vec<&'static str>, snapshot: &ActorSnapshot) {
-    if let Some(declared) = snapshot.shape.declared
-        && !crate_dirs.contains(&declared.crate_dir)
-    {
-        crate_dirs.push(declared.crate_dir);
+fn note_crate(snapshot: &ActorSnapshot) {
+    if let Some(declared) = snapshot.shape.declared {
         CRATE_DIRS.with_borrow_mut(|known| {
             if !known.contains(&declared.crate_dir) {
                 known.push(declared.crate_dir);
@@ -424,7 +434,7 @@ fn written(file: &'static str, line: u32) -> Declared {
     }
 }
 
-fn timer(info: TimerInfo, scopes: &[(usize, u64, usize)], crate_dirs: &[&'static str]) -> Timer {
+fn timer(info: TimerInfo, scopes: &Scopes, crate_dirs: &[&'static str]) -> Timer {
     let owner = info
         .scope
         .and_then(|scope| scopes.iter().find(|(key, _, _)| *key == scope));
@@ -452,7 +462,7 @@ fn timer(info: TimerInfo, scopes: &[(usize, u64, usize)], crate_dirs: &[&'static
     }
 }
 
-fn root(router: RouterView) -> Root {
+pub fn root(router: RouterView) -> Root {
     Root {
         id: router.root.get(),
         label: router.label,

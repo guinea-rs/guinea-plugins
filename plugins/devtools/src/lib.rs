@@ -10,9 +10,10 @@
 //! Devtools listen; the application connects, and keeps trying while devtools
 //! are not running. See `guinea_devtools_protocol` for where and how.
 //!
-//! Nothing is traced or snapshotted until devtools answer, and it stops when
-//! they go: an application that has the plugin and no devtools pays for one
-//! atomic load per tick.
+//! Nothing is traced or read until devtools answer, and it stops when they
+//! go: an application that has the plugin and no devtools runs nothing for
+//! it. While they are there, they are sent everything once and then only
+//! what guinea says moved, a short wait after it moved.
 //!
 //! In a release build the plugin does nothing unless
 //! [`in_release`](DevToolsPlugin::in_release) says otherwise: devtools can
@@ -22,20 +23,17 @@
 mod collect;
 mod launch;
 mod link;
+mod live;
 mod profiler;
 
-use std::cell::RefCell;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use guinea::app::{AppMeta, Plugin, PluginBuilder};
-use guinea::feature::ContextTimersExt;
-use guinea_devtools_protocol::{AppInfo, Capability, Report};
+use guinea_devtools_protocol::{AppInfo, Capability};
 
 pub struct DevToolsPlugin {
-    every_ms: u64,
+    wait_ms: u64,
     launch: bool,
     in_release: bool,
 }
@@ -49,7 +47,7 @@ impl Default for DevToolsPlugin {
 impl DevToolsPlugin {
     pub fn new() -> Self {
         Self {
-            every_ms: 250,
+            wait_ms: 50,
             launch: false,
             in_release: false,
         }
@@ -61,9 +59,10 @@ impl DevToolsPlugin {
         self
     }
 
-    /// How often a snapshot is taken. 250 ms unless said otherwise.
+    /// How long after something moves devtools are told, so that a burst
+    /// goes as one report. 50 ms unless said otherwise.
     pub fn every(mut self, millis: u64) -> Self {
-        self.every_ms = millis.max(16);
+        self.wait_ms = millis.max(16);
         self
     }
 
@@ -119,49 +118,16 @@ impl Plugin for DevToolsPlugin {
             ..info
         }));
 
-        let connected = Arc::new(AtomicBool::new(false));
-        let mut outbox = link::spawn(info.clone(), connected.clone(), self.launch);
-        let started = Instant::now();
-
-        let traces = Rc::new(RefCell::new(collect::Traces::default()));
-
-        app.repeat(Duration::from_millis(self.every_ms), move || {
-            if !connected.load(Ordering::Relaxed) {
-                if guinea_core::trace::is_observed() {
-                    guinea_core::trace::stop_observing();
-                    traces.borrow_mut().take();
-                }
-                return;
-            }
-
-            if !guinea_core::trace::is_observed() {
-                let sink = traces.clone();
-                guinea_core::trace::observe(move |record| sink.borrow_mut().push(record));
-            }
-
-            let snapshot = collect::snapshot(started);
-
-            {
-                let mut info = info.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                if let Some(backend) = snapshot.backend {
-                    info.backend = backend.to_string();
-                }
-                if !snapshot.plugins.is_empty() {
-                    info.plugins = snapshot.plugins.iter().map(|id| id.to_string()).collect();
-                }
-            }
-
-            outbox.send(Report::Snapshot(snapshot.report));
-
-            let batch = traces.borrow_mut().take();
-            if !batch.spans.is_empty() || !batch.ends.is_empty() || batch.dropped > 0 {
-                outbox.send(Report::Trace(batch));
-            }
-        })
-        .untraced();
+        let outbox = link::spawn(info.clone(), self.launch);
+        live::start(
+            outbox,
+            info,
+            Instant::now(),
+            Duration::from_millis(self.wait_ms),
+        );
 
         app.on_cleanup(|_| {
-            guinea_core::trace::stop_observing();
+            live::stop();
             Ok(())
         });
         Ok(())
