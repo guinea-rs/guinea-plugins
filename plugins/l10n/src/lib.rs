@@ -1,6 +1,5 @@
-//! Localisation for guinea applications: the store the whole process reads,
-//! the Fluent resolver, the per-backend hooks, and the plugin that loads it all
-//! at startup.
+//! Localisation for guinea applications: the language the application shows,
+//! the Fluent resolver, and the plugin that loads it at startup.
 //!
 //! ```no_run
 //! # use guinea_plugin_l10n::L10nPlugin;
@@ -14,18 +13,19 @@
 //!     # ;
 //! ```
 //!
-//! Views read the current strings through a backend hook (`ui::use_l10n` under
-//! the `winui` feature); anything switching the language calls
-//! [`L10n::load`]. The plugin owns startup and, with the `persist` feature,
-//! remembering the choice.
+//! The plugin claims [`Language`] for the application and exports it, so
+//! every page of every window reads it as it reads any state:
+//! `cx.use_reducer::<Language<L10n>, _>()` on WinUI, `cx.state::<Language<L10n>,
+//! _>()` elsewhere, redrawn when it changes. A switch is an action on it,
+//! [`SwitchLanguage`] with a tag. With the `persist` feature the plugin
+//! remembers the choice.
 
 mod devtools;
 #[cfg(feature = "fluent")]
 pub mod fluent;
 mod store;
-pub mod ui;
 
-pub use store::{Key, L10n, Localization};
+pub use store::{Key, Language, Localization, SwitchLanguage};
 
 use std::marker::PhantomData;
 
@@ -80,13 +80,20 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
             })
             .ok_or_else(|| anyhow::anyhow!("`{}` is not a language tag", self.default_tag))?;
 
-        L10n::<S>::load(strings);
+        let language = app.state::<Language<S>>().seed(Language::new(strings)).plain();
+        app.export::<Language<S>>()?;
+        app.answers(move |SwitchLanguage(tag)| {
+            match S::for_tag(&tag).filter(|strings| has_locale::<S>(&strings.tag())) {
+                Some(strings) => language.push(strings),
+                None => tracing::warn!(%tag, "no strings for this language, it stays"),
+            }
+        });
 
         if self.persist {
             remember_changes::<S>(app);
         }
 
-        let panel = devtools::watch::<S>();
+        let panel = devtools::watch::<S>(app.scope);
         app.on_cleanup(move |_| {
             drop(panel);
             Ok(())
@@ -137,15 +144,10 @@ fn remember_changes<S: Localization>(app: &PluginBuilder) {
         return;
     };
 
-    let subscription = L10n::<S>::subscribe(move |strings| {
+    app.observe::<Language<S>>(move |strings: &S| {
         if let Err(e) = store.set(KEY, &strings.tag()) {
             tracing::warn!(error = %e, "could not save the language");
         }
-    });
-
-    app.on_cleanup(move |_| {
-        drop(subscription);
-        Ok(())
     });
 }
 
@@ -155,7 +157,7 @@ fn remember_changes<S: Localization>(_app: &PluginBuilder) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use guinea::app::TestApp;
+    use guinea::app::{Harness, TestApp};
 
     #[derive(Clone, Default, Debug, PartialEq)]
     struct Strings(String);
@@ -170,13 +172,54 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default, Debug, PartialEq)]
+    struct Listed(String);
+
+    impl Localization for Listed {
+        fn for_tag(tag: &str) -> Option<Self> {
+            Some(Self(tag.to_string()))
+        }
+
+        fn tag(&self) -> String {
+            self.0.clone()
+        }
+
+        fn languages() -> &'static [&'static str] {
+            &["en", "ru"]
+        }
+    }
+
+    fn shown<S: Localization>(h: &Harness) -> S {
+        h.state::<Language<S>>().strings().clone()
+    }
+
     #[test]
-    fn loads_the_default_language() {
-        let mut app = TestApp::new();
-        app.install(L10nPlugin::<Strings>::new("en").persist(false))
+    fn the_application_shows_the_default_language() {
+        let mut h = Harness::new(1);
+        h.plugin(L10nPlugin::<Strings>::new("en").persist(false))
             .expect("install");
 
-        assert_eq!(L10n::<Strings>::current(), Strings("en".into()));
+        assert_eq!(shown::<Strings>(&h), Strings("en".into()));
+    }
+
+    #[test]
+    fn a_language_is_switched_by_its_tag() {
+        let mut h = Harness::new(1);
+        h.plugin(L10nPlugin::<Listed>::new("en").persist(false))
+            .expect("install");
+
+        h.act::<Language<Listed>>(SwitchLanguage("ru".into())).settle();
+        assert_eq!(shown::<Listed>(&h), Listed("ru".into()));
+    }
+
+    #[test]
+    fn a_tag_the_application_has_no_strings_for_changes_nothing() {
+        let mut h = Harness::new(1);
+        h.plugin(L10nPlugin::<Listed>::new("en").persist(false))
+            .expect("install");
+
+        h.act::<Language<Listed>>(SwitchLanguage("de".into())).settle();
+        assert_eq!(shown::<Listed>(&h), Listed("en".into()));
     }
 
     #[test]
@@ -222,25 +265,23 @@ mod tests {
     #[test]
     fn restores_and_saves_the_language_through_the_store() {
         use guinea_plugin_store::StorePlugin;
+        use guinea_plugin_store::amethystate::store::builder::Backend;
 
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("store");
-        let store = StorePlugin::at(&path);
 
-        let mut app = TestApp::new();
-        app.install(store).expect("store");
-        app.install(L10nPlugin::<Strings>::new("en")).expect("l10n");
+        {
+            let mut h = Harness::new(1);
+            h.plugin(StorePlugin::at(&path).backend(Backend::Json)).expect("store");
+            h.plugin(L10nPlugin::<Listed>::new("en")).expect("l10n");
+            assert_eq!(shown::<Listed>(&h), Listed("en".into()));
 
-        assert_eq!(L10n::<Strings>::current(), Strings("en".into()));
+            h.act::<Language<Listed>>(SwitchLanguage("ru".into())).settle();
+        }
 
-        L10n::<Strings>::load(Strings("ru".into()));
-        app.shutdown();
-
-        let saved = guinea_plugin_store::amethystate::StoreBuilder::new(&path)
-            .build()
-            .expect("reopen")
-            .get::<String>(KEY)
-            .expect("read");
-        assert_eq!(saved.as_deref(), Some("ru"));
+        let mut h = Harness::new(1);
+        h.plugin(StorePlugin::at(&path).backend(Backend::Json)).expect("store");
+        h.plugin(L10nPlugin::<Listed>::new("en")).expect("l10n");
+        assert_eq!(shown::<Listed>(&h), Listed("ru".into()), "the switch was saved and restored");
     }
 }

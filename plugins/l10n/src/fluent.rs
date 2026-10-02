@@ -62,11 +62,6 @@ macro_rules! fluent_loader {
                 &self.0
             }
 
-            /// The strings the application is showing right now.
-            pub fn current() -> Self {
-                $crate::L10n::<Self>::current()
-            }
-
             fn get_raw(&self, id: &str, args: &Args) -> String {
                 use fluent_templates::Loader;
                 LOCALES.lookup_with_args(&self.0, id, &args.0)

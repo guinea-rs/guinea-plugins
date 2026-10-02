@@ -1,25 +1,40 @@
-use std::marker::PhantomData;
+use guinea_core::scope::Reducer;
 
-use guinea_core::scope::{GlobalScope, Reducer, Subscription};
+/// The strings the application shows: claimed by [`crate::L10nPlugin`] for
+/// the application, and exported to every window.
+#[derive(Clone, Default, PartialEq)]
+pub struct Language<S>(S);
 
-/// The strings themselves, as a reducer - the state is the reducer now, so
-/// this is a newtype around `S` rather than a marker beside it.
-#[derive(Clone, Default)]
-struct Strings<S>(S);
+impl<S> Language<S> {
+    pub(crate) fn new(strings: S) -> Self {
+        Self(strings)
+    }
 
-impl<S> std::fmt::Debug for Strings<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Strings<{}>", std::any::type_name::<S>())
+    pub fn strings(&self) -> &S {
+        &self.0
     }
 }
 
-impl<S: Clone + Default + 'static> Reducer for Strings<S> {
+impl<S> std::fmt::Debug for Language<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Language<{}>", std::any::type_name::<S>())
+    }
+}
+
+impl<S: Clone + Default + 'static> Reducer for Language<S> {
     type Update = S;
 
     fn reduce(&mut self, next: S) {
         self.0 = next;
     }
 }
+
+impl<S: Clone + Default + 'static> guinea::feature::AppExport for Language<S> {}
+
+/// Asks for the strings of a BCP-47 tag. A tag the application has no
+/// strings for leaves the language as it was.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SwitchLanguage(pub String);
 
 /// A set of localised strings identified by, and rebuildable from, a BCP-47
 /// language tag.
@@ -75,30 +90,4 @@ pub struct Key {
     pub translations: &'static [(&'static str, &'static str)],
     /// The locales that have no translation for it.
     pub missing: &'static [&'static str],
-}
-
-/// The application's current strings, process-wide.
-///
-/// Backed by the global scope, so every window sees the same language and
-/// every subscriber is told when it changes.
-pub struct L10n<S>(PhantomData<S>);
-
-impl<S: Clone + Default + 'static> L10n<S> {
-    pub fn load(strings: S) {
-        GlobalScope::instance().push::<Strings<S>>(strings);
-    }
-
-    pub fn current() -> S {
-        GlobalScope::instance()
-            .binding::<Strings<S>>()
-            .get()
-            .0
-            .clone()
-    }
-
-    pub fn subscribe(callback: impl Fn(S) + 'static) -> Subscription {
-        GlobalScope::instance()
-            .binding::<Strings<S>>()
-            .on_change(move |strings| callback(strings.0.clone()))
-    }
 }

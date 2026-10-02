@@ -7,21 +7,24 @@
 //! language's tag, so devtools can show any of them beside its name.
 
 use guinea_core::devtools::{self, Panel, PanelGuard, PanelNode};
+use guinea_core::scope::Scope;
 
-use crate::store::{Key, L10n, Localization};
+use crate::store::{Key, Language, Localization};
 
-/// The panel, for as long as the guard is held.
-pub(crate) fn watch<S: Localization>() -> PanelGuard {
-    devtools::contribute_to_app(|| {
+/// The panel, for as long as the guard is held. `scope` is the application's,
+/// which holds the language shown.
+pub(crate) fn watch<S: Localization>(scope: Scope) -> PanelGuard {
+    devtools::contribute_to_app(move || {
         let keys = S::keys();
         if keys.is_empty() {
             return None;
         }
+        let showing = scope.state::<Language<S>>().borrow().strings().tag();
 
         Some(Panel {
             id: "guinea.l10n",
             title: "Localization",
-            nodes: files(keys, S::languages(), &L10n::<S>::current().tag()),
+            nodes: files(keys, S::languages(), &showing),
         })
     })
 }

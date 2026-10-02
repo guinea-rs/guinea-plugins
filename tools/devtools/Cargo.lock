@@ -2309,9 +2309,7 @@ dependencies = [
 
 [[package]]
 name = "guinea"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db8ae53ffd6b493865f6ed5b7918790b948bd97757780d1d8d8242deaf3f2b37"
+version = "0.19.0"
 dependencies = [
  "guinea-app",
  "guinea-codegen",
@@ -2324,9 +2322,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-app"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f48c8ed289f6f3b8b0d6d69772080b1689d62ca64eedc404c29d71bb87cd910"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "guinea-core",
@@ -2336,9 +2332,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-codegen"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4dec368331fa19d042ca5dc236cba01c2efc785a2c5b3b6a50fc78a085a01011"
+version = "0.19.0"
 dependencies = [
  "guinea-meta-build",
  "heck",
@@ -2352,9 +2346,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-core"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7733193a80172fcce722e4ecc5ad1437af7fe2c616b26a2b819464d8279e6220"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2362,7 +2354,6 @@ dependencies = [
  "futures-core",
  "guinea-mark",
  "guinea-trace",
- "http",
  "inventory",
  "once_cell",
  "parking_lot",
@@ -2478,9 +2469,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-eframe"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a606b7a6bd84463266e8232866814b089058b7decec5cdd240cdfedb996a64aa"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2493,9 +2482,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-macros"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94236097973cc909eca350c6c955b21513091fa54c78b54ccecdd2aa3453f26d"
+version = "0.19.0"
 dependencies = [
  "guinea-codegen",
  "guinea-route-dsl",
@@ -2509,21 +2496,15 @@ dependencies = [
 
 [[package]]
 name = "guinea-mark"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9cafcaf94d7863776fde36737232a3af249fc9a5a0ea53e07702b49f586b5fe"
+version = "0.19.0"
 
 [[package]]
 name = "guinea-meta"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53a413dccb9d21a45941a77199c92a27cd3b22b3534190fb453af971b5c3f338"
+version = "0.19.0"
 
 [[package]]
 name = "guinea-meta-build"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a53958651933f2864236958726fa4585511ed099eb405229987f869e78fee1ba"
+version = "0.19.0"
 dependencies = [
  "serde",
  "toml 0.9.12+spec-1.1.0",
@@ -2552,9 +2533,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-route-dsl"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71ab402e2c5a27db5822eb61cb4f2f0bf9e28e63f06c87658fc2e7573c43c015"
+version = "0.19.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2564,9 +2543,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-router"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad60861e203358e3f25a9f2364935bf75e947fba8995603b0238844db31f4cb9"
+version = "0.19.0"
 dependencies = [
  "anyhow",
  "guinea-app",
@@ -2578,9 +2555,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-trace"
-version = "0.18.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61e7602d45dfad7e283089ac89e0dd529601d87de202b5df8974bf7e0e879b67"
+version = "0.19.0"
 dependencies = [
  "serde_json",
  "tracing",
@@ -6845,54 +6820,6 @@ dependencies = [
  "syn 3.0.6",
  "winnow 1.0.4",
 ]
-
-[[patch.unused]]
-name = "guinea"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-app"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-codegen"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-core"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-eframe"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-macros"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-mark"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-meta"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-meta-build"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-route-dsl"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-router"
-version = "0.19.0"
-
-[[patch.unused]]
-name = "guinea-trace"
-version = "0.19.0"
 
 [[patch.unused]]
 name = "guinea-winui"

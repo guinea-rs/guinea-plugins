@@ -1,6 +1,6 @@
 [package]
 name = "guinea-plugin-l10n"
-description = "Localisation for guinea applications: process-wide strings, Fluent resolver, backend hooks"
+description = "Localisation for guinea applications: the application's language, a Fluent resolver"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -19,9 +19,6 @@ fluent-templates = { version = "0.15.1", optional = true }
 fluent-bundle = { version = "0.16.0", optional = true }
 unic-langid = { version = "0.9.6", features = ["macros"], optional = true }
 
-[target.'cfg(target_os = "windows")'.dependencies]
-windows-reactor = { workspace = true, optional = true }
-
 [features]
 default = ["persist", "fluent"]
 
@@ -32,10 +29,6 @@ persist = ["dep:guinea-plugin-store"]
 # `fluent_loader!`: a resolver built from .ftl files, paired with
 # `guinea-plugin-l10n-build` in the application's build.rs.
 fluent = ["dep:fluent-templates", "dep:fluent-bundle", "dep:unic-langid"]
-
-# Backends. A backend is a feature rather than a target: one OS can host
-# several toolkits, and an application may want more than one at once.
-winui = ["dep:windows-reactor", "guinea/winui"]
 
 [lints]
 workspace = true
