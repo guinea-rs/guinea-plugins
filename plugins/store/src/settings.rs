@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use amethystate::Open;
 use amethystate::store::OpenStruct;
-use guinea::app::PluginBuilder;
-use guinea::feature::FeatureInitContext;
+use guinea::Services;
 
 use crate::Store;
 
@@ -32,20 +31,7 @@ pub trait StoreAccess {
     }
 }
 
-impl StoreAccess for FeatureInitContext {
-    fn store(&self) -> Option<Arc<Store>> {
-        self.try_require::<Store>()
-    }
-}
-
-impl StoreAccess for PluginBuilder {
-    fn store(&self) -> Option<Arc<Store>> {
-        self.try_require::<Store>()
-    }
-}
-
-#[cfg(feature = "test-utils")]
-impl StoreAccess for guinea::app::Segment<'_> {
+impl<C: Services + ?Sized> StoreAccess for C {
     fn store(&self) -> Option<Arc<Store>> {
         self.try_require::<Store>()
     }
