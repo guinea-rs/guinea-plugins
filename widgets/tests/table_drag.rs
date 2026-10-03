@@ -12,7 +12,7 @@ use guinea_mark::Mark;
 use guinea_widgets::table::{
     ColumnOrder, ColumnSpec, ColumnWidths, Reordered, Resized, SortState, table,
 };
-use windows_reactor::{ChildrenControl, StackPanel, TextBlock, View};
+use windows_reactor::{Grid, StackPanel, TextBlock, View};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Col {
@@ -72,10 +72,10 @@ impl Page for Columns {
         }
     }
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let columns = [Col::Name, Col::Size, Col::Kind, Col::Date]
             .into_iter()
-            .map(|id| ColumnSpec::new(id, id.name(), 100.0, |_: &()| View::empty()).sortable())
+            .map(|id| ColumnSpec::new(id, id.name(), 100.0, |_: &()| Grid::new().into()).sortable())
             .collect();
         let sort = SortState {
             field_id: None,
@@ -99,6 +99,7 @@ impl Page for Columns {
                 .build(),
             TextBlock::new().text(shown),
         ))
+        .into()
     }
 }
 

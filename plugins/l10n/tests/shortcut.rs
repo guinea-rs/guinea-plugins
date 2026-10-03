@@ -5,7 +5,7 @@ use guinea::feature::Segment;
 use guinea::winui::harness::Mounted;
 use guinea::winui::{MarkExt, Page, PageCx, page};
 use guinea_plugin_l10n::{L10nAccess, L10nPlugin, Language, Localization, SwitchLanguage};
-use windows_reactor::{Button, ChildrenControl, ContentControl, StackPanel, TextBlock, View};
+use windows_reactor::{Button, StackPanel, TextBlock, View};
 
 #[derive(Clone, Default, Debug, PartialEq)]
 struct Strings(String);
@@ -36,7 +36,7 @@ pub struct Greeting;
 impl Page for Greeting {
     type Params = ();
 
-    fn view(&self, cx: &mut PageCx<'_, Self>) -> View {
+    fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
         let switch = cx.language_switch::<Strings>();
 
         StackPanel::new()
@@ -47,6 +47,7 @@ impl Page for Greeting {
                     .on_click(move || switch.to("ru"))
                     .content(TextBlock::new().text("Русский")),
             ))
+            .into()
     }
 }
 

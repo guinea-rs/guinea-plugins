@@ -15,9 +15,9 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use windows_reactor::{
-    Border, Callback, ChildrenControl, Color, Component, ComponentContext, ComponentTimer,
-    CompositionHostEvent, ContentControl, ElementObservation, ElementRef, Grid, Image,
-    IntoPayloadCallback, PointerEventInfo, Stretch, View, ViewContext,
+    Border, Callback, Color, Component, ComponentContext, ComponentTimer, CompositionHostEvent,
+    ElementObservation, ElementRef, Grid, Image, IntoPayloadCallback, PointerEventInfo, Stretch,
+    View, ViewContext,
 };
 
 use super::hover::hover_at;
@@ -47,6 +47,24 @@ impl Drawing {
         options.x_window?;
         let now = self.clock.get().now(live.per_second, at)?;
         Some(now - live.lag as f64)
+    }
+
+    /// Puts a live chart's clock on its newest sample, or forgets it for a
+    /// chart that is not live.
+    fn saw_newest(&self) {
+        let options = self.options.borrow();
+        let mut clock = self.clock.get();
+        match (options.live, options.x_window, newest(&self.series.borrow())) {
+            (Some(live), Some(window), Some(newest)) => clock.saw(
+                newest as f64,
+                window as f64,
+                live.per_second,
+                Instant::now(),
+            ),
+            (Some(_), Some(_), None) => {}
+            _ => clock.forget(),
+        }
+        self.clock.set(clock);
     }
 
     fn draw(&self) {
@@ -175,23 +193,51 @@ impl Chart {
         let restyled = *drawing.options.borrow() != options;
         let moved = *drawing.series.borrow() != series;
 
-        let mut clock = drawing.clock.get();
-        match (options.live, options.x_window, newest(&series)) {
-            (Some(live), Some(window), Some(newest)) => clock.saw(
-                newest as f64,
-                window as f64,
-                live.per_second,
-                Instant::now(),
-            ),
-            (Some(_), Some(_), None) => {}
-            _ => clock.forget(),
-        }
-        drawing.clock.set(clock);
-
         *drawing.series.borrow_mut() = series;
         *drawing.options.borrow_mut() = options;
+        drawing.saw_newest();
 
         if first || restyled || moved {
+            drawing.draw();
+        }
+    }
+
+    /// Adds one point to the series at `series`, without handing the chart
+    /// the rest again.
+    ///
+    /// What has scrolled out of `x_window` goes, but for the one point
+    /// before its left edge that the line comes in from. A chart without a
+    /// window keeps every point it is given. A series the chart was not
+    /// published with is not made.
+    pub fn push(&self, series: usize, point: (u64, f32)) {
+        let drawing = &self.drawing;
+        {
+            let mut all = drawing.series.borrow_mut();
+            let Some(line) = all.get_mut(series) else {
+                return;
+            };
+            line.points.push(point);
+
+            let options = drawing.options.borrow();
+            if let Some(window) = options.x_window {
+                let lag = options.live.map_or(0, |live| live.lag);
+                let start = point.0.saturating_sub(window + lag);
+                let shown = line.points.partition_point(|&(at, _)| at < start);
+                line.points.drain(..shown.saturating_sub(1));
+            }
+        }
+        drawing.saw_newest();
+        drawing.draw();
+    }
+
+    /// New options for the series the chart already has.
+    pub fn restyle(&self, options: LineChartOptions) {
+        let drawing = &self.drawing;
+        let restyled = *drawing.options.borrow() != options;
+        *drawing.options.borrow_mut() = options;
+        drawing.saw_newest();
+
+        if restyled {
             drawing.draw();
         }
     }
@@ -236,13 +282,14 @@ impl Chart {
                 pointer_on_move.set(Some(at));
                 // Dropped when the segment that drew this chart is no longer
                 // publishing; the readout then simply stays where it was.
-                let _ = hover_on_move.call(moved_over.hover(at));
+                hover_on_move.call(moved_over.hover(at));
             }))
             .on_pointer_exited(Callback::new(move |_: PointerEventInfo| {
                 pointer_on_exit.set(None);
-                let _ = on_hover.call(None);
+                on_hover.call(None);
             }))
             .content(surface)
+            .into()
     }
 }
 
@@ -280,10 +327,7 @@ struct Mount {
 
 impl Mount {
     fn start(&mut self, after: Duration, cx: &ComponentContext<Self>) {
-        match cx.set_timeout(after, Moved) {
-            Ok(timer) => self.timer = Some(timer),
-            Err(error) => tracing::warn!(%error, "chart: no timer to move a live chart with"),
-        }
+        self.timer = Some(cx.set_timeout(after, Moved));
     }
 }
 
@@ -327,5 +371,103 @@ impl Component for Mount {
             .children((Image::new()
                 .element_ref(&mounted.image)
                 .stretch(Stretch::Fill),))
+            .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::model::Interpolation;
+    use super::*;
+
+    fn series(points: &[(u64, f32)]) -> Series {
+        Series {
+            color: windows_canvas::ColorF {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            },
+            interpolation: Interpolation::Linear,
+            fill: None,
+            points: points.to_vec(),
+        }
+    }
+
+    fn windowed(window: u64) -> LineChartOptions {
+        LineChartOptions {
+            x_window: Some(window),
+            ..LineChartOptions::default()
+        }
+    }
+
+    fn points(chart: &Chart) -> Vec<(u64, f32)> {
+        chart.drawing.series.borrow()[0].points.clone()
+    }
+
+    #[test]
+    fn a_pushed_point_joins_its_series() {
+        let chart = Chart::new();
+        chart.publish(vec![series(&[(0, 0.0), (1, 1.0)])], LineChartOptions::default());
+
+        chart.push(0, (2, 2.0));
+        assert_eq!(points(&chart), [(0, 0.0), (1, 1.0), (2, 2.0)]);
+    }
+
+    #[test]
+    fn what_scrolled_out_of_the_window_goes_but_the_point_the_line_comes_in_from() {
+        let chart = Chart::new();
+        let published: Vec<_> = (0..=4).map(|at| (at * 5, at as f32)).collect();
+        chart.publish(vec![series(&published)], windowed(10));
+
+        chart.push(0, (27, 5.0));
+        assert_eq!(
+            points(&chart),
+            [(15, 3.0), (20, 4.0), (27, 5.0)],
+            "the window starts at 17: 15 is where the line comes in from, 10 is gone"
+        );
+    }
+
+    #[test]
+    fn a_live_chart_keeps_what_its_lag_still_shows() {
+        let chart = Chart::new();
+        let published: Vec<_> = (0..=4).map(|at| (at * 5, at as f32)).collect();
+        chart.publish(
+            vec![series(&published)],
+            LineChartOptions {
+                live: Some(super::super::model::Live {
+                    per_second: 1000.0,
+                    lag: 5,
+                }),
+                ..windowed(10)
+            },
+        );
+
+        chart.push(0, (27, 5.0));
+        assert_eq!(
+            points(&chart),
+            [(10, 2.0), (15, 3.0), (20, 4.0), (27, 5.0)],
+            "trailing the clock by 5, the window may start as early as 12"
+        );
+    }
+
+    #[test]
+    fn a_series_the_chart_was_not_given_is_not_made() {
+        let chart = Chart::new();
+        chart.publish(vec![series(&[(0, 0.0)])], LineChartOptions::default());
+
+        chart.push(1, (1, 1.0));
+        assert_eq!(chart.drawing.series.borrow().len(), 1);
+        assert_eq!(points(&chart), [(0, 0.0)]);
+    }
+
+    #[test]
+    fn restyled_the_chart_keeps_its_series() {
+        let chart = Chart::new();
+        chart.publish(vec![series(&[(0, 0.0)])], LineChartOptions::default());
+
+        chart.restyle(windowed(10));
+        assert_eq!(chart.drawing.options.borrow().x_window, Some(10));
+        assert_eq!(points(&chart), [(0, 0.0)]);
     }
 }

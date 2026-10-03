@@ -8,9 +8,8 @@
 //! `Callback` rather than a `SetState`.
 
 use windows_reactor::{
-    Border, Brush, ChildrenControl, Color, Component, ComponentContext, ContentControl, Grid,
-    GridChildExt, GridLength, HorizontalAlignment, LayoutControl, PointerEventInfo, ThemeBrush,
-    VerticalAlignment, View, ViewContext,
+    Border, Brush, Color, Component, ComponentContext, Grid, GridLength, HorizontalAlignment,
+    PointerEventInfo, ThemeBrush, VerticalAlignment, View, ViewContext,
 };
 
 /// Width of the full drag surface (the hit-test area, not the visible pill).
@@ -193,8 +192,7 @@ impl Component for Handle {
             .background(Brush::from(ThemeBrush::Accent))
             .opacity(indicator_opacity)
             .horizontal_alignment(HorizontalAlignment::Center)
-            .grid_row(1)
-            .content(View::empty());
+            .grid_row(1);
 
         // Two equal `Star` rows on either side of the pill centre it whatever
         // the drag surface's actual height, without needing measured layout.
@@ -219,9 +217,9 @@ impl Component for Handle {
             .rows([top, mid, bottom])
             .columns([GridLength::Star(1.0)])
             .children((
-                Border::new().grid_row(0).content(View::empty()),
+                Border::new().grid_row(0),
                 pill,
-                Border::new().grid_row(2).content(View::empty()),
+                Border::new().grid_row(2),
             ));
 
         // Both children land in the single implicit cell, so the pill draws
@@ -232,8 +230,7 @@ impl Component for Handle {
                     .width(1.0)
                     .background(color)
                     .horizontal_alignment(HorizontalAlignment::Center)
-                    .vertical_alignment(VerticalAlignment::Stretch)
-                    .content(View::empty()),
+                    .vertical_alignment(VerticalAlignment::Stretch),
                 indicator,
             )),
             None => indicator,
@@ -280,10 +277,11 @@ impl Component for Handle {
                         let delta = info.window_x - start_window_x;
                         // Dropped when whoever owns the width is not publishing;
                         // the handle then simply does not move.
-                        let _ = on_resize.call((start_current + delta).max(min).min(max));
+                        on_resize.call((start_current + delta).max(min).min(max));
                     }
                 },
             ))
             .content(layered)
+            .into()
     }
 }

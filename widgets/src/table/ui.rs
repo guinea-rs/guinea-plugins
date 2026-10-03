@@ -20,11 +20,10 @@ use std::rc::Rc;
 
 use guinea_mark::Mark;
 use windows_reactor::{
-    AutomationExt, Border, Callback, ChildrenControl, Color, Component, ComponentContext,
-    ContentControl, CornerRadius, Grid, GridChildExt, GridLength, HorizontalAlignment,
-    IntoPayloadCallback, ItemsRepeater, LayoutControl, PointerEventInfo, Rectangle,
-    ScrollBarVisibility, ScrollViewer, TextBlock, Thickness, VerticalAlignment, View, ViewContext,
-    VirtualSource,
+    Border, Callback, Color, Component, ComponentContext, CornerRadius, Grid, GridLength,
+    HorizontalAlignment, IntoPayloadCallback, ItemsRepeater, KeyedView, PointerEventInfo,
+    Rectangle, ScrollBarVisibility, ScrollViewer, TextBlock, Thickness, VerticalAlignment, View,
+    ViewContext, VirtualSource, keyed,
 };
 
 use crate::resize::{RESIZE_HANDLE_WIDTH, resize_handle};
@@ -421,8 +420,8 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
         // is, so the header being dragged is not rebuilt under the pointer.
         let last = columns.len().saturating_sub(1);
         let reaches_right = columns.iter().any(|column| column.fill);
-        let mut header_cells: Vec<(String, View)> = Vec::with_capacity(columns.len() * 2);
-        let mut handles: Vec<(String, View)> = Vec::with_capacity(columns.len());
+        let mut header_cells: Vec<KeyedView> = Vec::with_capacity(columns.len() * 2);
+        let mut handles: Vec<KeyedView> = Vec::with_capacity(columns.len());
         for (at, column) in columns.iter().enumerate() {
             let slot = slots[at];
             let rounded = (
@@ -463,7 +462,7 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
                 railed,
             );
 
-            header_cells.push((
+            header_cells.push(keyed(
                 column.id.name().to_string(),
                 Border::new().grid_column(slot as i32).content(cell),
             ));
@@ -477,7 +476,7 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
                 && railed
             {
                 let key = format!("{}/resize", column.id.name());
-                handles.push((
+                handles.push(keyed(
                     key.clone(),
                     Border::new()
                         .automation_id(key)
@@ -506,7 +505,7 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
             .columns(lengths.clone())
             .min_width(least)
             .grid_row(0)
-            .children((View::keyed_fragment(header_cells),));
+            .keyed_children(header_cells);
 
         let separator = Rectangle::new().fill(look.rule).height(1.0).grid_row(1);
 
@@ -536,11 +535,11 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
                     .horizontal_alignment(HorizontalAlignment::Stretch)
                     .vertical_alignment(VerticalAlignment::Stretch)
                     .on_pointer_released(Callback::new(move |_: PointerEventInfo| {
-                        let _ = on_deselect.call(None);
-                    }))
-                    .content(View::empty()),
+                        on_deselect.call(None);
+                    })),
                 lines,
-            )),
+            ))
+            .into(),
             None => lines.into(),
         };
 
@@ -552,6 +551,7 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
         Grid::new()
             .rows([GridLength::Auto, GridLength::Auto, GridLength::Star(1.0)])
             .children((header, separator, body))
+            .into()
     }
 }
 
@@ -703,8 +703,7 @@ impl Component for Pointed {
             Border::new()
                 .margin(Thickness::new(across, top, across, bottom))
                 .corner_radius(CornerRadius::new(upper, upper, lower, lower))
-                .background(plate)
-                .content(View::empty()),
+                .background(plate),
             line.cells.clone(),
         ));
 
@@ -724,11 +723,12 @@ impl Component for Pointed {
                 let index = line.index;
 
                 row.on_pointer_released(Callback::new(move |_: PointerEventInfo| {
-                    let _ = on_select.call(Some(index));
+                    on_select.call(Some(index));
                 }))
                 .content(layered)
+                .into()
             }
-            None => row.content(layered),
+            None => row.content(layered).into(),
         }
     }
 }
@@ -767,6 +767,7 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
                     Border::new().grid_column(0).content(base),
                     Border::new().grid_column(1).content(indicator),
                 ))
+                .into()
         }
         None => base,
     };
@@ -788,11 +789,12 @@ fn header_cell<T, C: Mark + Clone + PartialEq>(
         return Border::new()
             .automation_id(column.id.name())
             .padding(padding)
-            .content(content);
+            .content(content)
+            .into();
     }
 
     View::component::<PointedHeading<C>>(Heading {
-        content: Border::new().padding(padding).content(content),
+        content: Border::new().padding(padding).content(content).into(),
         column: column.id.clone(),
         on_sort: sorts,
         moving,
@@ -897,8 +899,7 @@ impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
             Border::new()
                 .margin(Thickness::new(0.0, 0.0, rail, 0.0))
                 .corner_radius(CornerRadius::new(left, right, 0.0, 0.0))
-                .background(plate)
-                .content(View::empty()),
+                .background(plate),
             heading.content.clone(),
         ));
 
@@ -916,18 +917,13 @@ impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
                 if released.moved.replace(false) {
                     return;
                 }
-                if let Some(on_sort) = &on_sort
-                    && !on_sort.call(column.clone())
-                {
-                    tracing::debug!(
-                        column = column.name(),
-                        "sort dropped: no active publication"
-                    );
+                if let Some(on_sort) = &on_sort {
+                    on_sort.call(column.clone());
                 }
             }));
 
         let Some(moving) = heading.moving.clone() else {
-            return cell.content(layered);
+            return cell.content(layered).into();
         };
 
         let pressed = self.drag.clone();
@@ -953,14 +949,14 @@ impl<C: Mark + Clone + PartialEq + 'static> Component for PointedHeading<C> {
                     return;
                 }
 
-                if let Some((order, shift)) = moving.step(delta)
-                    && moving.on_reorder.call(Reordered { order })
-                {
+                if let Some((order, shift)) = moving.step(delta) {
+                    moving.on_reorder.call(Reordered { order });
                     dragged.anchor.set(Some(anchor + shift));
                     dragged.sent_from.set(Some(moving.at));
                 }
             }))
             .content(layered)
+            .into()
     }
 }
 
@@ -1024,7 +1020,7 @@ fn handle<T, C: Mark>(
     resize_handle(width, move |width| {
         // A drop here means the drag outlived the publication that started it,
         // and the column simply stays where it was.
-        let _ = on_resize.call(Resized { column: id, width });
+        on_resize.call(Resized { column: id, width });
     })
     .min(column.min_width)
     .rail(rail)
@@ -1067,7 +1063,7 @@ struct Laid {
 }
 
 fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], laid: &Laid) -> View {
-    let cells: Vec<(String, View)> = columns
+    let cells: Vec<KeyedView> = columns
         .iter()
         .enumerate()
         .map(|(at, column)| {
@@ -1088,14 +1084,15 @@ fn row_view<T, C: Mark>(row: &T, columns: &[ColumnSpec<T, C>], laid: &Laid) -> V
                 .vertical_alignment(VerticalAlignment::Center)
                 .content((column.cell)(row));
 
-            (column.id.name().to_string(), cell)
+            keyed(column.id.name().to_string(), cell)
         })
         .collect();
 
     Grid::new()
         .columns(laid.lengths.clone())
         .min_width(laid.least)
-        .children((View::keyed_fragment(cells),))
+        .keyed_children(cells)
+        .into()
 }
 
 #[cfg(test)]
@@ -1124,7 +1121,7 @@ mod tests {
     fn columns() -> Vec<ColumnSpec<(), Col>> {
         [Col::Name, Col::Size, Col::Kind, Col::Date]
             .into_iter()
-            .map(|id| ColumnSpec::new(id, id.name(), 100.0, |_: &()| View::empty()))
+            .map(|id| ColumnSpec::new(id, id.name(), 100.0, |_: &()| Grid::new().into()))
             .collect()
     }
 
