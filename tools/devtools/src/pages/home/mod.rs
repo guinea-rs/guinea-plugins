@@ -18,7 +18,7 @@ impl Page for Home {
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
-        let (live, _) = cx.state::<Live, _>();
+        let (live, _) = cx.read::<Live, _>();
         let ui = cx.ui();
         let listening = live.read().listening.describe();
         let cycle = self.cycle.get_or_insert_with(|| components::run_cycle(ui.ctx()));

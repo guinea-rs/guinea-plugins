@@ -41,9 +41,9 @@ impl Page for Application {
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
-        let (live, _) = cx.state::<Live, _>();
-        let (focus, _) = cx.state::<Focus, _>();
-        let (view, dispatch) = cx.state::<PanelsState, _>();
+        let (live, _) = cx.read::<Live, _>();
+        let (focus, _) = cx.read::<Focus, _>();
+        let (view, dispatch) = cx.read::<PanelsState, _>();
         let ui = cx.ui();
 
         let listed = {

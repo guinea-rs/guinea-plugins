@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.17.2"
+version = "0.18.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -10,9 +10,9 @@ resolver = "2"
 members = ["plugins/*", "widgets"]
 
 [workspace.dependencies]
-guinea = { version = "0.19.2", default-features = false }
-guinea-core = "0.19.2"
-guinea-mark = "0.19.2"
+guinea = { version = "0.20.0", default-features = false }
+guinea-core = "0.20.0"
+guinea-mark = "0.20.0"
 
 windows-reactor = { package = "windows-reactor-pre", version = "0.100.0" }
 windows-canvas = { package = "windows-canvas-pre", version = "0.100.0" }

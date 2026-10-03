@@ -46,10 +46,10 @@ impl Page for Elements {
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
-        let (live, _) = cx.state::<Live, _>();
-        let (focus, _) = cx.state::<Focus, _>();
-        let (editor, _) = cx.state::<EditorChoice, _>();
-        let (view, dispatch) = cx.state::<NativeState, _>();
+        let (live, _) = cx.read::<Live, _>();
+        let (focus, _) = cx.read::<Focus, _>();
+        let (editor, _) = cx.read::<EditorChoice, _>();
+        let (view, dispatch) = cx.read::<NativeState, _>();
         let editor = editor.0;
         let ui = cx.ui();
 

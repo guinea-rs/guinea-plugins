@@ -45,10 +45,10 @@ impl Layout for App {
     }
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
-        let (live, _) = cx.state::<Live, _>();
-        let (focus, _) = cx.state::<Focus, _>();
-        let (last, remember) = cx.state::<LastTab, _>();
-        let (editor, _) = cx.state::<EditorChoice, _>();
+        let (live, _) = cx.read::<Live, _>();
+        let (focus, _) = cx.read::<Focus, _>();
+        let (last, remember) = cx.read::<LastTab, _>();
+        let (editor, _) = cx.read::<EditorChoice, _>();
         let nav = cx.navigate::<Route>();
 
         let current = [

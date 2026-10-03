@@ -23,10 +23,9 @@ use guinea_plugin_l10n::L10nAccess;
 let strings = cx.l10n::<L10n>();
 ```
 
-That works where a view is handed its context to read through - WinUI,
-eframe, ratatui. iced hands `view` a shared one, which `Reads` cannot read
-through until guinea 0.20: read `cx.state::<Language<L10n>, _>()` there.
-On slint, bind `Language<L10n>` as any other state.
+That works on the pages and layouts of WinUI, eframe, ratatui and iced. Slint
+binds its view once rather than reading it as it draws, and is not one of
+them: read `Language<L10n>` there as any other state.
 
 A switch is taken from the page, without reading - so the page is not drawn
 again for it - and kept in a callback:

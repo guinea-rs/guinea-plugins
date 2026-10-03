@@ -76,5 +76,5 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    run(app, "guinea devtools", options, || Route::Home {})
+    run(app, "guinea devtools", options, |_| Route::Home {})
 }
