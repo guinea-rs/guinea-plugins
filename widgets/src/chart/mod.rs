@@ -16,6 +16,8 @@ mod model;
 #[cfg(all(feature = "winui", windows))]
 mod paint;
 #[cfg(all(feature = "winui", windows))]
+pub mod scatter;
+#[cfg(all(feature = "winui", windows))]
 mod ui;
 
 #[cfg(all(feature = "winui", windows))]

@@ -56,7 +56,13 @@ pub(super) fn render(
 
 /// Draws `inside` clipped to a rectangle of `width` by `height` rounded to
 /// `radius` - or unclipped, and says so, when Direct2D will not give a layer.
-fn clipped(draw: &DrawingSession<'_>, width: f32, height: f32, radius: f32, inside: impl FnOnce()) {
+pub(super) fn clipped(
+    draw: &DrawingSession<'_>,
+    width: f32,
+    height: f32,
+    radius: f32,
+    inside: impl FnOnce(),
+) {
     let mask = || -> windows::core::Result<(ID2D1DeviceContext, ID2D1Geometry)> {
         let raw = windows_core::Interface::as_raw(draw.raw());
         let context = unsafe { ID2D1DeviceContext::from_raw_borrowed(&raw) }
@@ -177,7 +183,7 @@ fn content(
     }
 }
 
-fn draw_backdrop(draw: &DrawingSession<'_>, width: f32, height: f32, background: ColorF) {
+pub(super) fn draw_backdrop(draw: &DrawingSession<'_>, width: f32, height: f32, background: ColorF) {
     let rect = Rect::from_xywh(0.0, 0.0, width, height);
     match draw.create_solid_brush(background) {
         Ok(brush) => draw.fill_rect(&rect, &brush),
@@ -189,15 +195,15 @@ fn draw_backdrop(draw: &DrawingSession<'_>, width: f32, height: f32, background:
 /// on a pixel's middle covers that pixel and no other, where one DIP wide at
 /// any other place smears across two at a fractional scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Pixel {
+pub(super) struct Pixel {
     /// Device pixels per DIP.
     scale: f32,
-    width: f32,
-    height: f32,
+    pub(super) width: f32,
+    pub(super) height: f32,
 }
 
 impl Pixel {
-    fn of(metrics: Metrics) -> Self {
+    pub(super) fn of(metrics: Metrics) -> Self {
         Self {
             scale: if metrics.scale > 0.0 {
                 metrics.scale
@@ -210,18 +216,23 @@ impl Pixel {
     }
 
     /// One device pixel, in DIPs.
-    fn hair(self) -> f32 {
+    pub(super) fn hair(self) -> f32 {
         1.0 / self.scale
     }
 
     /// The middle of the pixel `at` falls in, kept within `extent`.
-    fn snap(self, at: f32, extent: f32) -> f32 {
+    pub(super) fn snap(self, at: f32, extent: f32) -> f32 {
         let last = ((extent * self.scale).ceil() - 1.0).max(0.0);
         ((at * self.scale).floor().clamp(0.0, last) + 0.5) / self.scale
     }
 }
 
-fn draw_border(draw: &DrawingSession<'_>, brush: &Brush, pixel: Pixel, radius: Option<f32>) {
+pub(super) fn draw_border(
+    draw: &DrawingSession<'_>,
+    brush: &Brush,
+    pixel: Pixel,
+    radius: Option<f32>,
+) {
     let half = pixel.hair() / 2.0;
     let rect = Rect::new(half, half, pixel.width - half, pixel.height - half);
     match radius.filter(|radius| *radius > 0.0) {
