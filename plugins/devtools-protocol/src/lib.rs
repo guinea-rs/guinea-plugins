@@ -30,7 +30,7 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 1, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 2, 0);
 
 /// The first version whose devtools take [`Report::Changed`] in place of
 /// one snapshot after another.
@@ -359,6 +359,15 @@ pub enum TracePoint {
         output: String,
         source: u64,
     },
+    /// A source making its next item, for as long as it was waited for: what
+    /// the source does to make it happens under this. A root, as an arrival
+    /// is; `source` is the id of the [`TracePoint::Source`] record.
+    Pull {
+        actor: String,
+        actor_id: u64,
+        output: String,
+        source: u64,
+    },
     /// A source ended: it ran dry, or `gone` - its actor went away.
     Closed {
         actor: String,
@@ -445,6 +454,7 @@ impl TracePoint {
             TracePoint::Cancelled { .. } => "cancelled",
             TracePoint::Source { .. } => "source",
             TracePoint::Arrived { .. } => "arrived",
+            TracePoint::Pull { .. } => "pull",
             TracePoint::Closed { .. } => "closed",
             TracePoint::Publish { .. } => "publish",
             TracePoint::Deliver { .. } => "deliver",
@@ -489,6 +499,9 @@ impl TracePoint {
                 format!("{actor} opens a source of {output}")
             }
             TracePoint::Arrived { actor, output, .. } => format!("{output} arrives at {actor}"),
+            TracePoint::Pull { actor, output, .. } => {
+                format!("{actor}'s source makes the next {output}")
+            }
             TracePoint::Closed {
                 actor,
                 output,

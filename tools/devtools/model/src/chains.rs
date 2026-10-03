@@ -345,6 +345,7 @@ fn key(point: &TracePoint, timers: &Timers) -> u64 {
         TracePoint::Cancelled { actor, output, .. } => ("cancelled", actor, output).hash(h),
         TracePoint::Source { actor, output, .. } => ("source", actor, output).hash(h),
         TracePoint::Arrived { actor, output, .. } => ("arrived", actor, output).hash(h),
+        TracePoint::Pull { actor, output, .. } => ("pull", actor, output).hash(h),
         TracePoint::Closed {
             actor,
             output,
@@ -373,7 +374,9 @@ fn stream_of(span: &Span, timers: &Timers) -> Stream {
     match &span.point {
         TracePoint::Tick { timer: Some(id) } => Stream::Timer(timers.site(*id)),
         TracePoint::Tick { timer: None } => Stream::Timer("#?".to_string()),
-        TracePoint::Arrived { actor, output, .. } => Stream::Source(Stream::source_of(actor, output)),
+        TracePoint::Arrived { actor, output, .. } | TracePoint::Pull { actor, output, .. } => {
+            Stream::Source(Stream::source_of(actor, output))
+        }
         TracePoint::Action { message } => Stream::Action(message.clone()),
         TracePoint::Navigate { .. } => Stream::Navigation,
         TracePoint::Store { .. } => Stream::Store,
@@ -841,6 +844,42 @@ mod tests {
         assert_eq!(timer.period.as_deref(), Some("5 s"));
         assert_eq!(timer.running, 1);
         assert_eq!(timer.recent, [20, 40, 70]);
+    }
+
+    #[test]
+    fn what_a_source_did_to_make_its_next_item_is_a_chain_of_that_source() {
+        let timers = Timers::default();
+        let log = log_of(vec![
+            span(1, None, TracePoint::Pull {
+                actor: "a::Agent".into(),
+                actor_id: 1,
+                output: "a::Streamed".into(),
+                source: 9,
+            }),
+            span(2, Some(1), TracePoint::Publish {
+                event: "a::Changed".into(),
+                bus: guinea_devtools_protocol::BusKind::Global,
+                subscribers: 1,
+            }),
+            span(3, None, TracePoint::Arrived {
+                actor: "a::Agent".into(),
+                actor_id: 1,
+                output: "a::Streamed".into(),
+                source: 9,
+            }),
+        ]);
+
+        let mut chains = Chains::default();
+        chains.absorb(&log, &timers);
+        let reading = Reading {
+            log: &log,
+            clock: Clock::default(),
+            timers: &timers,
+        };
+
+        let listed = streams(&chains, reading);
+        let lines: Vec<(Stream, usize)> = listed.iter().map(|line| (line.stream.clone(), line.chains)).collect();
+        assert_eq!(lines, [(Stream::Source(Stream::source_of("a::Agent", "a::Streamed")), 2)]);
     }
 
     #[test]

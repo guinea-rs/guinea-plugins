@@ -78,7 +78,7 @@ pub fn kind_color(kind: Kind) -> Color32 {
         Kind::Spawn => VIOLET,
         Kind::Settled => LILAC,
         Kind::Cancelled => MUTED,
-        Kind::Source => VIOLET,
+        Kind::Source | Kind::Pull => VIOLET,
         Kind::Arrived => PEACH,
         Kind::Closed => MUTED,
         Kind::Publish => PINK,

@@ -88,6 +88,7 @@ fn worked(span: &Span) -> Option<u64> {
         | TracePoint::Settled { .. }
         | TracePoint::Cancelled { .. }
         | TracePoint::Closed { .. }
+        | TracePoint::Pull { .. }
         | TracePoint::Unknown => None,
         TracePoint::Render { took_us, .. } => Some(*took_us),
         _ => span.took,
@@ -122,8 +123,12 @@ impl Query {
     }
 
     /// By class and kind, then by the text: as shown, or with whole type
-    /// paths.
+    /// paths. A source making its next item never: it is only what others
+    /// ran in.
     pub fn matches(&self, reading: Reading, span: &Span) -> bool {
+        if matches!(span.point, TracePoint::Pull { .. }) {
+            return false;
+        }
         let timers = reading.timers;
         let in_class = match self.class {
             Class::Every => true,
@@ -1049,6 +1054,45 @@ mod tests {
         });
         shown.refresh(read(&log, &timers), &query);
         assert_eq!(listed(&shown, &log), [1], "the handling is the publish's breakdown now");
+    }
+
+    fn pulled() -> TracePoint {
+        TracePoint::Pull {
+            actor: "a::Agent".into(),
+            actor_id: 1,
+            output: "a::Streamed".into(),
+            source: 9,
+        }
+    }
+
+    #[test]
+    fn a_source_making_its_next_item_is_not_listed_and_is_what_the_item_ran_in() {
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![
+                at(1, None, 0, Some(400_000), pulled()),
+                at(2, Some(1), 399_000, None, TracePoint::Publish {
+                    event: "a::Changed".into(),
+                    bus: guinea_devtools_protocol::BusKind::Global,
+                    subscribers: 1,
+                }),
+            ],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+        let timers = Timers::default();
+        let reading = read(&log, &timers);
+
+        assert_eq!(ids(reading, &of(Class::Every)), [2], "every record but the pull");
+        assert!(ids(reading, &of(Class::Slow)).is_empty(), "a pull is mostly waiting");
+
+        let publish = about(reading, 2).expect("kept");
+        let within: Vec<(u64, Kind)> = publish.within.iter().map(|row| (row.id, row.kind)).collect();
+        assert_eq!(within, [(1, Kind::Pull)]);
+        assert_eq!(
+            words::text(&publish.within[0].words),
+            "Agent's source makes the next Streamed"
+        );
     }
 
     #[test]

@@ -36,6 +36,9 @@ pub enum Kind {
     Cancelled,
     Source,
     Arrived,
+    /// A source making its next item. Never a row of its own: it is what a
+    /// record ran in.
+    Pull,
     Closed,
     Publish,
     Deliver,
@@ -92,6 +95,7 @@ impl Kind {
             TracePoint::Tick { .. } => Kind::Tick,
             TracePoint::Store { .. } => Kind::Store,
             TracePoint::Log { .. } => Kind::Log,
+            TracePoint::Pull { .. } => Kind::Pull,
             TracePoint::Note { .. } | TracePoint::Unknown => Kind::Note,
             TracePoint::Span { .. } => Kind::Span,
         }
@@ -108,6 +112,7 @@ impl Kind {
             Kind::Cancelled => "cancelled",
             Kind::Source => "source",
             Kind::Arrived => "arrived",
+            Kind::Pull => "pull",
             Kind::Closed => "closed",
             Kind::Publish => "publish",
             Kind::Deliver => "deliver",
@@ -273,6 +278,15 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
             ),
             text(" arrives at ".into()),
             actor(a),
+        ],
+        TracePoint::Pull { actor: a, output, .. } => vec![
+            actor(a),
+            text("'s source makes the next ".into()),
+            Word::link(
+                &type_name(output),
+                name.clone(),
+                Target::Stream(Stream::Source(Stream::source_of(a, output)).to_string()),
+            ),
         ],
         TracePoint::Closed {
             actor: a,
