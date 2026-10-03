@@ -24,7 +24,9 @@ mod devtools;
 pub mod fluent;
 mod store;
 
-pub use store::{Key, L10nAccess, Language, Localization, SwitchLanguage};
+pub use store::{
+    Key, L10nAccess, L10nSetup, Language, LanguageSwitch, Localization, SwitchLanguage,
+};
 
 use std::marker::PhantomData;
 
@@ -209,6 +211,36 @@ mod tests {
 
         h.act::<Language<Listed>>(SwitchLanguage("ru".into())).settle();
         assert_eq!(shown::<Listed>(&h), Listed("ru".into()));
+    }
+
+    #[test]
+    fn a_feature_reads_the_language_where_it_is_installed() {
+        let mut h = Harness::new(1);
+        h.plugin(L10nPlugin::<Listed>::new("en").persist(false))
+            .expect("install");
+        h.act::<Language<Listed>>(SwitchLanguage("ru".into())).settle();
+
+        let segment = h.segment();
+        assert_eq!(segment.context().l10n::<Listed>(), Listed("ru".into()));
+    }
+
+    #[test]
+    fn reading_the_language_without_the_plugin_says_what_is_missing() {
+        let h = Harness::new(1);
+        let segment = h.segment();
+
+        let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            segment.context().l10n::<Listed>()
+        }));
+        let Err(panicked) = read else {
+            panic!("a language read with no L10nPlugin installed");
+        };
+        let said = panicked
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panicked.downcast_ref::<&str>().map(|said| said.to_string()))
+            .unwrap_or_default();
+        assert!(said.contains("L10nPlugin"), "{said}");
     }
 
     #[test]

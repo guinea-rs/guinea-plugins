@@ -26,16 +26,26 @@ let strings = cx.l10n::<L10n>();
 That works where a view is handed its context to read through - WinUI,
 eframe, ratatui. iced hands `view` a shared one, which `Reads` cannot read
 through until guinea 0.20: read `cx.state::<Language<L10n>, _>()` there.
-On slint, bind `Language<L10n>` as any other state. A switch is an action
-on it:
+On slint, bind `Language<L10n>` as any other state.
+
+A switch is taken from the page, without reading - so the page is not drawn
+again for it - and kept in a callback:
 
 ```rust
-let (_, dispatch) = cx.read::<Language<L10n>, _>();
-dispatch.emit(SwitchLanguage("ru".into()));
+let switch = cx.language_switch::<L10n>();
+Button::new().on_click(move || switch.to("ru"))
 ```
 
 A tag the application has no strings for leaves the language as it was.
-A feature or an actor hears every switch with `observe::<Language<L10n>>`.
+
+Where a plugin or a feature is installed, `L10nSetup` reads the language
+once, and `observe::<Language<L10n>>` hears every switch after:
+
+```rust
+use guinea_plugin_l10n::L10nSetup;
+
+let strings = cx.l10n::<L10n>();
+```
 
 ## Persistence
 

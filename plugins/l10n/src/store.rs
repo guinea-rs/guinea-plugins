@@ -37,11 +37,56 @@ pub trait L10nAccess {
     /// The strings the application shows; the segment is drawn again when
     /// they change.
     fn l10n<S: Localization + PartialEq>(&mut self) -> S;
+
+    /// What switches the language, to keep in a callback. Taking it reads
+    /// nothing: the segment is not drawn again for it.
+    fn language_switch<S: Localization>(&self) -> LanguageSwitch;
 }
 
 impl<C: guinea::feature::Reads> L10nAccess for C {
     fn l10n<S: Localization + PartialEq>(&mut self) -> S {
         let (language, _) = self.read::<Language<S>, guinea::feature::FromApp>();
+        language.strings().clone()
+    }
+
+    fn language_switch<S: Localization>(&self) -> LanguageSwitch {
+        LanguageSwitch(self.dispatch::<Language<S>, guinea::feature::FromApp>())
+    }
+}
+
+/// Switches the language the application shows, by tag.
+#[derive(Clone)]
+pub struct LanguageSwitch(guinea_core::feature::Dispatch);
+
+impl LanguageSwitch {
+    /// A tag the application has no strings for leaves the language as it
+    /// was.
+    pub fn to(&self, tag: impl Into<String>) {
+        self.0.emit(SwitchLanguage(tag.into()));
+    }
+}
+
+/// The language from where a plugin or a feature is installed: read once,
+/// not followed - [`observe`](guinea::feature::ScopeContext::observe)
+/// follows it.
+pub trait L10nSetup {
+    /// The strings the application shows now.
+    ///
+    /// # Panics
+    ///
+    /// When [`L10nPlugin`](crate::L10nPlugin) for `S` was not installed:
+    /// that is how the application was put together.
+    fn l10n<S: Localization>(&self) -> S;
+}
+
+impl L10nSetup for guinea::feature::ScopeContext {
+    fn l10n<S: Localization>(&self) -> S {
+        let Some(language) = self.read::<Language<S>>() else {
+            panic!(
+                "the language is read here and nothing exports {} - install L10nPlugin",
+                std::any::type_name::<Language<S>>()
+            );
+        };
         language.strings().clone()
     }
 }
