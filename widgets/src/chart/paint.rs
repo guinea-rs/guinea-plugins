@@ -17,7 +17,7 @@ use windows_canvas::{
 
 use super::geometry::Frame;
 use super::model::{ChartGrid, Interpolation, LineChartOptions, Series};
-use super::surface::Metrics;
+use crate::painted::Metrics;
 use crate::color::hex;
 
 const LINE_WIDTH: f32 = 1.0;

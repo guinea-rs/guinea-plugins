@@ -11,4 +11,6 @@ pub mod table;
 #[cfg(all(feature = "winui", windows))]
 pub mod color;
 #[cfg(all(feature = "winui", windows))]
+pub mod painted;
+#[cfg(all(feature = "winui", windows))]
 pub mod resize;

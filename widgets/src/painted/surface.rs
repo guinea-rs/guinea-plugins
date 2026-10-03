@@ -1,12 +1,12 @@
-//! Where a chart is drawn: an image surface on a device every chart on the
-//! thread shares.
+//! Where a painted view is drawn: an image surface on a device every painted
+//! view on the thread shares.
 //!
 //! A canvas of its own made each chart its own Direct3D and Direct2D device
 //! and swap chain - some sixteen megabytes and a dozen driver threads apiece.
 //! An image surface costs a texture, and the one device is made when the first
-//! chart draws and let go when the last one is dropped.
+//! view draws and let go when the last one is dropped.
 //!
-//! A lost device is dropped for everyone. The chart that found it lost makes
+//! A lost device is dropped for everyone. The view that found it lost makes
 //! the next one straight away; the others notice their surface belongs to the
 //! old device the next time they draw, and build a new one.
 
@@ -45,7 +45,7 @@ fn lost(device: &Rc<GpuDevice>) {
 
 /// How big a surface is: its size in DIPs and its pixels per DIP.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct Metrics {
+pub struct Metrics {
     pub width: f32,
     pub height: f32,
     pub scale: f32,
@@ -68,7 +68,7 @@ struct Drawn {
     attached: bool,
 }
 
-/// One chart's surface, attached to its image.
+/// One view's surface, attached to its image.
 pub(super) struct Surface {
     image: ElementRef<Image>,
     metrics: Option<Metrics>,
@@ -84,7 +84,7 @@ impl Surface {
         }
     }
 
-    /// Lets the surface and its hold on the device go, for a chart that is off
+    /// Lets the surface and its hold on the device go, for a view that is off
     /// screen, and forgets the size, so that data arriving meanwhile draws
     /// nothing until the image is laid out again.
     pub fn release(&mut self) {
@@ -126,7 +126,7 @@ impl Surface {
         for _ in 0..2 {
             let device = match shared() {
                 Ok(device) => device,
-                Err(error) => return tracing::warn!(%error, "chart: no graphics device"),
+                Err(error) => return tracing::warn!(%error, "painted: no graphics device"),
             };
 
             let current = self.drawn.as_ref().is_some_and(|drawn| {
@@ -143,7 +143,7 @@ impl Surface {
                             attached: false,
                         });
                     }
-                    Err(error) => return tracing::warn!(%error, "chart: no surface"),
+                    Err(error) => return tracing::warn!(%error, "painted: no surface"),
                 }
             }
 
@@ -159,7 +159,7 @@ impl Surface {
                     if !drawn.attached {
                         drawn.attached = drawn.source.attach_result(&self.image, |result| {
                             if let Err(error) = result {
-                                tracing::warn!(?error, "chart: the surface did not attach");
+                                tracing::warn!(?error, "painted: the surface did not attach");
                             }
                         });
                     }
@@ -169,7 +169,7 @@ impl Surface {
                     lost(&drawn.device);
                     self.drawn = None;
                 }
-                Err(error) => return tracing::warn!(%error, "chart: drawing failed"),
+                Err(error) => return tracing::warn!(%error, "painted: drawing failed"),
             }
         }
     }
