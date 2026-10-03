@@ -13,7 +13,10 @@
 //! Nothing is traced or read until devtools answer, and it stops when they
 //! go: an application that has the plugin and no devtools runs nothing for
 //! it. While they are there, they are sent everything once and then only
-//! what guinea says moved, a short wait after it moved.
+//! what guinea says moved: the trace a short wait after it happened, the
+//! state that moved at most once a second, however often it moves - reading
+//! state prints it whole, and an application that streams would otherwise
+//! spend more on its debugger than on itself.
 //!
 //! In a release build the plugin does nothing unless
 //! [`in_release`](DevToolsPlugin::in_release) says otherwise: devtools can
@@ -34,6 +37,7 @@ use guinea_devtools_protocol::{AppInfo, Capability};
 
 pub struct DevToolsPlugin {
     wait_ms: u64,
+    reread_ms: u64,
     launch: bool,
     in_release: bool,
 }
@@ -48,6 +52,7 @@ impl DevToolsPlugin {
     pub fn new() -> Self {
         Self {
             wait_ms: 50,
+            reread_ms: 1000,
             launch: false,
             in_release: false,
         }
@@ -63,6 +68,13 @@ impl DevToolsPlugin {
     /// goes as one report. 50 ms unless said otherwise.
     pub fn every(mut self, millis: u64) -> Self {
         self.wait_ms = millis.max(16);
+        self
+    }
+
+    /// How often at most state that keeps moving is read again and sent.
+    /// The trace is not held back by it. 1000 ms unless said otherwise.
+    pub fn reread(mut self, millis: u64) -> Self {
+        self.reread_ms = millis;
         self
     }
 
@@ -124,6 +136,7 @@ impl Plugin for DevToolsPlugin {
             info,
             Instant::now(),
             Duration::from_millis(self.wait_ms),
+            Duration::from_millis(self.reread_ms),
         );
 
         app.on_cleanup(|_| {

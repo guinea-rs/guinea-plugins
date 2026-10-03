@@ -25,6 +25,7 @@ struct Link {
     info: Arc<Mutex<AppInfo>>,
     started: Instant,
     wait: Duration,
+    reread: Duration,
     connection: Option<Connection>,
 }
 
@@ -46,12 +47,19 @@ struct Inbox {
 }
 
 /// Hands the link to the UI thread. Nothing is read until devtools connect.
-pub fn start(outbox: Outbox, info: Arc<Mutex<AppInfo>>, started: Instant, wait: Duration) {
+pub fn start(
+    outbox: Outbox,
+    info: Arc<Mutex<AppInfo>>,
+    started: Instant,
+    wait: Duration,
+    reread: Duration,
+) {
     LINK.set(Some(Link {
         outbox,
         info,
         started,
         wait,
+        reread,
         connection: None,
     }));
 }
@@ -74,7 +82,7 @@ pub fn connected(generation: u64, takes_changes: bool) {
         }));
         link.connection = Some(Connection {
             generation,
-            live: Live::new(link.started, takes_changes),
+            live: Live::new(link.started, takes_changes).reread_every(link.reread),
             inbox: inbox.clone(),
         });
         Some(inbox)
@@ -123,8 +131,13 @@ fn stop_listening() {
 }
 
 fn soon(inbox: &mut Inbox) {
+    let wait = inbox.wait;
+    flush_in(inbox, wait);
+}
+
+fn flush_in(inbox: &mut Inbox, wait: Duration) {
     if !std::mem::replace(&mut inbox.flushing, true) {
-        guinea::timers::after(inbox.wait, flush);
+        guinea::timers::after(wait, flush);
     }
 }
 
@@ -152,7 +165,7 @@ fn flush() {
         if roots_moved {
             connection.live.roots_moved();
         }
-        let flushed = connection.live.reports(traced);
+        let flushed = connection.live.reports(traced, Instant::now());
 
         {
             let mut info = link.info.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -170,6 +183,9 @@ fn flush() {
         if dropped {
             connection.live.lost();
             soon(&mut connection.inbox.borrow_mut());
+        } else if let Some(due) = flushed.due {
+            let wait = due.saturating_duration_since(Instant::now());
+            flush_in(&mut connection.inbox.borrow_mut(), wait);
         }
     });
 }
@@ -180,6 +196,8 @@ pub struct Flushed {
     pub reports: Vec<Report>,
     pub backend: Option<&'static str>,
     pub plugins: Vec<&'static str>,
+    /// When what moved and was not read yet is to be read.
+    pub due: Option<Instant>,
 }
 
 /// What was said to have moved since the last flush.
@@ -194,12 +212,26 @@ struct Stale {
     global_bus: bool,
 }
 
+impl Stale {
+    fn is_empty(&self) -> bool {
+        self.actors.is_empty()
+            && self.actors_gone.is_empty()
+            && self.roots.is_empty()
+            && self.roots_gone.is_empty()
+            && !self.every_root
+            && !self.timers
+            && !self.global_bus
+    }
+}
+
 /// One connection's view of what devtools hold.
 pub struct Live {
     started: Instant,
     takes_changes: bool,
     whole: bool,
     stale: Stale,
+    reread: Duration,
+    read_at: Option<Instant>,
     /// Each actor's window, `None` for the application's own.
     homes: HashMap<u64, Option<u64>>,
     /// Each window's segments as their scopes' keys.
@@ -214,10 +246,18 @@ impl Live {
             takes_changes,
             whole: true,
             stale: Stale::default(),
+            reread: Duration::ZERO,
+            read_at: None,
             homes: HashMap::new(),
             chains: BTreeMap::new(),
             panels: Vec::new(),
         }
+    }
+
+    /// Reads state that keeps moving again at most once per `period`.
+    pub fn reread_every(mut self, period: Duration) -> Self {
+        self.reread = period;
+        self
     }
 
     /// Remembers what `change` made stale, to read at the next flush.
@@ -268,11 +308,24 @@ impl Live {
     }
 
     /// What devtools are to be sent now, the trace after the state it explains.
-    pub fn reports(&mut self, traced: TraceBatch) -> Flushed {
-        let mut flushed = if self.whole || !self.takes_changes {
-            self.whole()
-        } else {
-            self.changes()
+    pub fn reports(&mut self, traced: TraceBatch, now: Instant) -> Flushed {
+        let waiting = self
+            .read_at
+            .map(|read_at| read_at + self.reread)
+            .filter(|due| *due > now);
+        let mut flushed = match waiting {
+            Some(due) => Flushed {
+                due: (self.whole || !self.takes_changes || !self.stale.is_empty()).then_some(due),
+                ..Flushed::default()
+            },
+            None => {
+                self.read_at = Some(now);
+                if self.whole || !self.takes_changes {
+                    self.whole()
+                } else {
+                    self.changes()
+                }
+            }
         };
 
         if !traced.spans.is_empty() || !traced.ends.is_empty() || traced.dropped > 0 {
@@ -299,6 +352,7 @@ impl Live {
             reports: vec![Report::Snapshot(collected.report)],
             backend: collected.backend,
             plugins: collected.plugins,
+            due: None,
         }
     }
 
@@ -371,6 +425,7 @@ impl Live {
             },
             backend,
             plugins: installed_plugins(),
+            due: None,
         }
     }
 }
@@ -413,14 +468,14 @@ mod tests {
     fn devtools_hear_everything_once_and_then_only_what_moved() {
         let mut live = Live::new(Instant::now(), true);
 
-        assert_eq!(kinds(&live.reports(TraceBatch::default())), ["snapshot"]);
-        assert_eq!(kinds(&live.reports(TraceBatch::default())), Vec::<&str>::new(), "nothing moved");
+        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), ["snapshot"]);
+        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), Vec::<&str>::new(), "nothing moved");
 
         live.note(&Change::Subscriptions {
             bus: Bus::Global,
             root: None,
         });
-        let flushed = live.reports(TraceBatch::default());
+        let flushed = live.reports(TraceBatch::default(), Instant::now());
         let [Report::Changed(changes)] = flushed.reports.as_slice() else {
             panic!("one change, not {:?}", kinds(&flushed));
         };
@@ -431,16 +486,16 @@ mod tests {
     #[test]
     fn devtools_that_take_no_changes_are_sent_the_whole_snapshot() {
         let mut live = Live::new(Instant::now(), false);
-        assert_eq!(kinds(&live.reports(TraceBatch::default())), ["snapshot"]);
+        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), ["snapshot"]);
 
         live.note(&Change::TimerStarted { id: 1 });
-        assert_eq!(kinds(&live.reports(TraceBatch::default())), ["snapshot"]);
+        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), ["snapshot"]);
     }
 
     #[test]
     fn an_actor_that_cannot_be_read_any_more_is_said_to_be_gone() {
         let mut live = Live::new(Instant::now(), true);
-        live.reports(TraceBatch::default());
+        live.reports(TraceBatch::default(), Instant::now());
 
         live.note(&Change::ActorAdded {
             root: None,
@@ -452,7 +507,7 @@ mod tests {
         live.note(&Change::ActorRemoved { root: None, id: 42 });
         live.note(&Change::ActorHandled { id: 99 });
 
-        let flushed = live.reports(TraceBatch::default());
+        let flushed = live.reports(TraceBatch::default(), Instant::now());
         let [Report::Changed(changes)] = flushed.reports.as_slice() else {
             panic!("one change, not {:?}", kinds(&flushed));
         };
@@ -467,11 +522,11 @@ mod tests {
     #[test]
     fn after_a_report_was_lost_devtools_are_sent_everything_again() {
         let mut live = Live::new(Instant::now(), true);
-        live.reports(TraceBatch::default());
+        live.reports(TraceBatch::default(), Instant::now());
 
         live.lost();
-        assert_eq!(kinds(&live.reports(TraceBatch::default())), ["snapshot"]);
-        assert_eq!(kinds(&live.reports(TraceBatch::default())), Vec::<&str>::new());
+        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), ["snapshot"]);
+        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), Vec::<&str>::new());
     }
 
     mod counting {
@@ -525,7 +580,7 @@ mod tests {
         let counter = SPAWNED.take().expect("spawned");
 
         let mut live = Live::new(Instant::now(), true);
-        live.reports(TraceBatch::default());
+        live.reports(TraceBatch::default(), Instant::now());
         said.borrow_mut().clear();
 
         h.record("Count", || counter.send(Count)).settle();
@@ -534,7 +589,7 @@ mod tests {
         for change in said.borrow().iter() {
             live.note(change);
         }
-        let flushed = live.reports(TraceBatch::default());
+        let flushed = live.reports(TraceBatch::default(), Instant::now());
         let [Report::Changed(changes)] = flushed.reports.as_slice() else {
             panic!("one change, not {:?}", kinds(&flushed));
         };
@@ -548,10 +603,34 @@ mod tests {
     }
 
     #[test]
+    fn state_that_keeps_moving_is_read_again_at_most_once_a_period() {
+        let started = Instant::now();
+        let mut live = Live::new(started, true).reread_every(Duration::from_secs(1));
+        assert_eq!(kinds(&live.reports(TraceBatch::default(), started)), ["snapshot"]);
+
+        let moved = Change::Subscriptions {
+            bus: Bus::Global,
+            root: None,
+        };
+        live.note(&moved);
+        let soon = live.reports(traced(), started + Duration::from_millis(100));
+        assert_eq!(kinds(&soon), ["trace"], "the trace goes now, the state waits");
+        assert_eq!(
+            soon.due,
+            Some(started + Duration::from_secs(1)),
+            "the state is read when its period is up"
+        );
+
+        let due = live.reports(TraceBatch::default(), started + Duration::from_secs(1));
+        assert_eq!(kinds(&due), ["changed"]);
+        assert_eq!(due.due, None, "nothing is left to read");
+    }
+
+    #[test]
     fn the_trace_follows_the_state_it_explains() {
         let mut live = Live::new(Instant::now(), true);
 
-        assert_eq!(kinds(&live.reports(traced())), ["snapshot", "trace"]);
-        assert_eq!(kinds(&live.reports(traced())), ["trace"]);
+        assert_eq!(kinds(&live.reports(traced(), Instant::now())), ["snapshot", "trace"]);
+        assert_eq!(kinds(&live.reports(traced(), Instant::now())), ["trace"]);
     }
 }
