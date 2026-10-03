@@ -122,7 +122,7 @@ fn drag_edge(page: &mut Mounted<'_, Columns>, column: &'static str, drag: Drag) 
 
 #[guinea::test(iterations = 2)]
 fn a_header_dragged_past_half_its_neighbour_takes_its_place(h: &mut Harness) {
-    let mut page = Mounted::<Columns>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<Columns>::mount(h.segment(), ()).unwrap();
 
     page.drag(Col::Kind, Drag::by(-40.0, 0.0)).settle();
     shows(&page, "order  size None sorted ");
@@ -133,7 +133,7 @@ fn a_header_dragged_past_half_its_neighbour_takes_its_place(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn a_header_keeps_trading_places_while_it_is_dragged(h: &mut Harness) {
-    let mut page = Mounted::<Columns>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<Columns>::mount(h.segment(), ()).unwrap();
 
     page.drag(Col::Date, Drag::by(-160.0, 0.0).steps(8))
         .settle();
@@ -142,7 +142,7 @@ fn a_header_keeps_trading_places_while_it_is_dragged(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn nothing_passes_the_first_column(h: &mut Harness) {
-    let mut page = Mounted::<Columns>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<Columns>::mount(h.segment(), ()).unwrap();
 
     page.drag(Col::Size, Drag::by(-500.0, 0.0).steps(10))
         .settle();
@@ -151,7 +151,7 @@ fn nothing_passes_the_first_column(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn a_click_sorts_and_a_drag_does_not(h: &mut Harness) {
-    let mut page = Mounted::<Columns>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<Columns>::mount(h.segment(), ()).unwrap();
 
     page.click(Col::Kind).settle();
     shows(&page, "order  size None sorted Kind");
@@ -162,7 +162,7 @@ fn a_click_sorts_and_a_drag_does_not(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn a_header_whose_capture_was_lost_still_sorts_on_the_next_click(h: &mut Harness) {
-    let mut page = Mounted::<Columns>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<Columns>::mount(h.segment(), ()).unwrap();
 
     page.drag(Col::Kind, Drag::by(-60.0, 0.0).lost()).settle();
     shows(&page, "order Name,Kind,Size,Date size None sorted ");
@@ -173,7 +173,7 @@ fn a_header_whose_capture_was_lost_still_sorts_on_the_next_click(h: &mut Harness
 
 #[guinea::test(iterations = 2)]
 fn a_boundary_dragged_resizes_its_column_down_to_its_least(h: &mut Harness) {
-    let mut page = Mounted::<Columns>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<Columns>::mount(h.segment(), ()).unwrap();
 
     drag_edge(&mut page, "Size/resize", Drag::by(40.0, 0.0));
     shows(&page, "order  size Some(140.0) sorted ");
@@ -184,7 +184,7 @@ fn a_boundary_dragged_resizes_its_column_down_to_its_least(h: &mut Harness) {
 
 #[guinea::test(iterations = 2)]
 fn a_boundary_whose_capture_was_lost_keeps_the_width_it_reached(h: &mut Harness) {
-    let mut page = Mounted::<Columns>::mount(&h.segment(), ()).unwrap();
+    let mut page = Mounted::<Columns>::mount(h.segment(), ()).unwrap();
 
     drag_edge(&mut page, "Size/resize", Drag::by(40.0, 0.0).lost());
     shows(&page, "order  size Some(140.0) sorted ");
