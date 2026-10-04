@@ -32,10 +32,10 @@ impl<S: Clone + Default + 'static> Reducer for Language<S> {
 /// The language from a page or a layout of any backend that reads as it
 /// draws.
 ///
-/// The segment reaches the language when `L10nPlugin<S>` is listed in the
-/// `app { .. }` block of `routes!`. `I` is where in the chain it is found,
-/// and is always inferred: `let strings: Strings = cx.l10n();`, or
-/// `cx.l10n::<Strings, _>()`.
+/// The segment reaches the language when the application installs
+/// `L10nPlugin<S>`: `app! { App { installs { L10nPlugin<S> } } }`. `I` is
+/// where in the chain it is found, and is always inferred:
+/// `let strings: Strings = cx.l10n();`, or `cx.l10n::<Strings, _>()`.
 pub trait L10nAccess: guinea::feature::Reads {
     /// The strings the application shows; the segment is drawn again when
     /// they change.

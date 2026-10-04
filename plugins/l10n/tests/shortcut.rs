@@ -1,7 +1,7 @@
 #![cfg(windows)]
 
 use guinea::app::Harness;
-use guinea::feature::{Application, Segment};
+use guinea::feature::Segment;
 use guinea::winui::harness::Mounted;
 use guinea::winui::{MarkExt, Page, PageCx, page};
 use guinea_plugin_l10n::{L10nAccess, L10nPlugin, Language, Localization, SwitchLanguage};
@@ -52,9 +52,16 @@ impl Page for Greeting {
     }
 }
 
+pub struct App;
+
+impl Segment for App {
+    type Installs = (L10nPlugin<Strings>,);
+    type Above = ();
+}
+
 impl Segment for Greeting {
     type Installs = ();
-    type Above = (Application<L10nPlugin<Strings>>, ());
+    type Above = (App, ());
 }
 
 fn installed() -> Harness {
