@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use guinea::app::installed_plugins;
-use guinea_core::devtools::{self, Change};
+use guinea_core::observability::changes::{self, Change};
 use guinea_core::trace::{self, Bus, Point, Trace};
 use guinea_devtools_protocol::{AppInfo, Changes, Panel, Report, TraceBatch};
 
@@ -104,7 +104,7 @@ pub fn connected(generation: u64, takes_changes: bool) {
         inbox.roots_moved |= moved;
         soon(&mut inbox);
     });
-    devtools::watch(move |change| {
+    changes::watch(move |change| {
         let mut inbox = inbox.borrow_mut();
         inbox.changes.push(change.clone());
         soon(&mut inbox);
@@ -127,7 +127,7 @@ pub fn disconnected(generation: u64) {
 
 fn stop_listening() {
     trace::stop_observing();
-    devtools::stop_watching();
+    changes::stop_watching();
 }
 
 fn soon(inbox: &mut Inbox) {
@@ -370,7 +370,7 @@ impl Live {
         }
         let mut roots_gone = stale.roots_gone;
         for id in reread {
-            match guinea::devtools::router(id) {
+            match guinea::observability::snapshot::router(id) {
                 Some(router) => {
                     backend = Some(router.backend);
                     self.chains.insert(id, collect::segments(&router));
@@ -389,7 +389,7 @@ impl Live {
         let mut actors_gone = stale.actors_gone;
         for id in stale.actors {
             let home = self.homes.get(&id).copied().flatten();
-            let read = guinea::devtools::actor(home, id as usize);
+            let read = guinea::observability::snapshot::actor(home, id as usize);
             match read {
                 Some(snapshot) => {
                     let segments = home
@@ -575,7 +575,7 @@ mod tests {
 
         let said = Rc::new(RefCell::new(Vec::new()));
         let sink = said.clone();
-        devtools::watch(move |change| sink.borrow_mut().push(change.clone()));
+        changes::watch(move |change| sink.borrow_mut().push(change.clone()));
 
         let mut h = guinea::app::Harness::new(1);
         h.feature(Counting).expect("install");
@@ -586,7 +586,7 @@ mod tests {
         said.borrow_mut().clear();
 
         h.record("Count", || counter.send(Count)).settle();
-        devtools::stop_watching();
+        changes::stop_watching();
 
         for change in said.borrow().iter() {
             live.note(change);

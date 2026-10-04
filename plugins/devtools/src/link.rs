@@ -111,7 +111,7 @@ impl peer::Server for Inbound {
                 action,
                 payload,
             } => self.on_ui(request, move || {
-                guinea::devtools::act(root, &action, &payload)
+                guinea::observability::act(root, &action, &payload)
             }),
             Command::Publish {
                 request,

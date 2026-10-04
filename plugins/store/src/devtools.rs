@@ -11,7 +11,8 @@ use amethystate::store::{StoreLayout, StorePath};
 use amethystate::{
     MigrationReport, Store, StoreBackend, StoreEvent, StoreOp, StoreSubscription, SubscriptionKind,
 };
-use guinea_core::devtools::{self, Panel, PanelGuard, PanelNode};
+use guinea_core::observability::panels::{self, Panel, PanelGuard, PanelNode};
+use guinea_core::observability::mark_anywhere;
 use guinea_core::trace::{self, Point};
 
 /// How many keys the panel lists; past that it says how many it left out.
@@ -40,7 +41,7 @@ impl Watching {
         let fixed = vec![files(store), migrations(report)];
         let reader = store.clone();
         let listed = RefCell::new(None);
-        let panel = devtools::contribute_to_app(move || {
+        let panel = panels::contribute_to_app(move || {
             let mut listed = listed.borrow_mut();
             if written.swap(false, Ordering::Relaxed) || listed.is_none() {
                 *listed = Some(keys(&reader));
@@ -74,7 +75,7 @@ fn changed(event: &StoreEvent) {
     };
     let path = event.path.clone();
     let outside = event.is_external_edit();
-    devtools::mark_anywhere(move || Point::Store {
+    mark_anywhere(move || Point::Store {
         op,
         field: field(&path),
         path: path.to_string(),
@@ -346,7 +347,7 @@ mod tests {
             [(Some(action), trace::StoreOp::Set, "greeting".to_string())]
         );
 
-        let panels = devtools::app_panels();
+        let panels = panels::for_app();
         let panel = panels
             .iter()
             .find(|p| p.id == "guinea.store")
@@ -364,7 +365,7 @@ mod tests {
         );
 
         drop(watching);
-        assert!(devtools::app_panels().is_empty());
+        assert!(panels::for_app().is_empty());
     }
 
     #[test]

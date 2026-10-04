@@ -34,14 +34,14 @@ pub fn start() -> anyhow::Result<String> {
     let at = server.at.clone();
     *running = Some(server);
 
-    guinea_core::devtools::profiling::record(true);
+    guinea_core::observability::profiling::record(true);
     Ok(at)
 }
 
 /// Stops recording and takes the server down. Also when devtools go away:
 /// the server has no authentication of its own, and nobody is reading it.
 pub fn stop() {
-    guinea_core::devtools::profiling::record(false);
+    guinea_core::observability::profiling::record(false);
     let _ = RUNNING
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())

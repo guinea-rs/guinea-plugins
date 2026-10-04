@@ -4,9 +4,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Instant;
 
-use guinea::app::actors::app_actors;
+use guinea::observability::snapshot::{self, RouterView, app_actors};
 use guinea::app::installed_plugins;
-use guinea::devtools::{self, RouterView};
 use guinea::timers::{TimerInfo, running};
 use guinea_core::actor::event_bus::GlobalEventBus;
 use guinea_core::actor::registry::ActorSnapshot;
@@ -329,7 +328,7 @@ fn flow(edge: &shape::Edge) -> Flow {
 }
 
 pub fn snapshot(started: Instant) -> Collected {
-    let routers = devtools::routers();
+    let routers = snapshot::routers();
     let backend = routers.first().map(|router| router.backend);
 
     let app = app_actors();
@@ -389,7 +388,7 @@ pub fn timers(scopes: &Scopes) -> Vec<Timer> {
 }
 
 pub fn app_panels() -> Vec<Panel> {
-    guinea_core::devtools::app_panels().into_iter().map(panel).collect()
+    guinea_core::observability::panels::for_app().into_iter().map(panel).collect()
 }
 
 pub fn global_bus() -> Vec<BusSubscription> {
@@ -544,7 +543,7 @@ fn feature_name(name: &str) -> String {
     name[start..].to_string()
 }
 
-fn panel(panel: guinea_core::devtools::Panel) -> Panel {
+fn panel(panel: guinea_core::observability::panels::Panel) -> Panel {
     Panel {
         id: panel.id.to_string(),
         title: panel.title.to_string(),
@@ -552,7 +551,7 @@ fn panel(panel: guinea_core::devtools::Panel) -> Panel {
     }
 }
 
-fn node(node: guinea_core::devtools::PanelNode) -> Node {
+fn node(node: guinea_core::observability::panels::PanelNode) -> Node {
     Node {
         label: node.label,
         kind: node.kind,
