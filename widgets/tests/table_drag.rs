@@ -88,17 +88,18 @@ impl Page for Columns {
             self.sorted.join(","),
         );
 
-        StackPanel::new().children((
-            table(Vec::<()>::new(), columns)
-                .widths(&self.widths)
-                .on_resize(cx.on(Changed::Resized))
-                .order(&self.order)
-                .on_reorder(cx.on(Changed::Reordered))
-                .sort(sort, cx.on(Changed::Sorted))
-                .build(),
-            TextBlock::new().text(shown),
-        ))
-        .into()
+        StackPanel::new()
+            .children((
+                table(Vec::<()>::new(), columns)
+                    .widths(&self.widths)
+                    .on_resize(cx.on(Changed::Resized))
+                    .order(&self.order)
+                    .on_reorder(cx.on(Changed::Reordered))
+                    .sort(sort, cx.on(Changed::Sorted))
+                    .build(),
+                TextBlock::new().text(shown),
+            ))
+            .into()
     }
 }
 

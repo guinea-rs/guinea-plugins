@@ -29,11 +29,15 @@ pub(super) struct Plot {
 
 impl Plot {
     pub fn of(width: f32, height: f32, options: &ScatterOptions) -> Self {
-        let labelled = !options.y_lines.is_empty()
-            || !options.above.is_empty()
-            || !options.below.is_empty();
+        let labelled =
+            !options.y_lines.is_empty() || !options.above.is_empty() || !options.below.is_empty();
         let left = if labelled { LABELS_WIDE } else { 0.0 };
-        let bottom = height - if options.x_ticks.is_empty() { 0.0 } else { TICKS_TALL };
+        let bottom = height
+            - if options.x_ticks.is_empty() {
+                0.0
+            } else {
+                TICKS_TALL
+            };
         let band_height = options.band_height.max(0.0);
 
         Self {
@@ -86,9 +90,7 @@ impl Plot {
     fn value(&self, up: f32) -> f32 {
         match self.y {
             Scale::Linear { from, to } => from + (to - from) * up,
-            Scale::Log { from, to } => {
-                10f32.powf(from.log10() + (to.log10() - from.log10()) * up)
-            }
+            Scale::Log { from, to } => 10f32.powf(from.log10() + (to.log10() - from.log10()) * up),
         }
     }
 
@@ -296,14 +298,22 @@ mod tests {
             dots(&[(3, 2_500, Level::Above(0))]),
         ];
 
-        let hit = plot.nearest(&series, L + 150.0, 140.0, 8.0).expect("one is near");
+        let hit = plot
+            .nearest(&series, L + 150.0, 140.0, 8.0)
+            .expect("one is near");
         assert_eq!((hit.series, hit.key), (0, 1));
         assert!(close(hit.x, L + 150.0) && close(hit.y, 142.0), "{hit:?}");
 
-        let band = plot.nearest(&series, L + 152.0, 10.0, 8.0).expect("the band's");
+        let band = plot
+            .nearest(&series, L + 152.0, 10.0, 8.0)
+            .expect("the band's");
         assert_eq!((band.series, band.key), (1, 3));
 
-        assert_eq!(plot.nearest(&series, L + 150.0, 100.0, 8.0), None, "too far below");
+        assert_eq!(
+            plot.nearest(&series, L + 150.0, 100.0, 8.0),
+            None,
+            "too far below"
+        );
     }
 
     #[test]
@@ -321,7 +331,9 @@ mod tests {
             }],
         }];
 
-        let hit = plot.nearest(&series, L + 150.0, 142.0, 8.0).expect("under it");
+        let hit = plot
+            .nearest(&series, L + 150.0, 142.0, 8.0)
+            .expect("under it");
         assert_eq!(hit.key, (4242, "second run".to_string()));
     }
 
@@ -338,7 +350,10 @@ mod tests {
         let plot = plot();
         let area = plot.area((L + 300.0, 4.0), (L + 150.0, 142.0));
         assert_eq!(area.x, (2_500, 4_000));
-        assert!(matches!(area.y.0, Level::Value(value) if close(value, 1.0)), "{area:?}");
+        assert!(
+            matches!(area.y.0, Level::Value(value) if close(value, 1.0)),
+            "{area:?}"
+        );
         assert_eq!(area.y.1, Level::Above(0));
     }
 }

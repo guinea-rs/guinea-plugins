@@ -216,11 +216,7 @@ impl Component for Handle {
         let indicator = Grid::new()
             .rows([top, mid, bottom])
             .columns([GridLength::Star(1.0)])
-            .children((
-                Border::new().grid_row(0),
-                pill,
-                Border::new().grid_row(2),
-            ));
+            .children((Border::new().grid_row(0), pill, Border::new().grid_row(2)));
 
         // Both children land in the single implicit cell, so the pill draws
         // over the rail rather than beside it.

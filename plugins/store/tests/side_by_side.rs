@@ -22,7 +22,11 @@ fn stores_in_memory_are_open_side_by_side_and_keep_to_themselves() {
         .expect("set");
 
     assert_eq!(name(&first), Some("first".to_string()));
-    assert_eq!(name(&second), None, "the second store holds nothing of the first's");
+    assert_eq!(
+        name(&second),
+        None,
+        "the second store holds nothing of the first's"
+    );
 
     assert!(first.shutdown().is_empty());
     assert!(second.shutdown().is_empty());

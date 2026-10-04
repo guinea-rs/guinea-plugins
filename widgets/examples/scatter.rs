@@ -9,8 +9,7 @@ use guinea_widgets::chart::scatter::{
 };
 use guinea_widgets::color::hex;
 use windows_reactor::{
-    App, Border, Color, Component, ComponentContext, Grid, StackPanel, TextBlock, View,
-    ViewContext,
+    App, Border, Color, Component, ComponentContext, Grid, StackPanel, TextBlock, View, ViewContext,
 };
 
 const SPAN: u64 = 15 * 60 * 1000;

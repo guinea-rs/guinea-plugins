@@ -331,7 +331,10 @@ pub fn snapshot(started: Instant) -> Collected {
     let backend = routers.first().map(|router| router.backend);
 
     let app = app_actors();
-    let mut actors: Vec<Actor> = app.iter().map(|snapshot| actor(snapshot, None, &[])).collect();
+    let mut actors: Vec<Actor> = app
+        .iter()
+        .map(|snapshot| actor(snapshot, None, &[]))
+        .collect();
     let mut chains: Vec<(u64, Vec<usize>)> = Vec::new();
 
     let roots = routers
@@ -365,7 +368,11 @@ pub fn snapshot(started: Instant) -> Collected {
 
 /// A window's segments, outermost first, as their scopes' keys.
 pub fn segments(router: &RouterView) -> Vec<usize> {
-    router.segments.iter().map(|segment| segment.scope).collect()
+    router
+        .segments
+        .iter()
+        .map(|segment| segment.scope)
+        .collect()
 }
 
 /// Every scope of every window's chain.
@@ -374,7 +381,11 @@ pub fn scopes<'a>(
 ) -> Vec<(usize, u64, usize)> {
     chains
         .into_iter()
-        .flat_map(|(root, keys)| keys.iter().enumerate().map(|(depth, key)| (*key, *root, depth)))
+        .flat_map(|(root, keys)| {
+            keys.iter()
+                .enumerate()
+                .map(|(depth, key)| (*key, *root, depth))
+        })
         .collect()
 }
 
@@ -387,7 +398,10 @@ pub fn timers(scopes: &Scopes) -> Vec<Timer> {
 }
 
 pub fn app_panels() -> Vec<Panel> {
-    guinea_core::observability::panels::for_app().into_iter().map(panel).collect()
+    guinea_core::observability::panels::for_app()
+        .into_iter()
+        .map(panel)
+        .collect()
 }
 
 pub fn global_bus() -> Vec<BusSubscription> {

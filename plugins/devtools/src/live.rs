@@ -117,7 +117,9 @@ pub fn connected(generation: u64, takes_changes: bool) {
 pub fn disconnected(generation: u64) {
     let current = LINK.with_borrow_mut(|link| {
         let link = link.as_mut()?;
-        let connection = link.connection.take_if(|connection| connection.generation == generation);
+        let connection = link
+            .connection
+            .take_if(|connection| connection.generation == generation);
         Some(connection.is_some())
     });
     if current == Some(true) {
@@ -168,7 +170,10 @@ fn flush() {
         let flushed = connection.live.reports(traced, Instant::now());
 
         {
-            let mut info = link.info.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut info = link
+                .info
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if let Some(backend) = flushed.backend {
                 info.backend = backend.to_string();
             }
@@ -283,8 +288,13 @@ impl Live {
                 }
             }
             Change::TimerStarted { .. } | Change::TimerStopped { .. } => stale.timers = true,
-            Change::Subscriptions { bus: Bus::Global, .. } => stale.global_bus = true,
-            Change::Subscriptions { root: Some(root), .. } | Change::RouterOpened { root } => {
+            Change::Subscriptions {
+                bus: Bus::Global, ..
+            } => stale.global_bus = true,
+            Change::Subscriptions {
+                root: Some(root), ..
+            }
+            | Change::RouterOpened { root } => {
                 stale.roots_gone.remove(&root);
                 stale.roots.insert(root);
             }
@@ -395,7 +405,9 @@ impl Live {
                     let segments = home
                         .and_then(|root| self.chains.get(&root))
                         .map_or(&[][..], Vec::as_slice);
-                    changes.actors.push(collect::actor(&snapshot, home, segments));
+                    changes
+                        .actors
+                        .push(collect::actor(&snapshot, home, segments));
                 }
                 None => {
                     self.homes.remove(&id);
@@ -468,8 +480,15 @@ mod tests {
     fn devtools_hear_everything_once_and_then_only_what_moved() {
         let mut live = Live::new(Instant::now(), true);
 
-        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), ["snapshot"]);
-        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), Vec::<&str>::new(), "nothing moved");
+        assert_eq!(
+            kinds(&live.reports(TraceBatch::default(), Instant::now())),
+            ["snapshot"]
+        );
+        assert_eq!(
+            kinds(&live.reports(TraceBatch::default(), Instant::now())),
+            Vec::<&str>::new(),
+            "nothing moved"
+        );
 
         live.note(&Change::Subscriptions {
             bus: Bus::Global,
@@ -486,10 +505,16 @@ mod tests {
     #[test]
     fn devtools_that_take_no_changes_are_sent_the_whole_snapshot() {
         let mut live = Live::new(Instant::now(), false);
-        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), ["snapshot"]);
+        assert_eq!(
+            kinds(&live.reports(TraceBatch::default(), Instant::now())),
+            ["snapshot"]
+        );
 
         live.note(&Change::TimerStarted { id: 1 });
-        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), ["snapshot"]);
+        assert_eq!(
+            kinds(&live.reports(TraceBatch::default(), Instant::now())),
+            ["snapshot"]
+        );
     }
 
     #[test]
@@ -525,8 +550,14 @@ mod tests {
         live.reports(TraceBatch::default(), Instant::now());
 
         live.lost();
-        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), ["snapshot"]);
-        assert_eq!(kinds(&live.reports(TraceBatch::default(), Instant::now())), Vec::<&str>::new());
+        assert_eq!(
+            kinds(&live.reports(TraceBatch::default(), Instant::now())),
+            ["snapshot"]
+        );
+        assert_eq!(
+            kinds(&live.reports(TraceBatch::default(), Instant::now())),
+            Vec::<&str>::new()
+        );
     }
 
     mod counting {
@@ -608,7 +639,10 @@ mod tests {
     fn state_that_keeps_moving_is_read_again_at_most_once_a_period() {
         let started = Instant::now();
         let mut live = Live::new(started, true).reread_every(Duration::from_secs(1));
-        assert_eq!(kinds(&live.reports(TraceBatch::default(), started)), ["snapshot"]);
+        assert_eq!(
+            kinds(&live.reports(TraceBatch::default(), started)),
+            ["snapshot"]
+        );
 
         let moved = Change::Subscriptions {
             bus: Bus::Global,
@@ -616,7 +650,11 @@ mod tests {
         };
         live.note(&moved);
         let soon = live.reports(traced(), started + Duration::from_millis(100));
-        assert_eq!(kinds(&soon), ["trace"], "the trace goes now, the state waits");
+        assert_eq!(
+            kinds(&soon),
+            ["trace"],
+            "the trace goes now, the state waits"
+        );
         assert_eq!(
             soon.due,
             Some(started + Duration::from_secs(1)),
@@ -632,7 +670,10 @@ mod tests {
     fn the_trace_follows_the_state_it_explains() {
         let mut live = Live::new(Instant::now(), true);
 
-        assert_eq!(kinds(&live.reports(traced(), Instant::now())), ["snapshot", "trace"]);
+        assert_eq!(
+            kinds(&live.reports(traced(), Instant::now())),
+            ["snapshot", "trace"]
+        );
         assert_eq!(kinds(&live.reports(traced(), Instant::now())), ["trace"]);
     }
 }

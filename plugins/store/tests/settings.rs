@@ -20,7 +20,11 @@ fn settings_open_over_the_store_the_plugin_installed() -> anyhow::Result<()> {
     written.port().set(9000)?;
 
     let read: General = segment.context().settings()?;
-    assert_eq!(read.port().get(), 9000, "a feature's context reads what a segment wrote");
+    assert_eq!(
+        read.port().get(),
+        9000,
+        "a feature's context reads what a segment wrote"
+    );
 
     let store = segment.store().expect("the plugin provides it");
     let opened = General::new_with(&store)?;

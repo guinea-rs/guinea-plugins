@@ -68,7 +68,11 @@ impl Drawing {
     fn saw_newest(&self) {
         let options = self.options.borrow();
         let mut clock = self.clock.get();
-        match (options.live, options.x_window, newest(&self.series.borrow())) {
+        match (
+            options.live,
+            options.x_window,
+            newest(&self.series.borrow()),
+        ) {
             (Some(live), Some(window), Some(newest)) => clock.saw(
                 newest as f64,
                 window as f64,
@@ -259,7 +263,10 @@ mod tests {
     #[test]
     fn a_pushed_point_joins_its_series() {
         let chart = Chart::new();
-        chart.publish(vec![series(&[(0, 0.0), (1, 1.0)])], LineChartOptions::default());
+        chart.publish(
+            vec![series(&[(0, 0.0), (1, 1.0)])],
+            LineChartOptions::default(),
+        );
 
         chart.push(0, (2, 2.0));
         assert_eq!(points(&chart), [(0, 0.0), (1, 1.0), (2, 2.0)]);

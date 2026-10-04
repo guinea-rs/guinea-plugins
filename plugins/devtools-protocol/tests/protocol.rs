@@ -14,7 +14,10 @@ fn changes_go_to_devtools_new_enough_to_take_them() {
     assert!(!takes_changes(version(0)));
     assert!(takes_changes(version(1)));
     assert!(takes_changes(version(4)));
-    assert!(takes_changes(PROTOCOL.version), "this version takes its own");
+    assert!(
+        takes_changes(PROTOCOL.version),
+        "this version takes its own"
+    );
     assert!(CHANGES_SINCE <= PROTOCOL.version);
 }
 
@@ -67,7 +70,11 @@ fn changes_bring_a_snapshot_up_to_date() {
         .collect();
     assert_eq!(routes, [(11, Some("/c"))]);
     assert_eq!(snapshot.timers.len(), 1);
-    assert_eq!(snapshot.global_bus.len(), 1, "a list that did not come is kept");
+    assert_eq!(
+        snapshot.global_bus.len(),
+        1,
+        "a list that did not come is kept"
+    );
     assert_eq!(snapshot.at, 9);
 }
 

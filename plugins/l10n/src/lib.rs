@@ -82,7 +82,10 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
             })
             .ok_or_else(|| anyhow::anyhow!("`{}` is not a language tag", self.default_tag))?;
 
-        let language = app.state::<Language<S>>().seed(Language::new(strings)).plain();
+        let language = app
+            .state::<Language<S>>()
+            .seed(Language::new(strings))
+            .plain();
         app.answers(move |SwitchLanguage(tag)| {
             match S::for_tag(&tag).filter(|strings| has_locale::<S>(&strings.tag())) {
                 Some(strings) => language.push(strings),
@@ -209,7 +212,8 @@ mod tests {
         h.plugin(L10nPlugin::<Listed>::new("en").persist(false))
             .expect("install");
 
-        h.act::<Language<Listed>>(SwitchLanguage("ru".into())).settle();
+        h.act::<Language<Listed>>(SwitchLanguage("ru".into()))
+            .settle();
         assert_eq!(shown::<Listed>(&h), Listed("ru".into()));
     }
 
@@ -218,7 +222,8 @@ mod tests {
         let mut h = Harness::new(1);
         h.plugin(L10nPlugin::<Listed>::new("en").persist(false))
             .expect("install");
-        h.act::<Language<Listed>>(SwitchLanguage("ru".into())).settle();
+        h.act::<Language<Listed>>(SwitchLanguage("ru".into()))
+            .settle();
 
         let segment = h.segment();
         assert_eq!(segment.context().l10n::<Listed>(), Listed("ru".into()));
@@ -249,7 +254,8 @@ mod tests {
         h.plugin(L10nPlugin::<Listed>::new("en").persist(false))
             .expect("install");
 
-        h.act::<Language<Listed>>(SwitchLanguage("de".into())).settle();
+        h.act::<Language<Listed>>(SwitchLanguage("de".into()))
+            .settle();
         assert_eq!(shown::<Listed>(&h), Listed("en".into()));
     }
 
@@ -303,16 +309,23 @@ mod tests {
 
         {
             let mut h = Harness::new(1);
-            h.plugin(StorePlugin::at(&path).backend(Backend::Json)).expect("store");
+            h.plugin(StorePlugin::at(&path).backend(Backend::Json))
+                .expect("store");
             h.plugin(L10nPlugin::<Listed>::new("en")).expect("l10n");
             assert_eq!(shown::<Listed>(&h), Listed("en".into()));
 
-            h.act::<Language<Listed>>(SwitchLanguage("ru".into())).settle();
+            h.act::<Language<Listed>>(SwitchLanguage("ru".into()))
+                .settle();
         }
 
         let mut h = Harness::new(1);
-        h.plugin(StorePlugin::at(&path).backend(Backend::Json)).expect("store");
+        h.plugin(StorePlugin::at(&path).backend(Backend::Json))
+            .expect("store");
         h.plugin(L10nPlugin::<Listed>::new("en")).expect("l10n");
-        assert_eq!(shown::<Listed>(&h), Listed("ru".into()), "the switch was saved and restored");
+        assert_eq!(
+            shown::<Listed>(&h),
+            Listed("ru".into()),
+            "the switch was saved and restored"
+        );
     }
 }

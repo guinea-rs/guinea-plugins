@@ -17,8 +17,8 @@ use super::d2d::{
 };
 use super::geometry::Frame;
 use super::model::{ChartGrid, Interpolation, LineChartOptions, Series};
-use crate::painted::Metrics;
 use crate::color::hex;
+use crate::painted::Metrics;
 
 const LINE_WIDTH: f32 = 1.0;
 /// Vertical lines closer than this many device pixels are not drawn: they
@@ -183,7 +183,12 @@ fn content(
     }
 }
 
-pub(super) fn draw_backdrop(draw: &DrawingSession<'_>, width: f32, height: f32, background: ColorF) {
+pub(super) fn draw_backdrop(
+    draw: &DrawingSession<'_>,
+    width: f32,
+    height: f32,
+    background: ColorF,
+) {
     let rect = Rect::from_xywh(0.0, 0.0, width, height);
     match draw.create_solid_brush(background) {
         Ok(brush) => draw.fill_rect(&rect, &brush),

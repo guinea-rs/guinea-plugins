@@ -65,7 +65,8 @@ fn a_page_reads_the_language_and_is_drawn_again_when_it_switches() {
     let mut page = Mounted::<Greeting>::mount(h.segment(), ()).expect("mounted");
     assert!(page.find_text("in en").is_some(), "{:#?}", page.tree());
 
-    h.act::<Language<Strings>>(SwitchLanguage("ru".into())).settle();
+    h.act::<Language<Strings>>(SwitchLanguage("ru".into()))
+        .settle();
     page.settle();
     assert!(page.find_text("in ru").is_some(), "{:#?}", page.tree());
 }

@@ -11,8 +11,8 @@ use amethystate::store::{StoreLayout, StorePath};
 use amethystate::{
     MigrationReport, Store, StoreBackend, StoreEvent, StoreOp, StoreSubscription, SubscriptionKind,
 };
-use guinea_core::observability::panels::{self, Panel, PanelGuard, PanelNode};
 use guinea_core::observability::mark_anywhere;
+use guinea_core::observability::panels::{self, Panel, PanelGuard, PanelNode};
 use guinea_core::trace::{self, Point};
 
 /// How many keys the panel lists; past that it says how many it left out.

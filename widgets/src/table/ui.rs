@@ -528,18 +528,19 @@ impl<T: 'static, C: Mark + Clone + PartialEq> Table<T, C> {
             .virtual_source(rows_source(rows, columns, laid, selection, span, look));
 
         let content: View = match on_deselect {
-            Some(on_deselect) => Grid::new().children((
-                Border::new()
-                    .automation_id(EMPTY_AREA)
-                    .background(TRANSPARENT)
-                    .horizontal_alignment(HorizontalAlignment::Stretch)
-                    .vertical_alignment(VerticalAlignment::Stretch)
-                    .on_pointer_released(Callback::new(move |_: PointerEventInfo| {
-                        on_deselect.call(None);
-                    })),
-                lines,
-            ))
-            .into(),
+            Some(on_deselect) => Grid::new()
+                .children((
+                    Border::new()
+                        .automation_id(EMPTY_AREA)
+                        .background(TRANSPARENT)
+                        .horizontal_alignment(HorizontalAlignment::Stretch)
+                        .vertical_alignment(VerticalAlignment::Stretch)
+                        .on_pointer_released(Callback::new(move |_: PointerEventInfo| {
+                            on_deselect.call(None);
+                        })),
+                    lines,
+                ))
+                .into(),
             None => lines.into(),
         };
 

@@ -661,7 +661,8 @@ impl Snapshot {
     pub fn apply(&mut self, changes: Changes) {
         self.at = changes.at;
 
-        self.actors.retain(|actor| !changes.actors_gone.contains(&actor.id));
+        self.actors
+            .retain(|actor| !changes.actors_gone.contains(&actor.id));
         for actor in changes.actors {
             match self.actors.iter_mut().find(|known| known.id == actor.id) {
                 Some(known) => *known = actor,
@@ -669,7 +670,8 @@ impl Snapshot {
             }
         }
 
-        self.roots.retain(|root| !changes.roots_gone.contains(&root.id));
+        self.roots
+            .retain(|root| !changes.roots_gone.contains(&root.id));
         for root in changes.roots {
             match self.roots.iter_mut().find(|known| known.id == root.id) {
                 Some(known) => *known = root,

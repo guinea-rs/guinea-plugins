@@ -232,11 +232,19 @@ fn draw_labels(
     }
     for (band, name) in options.above.iter().enumerate() {
         let level = Level::Above(band);
-        left(name, plot.y(level), (plot.edge(level, true), plot.edge(level, false)));
+        left(
+            name,
+            plot.y(level),
+            (plot.edge(level, true), plot.edge(level, false)),
+        );
     }
     for (band, name) in options.below.iter().enumerate() {
         let level = Level::Below(band);
-        left(name, plot.y(level), (plot.edge(level, true), plot.edge(level, false)));
+        left(
+            name,
+            plot.y(level),
+            (plot.edge(level, true), plot.edge(level, false)),
+        );
     }
 
     for (at, text) in &options.x_ticks {
@@ -244,7 +252,10 @@ fn draw_labels(
         if x < plot.left || x > plot.right {
             continue;
         }
-        let middle = x.clamp(TICK_LABEL_WIDE / 2.0, (plot.right - TICK_LABEL_WIDE / 2.0).max(0.0));
+        let middle = x.clamp(
+            TICK_LABEL_WIDE / 2.0,
+            (plot.right - TICK_LABEL_WIDE / 2.0).max(0.0),
+        );
         let rect = Rect::new(
             middle - TICK_LABEL_WIDE / 2.0,
             plot.bottom + TICK_LONG,

@@ -33,7 +33,10 @@ fn a_refused_open_comes_back_to_whoever_tried() {
     let Err(OpenStruct::Declined(said)) = app.settings::<Window>() else {
         panic!("a window wider at its smallest than at its largest opened");
     };
-    assert_eq!(said.reason(), "the smallest window is wider than the largest");
+    assert_eq!(
+        said.reason(),
+        "the smallest window is wider than the largest"
+    );
 
     drop(window);
     assert!(app.shutdown().is_empty());

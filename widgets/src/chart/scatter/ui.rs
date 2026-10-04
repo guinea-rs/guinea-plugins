@@ -47,12 +47,18 @@ impl<K> Plotting<K> {
 
     fn plot(&self, width: f32, height: f32, at: Instant) -> Plot {
         let options = self.options.borrow();
-        let since = self
-            .anchored
-            .get()
-            .map_or(Duration::ZERO, |anchored| at.saturating_duration_since(anchored));
+        let since = self.anchored.get().map_or(Duration::ZERO, |anchored| {
+            at.saturating_duration_since(anchored)
+        });
         let x = moved(options.x, options.live, since);
-        Plot::of(width, height, &ScatterOptions { x, ..options.clone() })
+        Plot::of(
+            width,
+            height,
+            &ScatterOptions {
+                x,
+                ..options.clone()
+            },
+        )
     }
 }
 
@@ -146,7 +152,9 @@ impl<K: Key> Scatter<K> {
     pub fn hovered(&self) -> Option<Hit<K>> {
         let hit = self.plotting().gesture.borrow().hovered()?.clone();
         let metrics = self.painted.metrics()?;
-        let plot = self.plotting().plot(metrics.width, metrics.height, Instant::now());
+        let plot = self
+            .plotting()
+            .plot(metrics.width, metrics.height, Instant::now());
         let series = self.plotting().series.borrow();
         let point = series
             .get(hit.series)?
@@ -195,7 +203,10 @@ mod tests {
     #[test]
     fn a_live_span_moves_on_with_the_clock() {
         let x = (1_000, 4_000);
-        assert_eq!(moved(x, Some(1_000.0), Duration::from_millis(1_500)), (2_500, 5_500));
+        assert_eq!(
+            moved(x, Some(1_000.0), Duration::from_millis(1_500)),
+            (2_500, 5_500)
+        );
         assert_eq!(moved(x, None, Duration::from_secs(9)), x, "not live");
     }
 
@@ -221,6 +232,10 @@ mod tests {
                 ..options
             },
         );
-        assert_ne!(scatter.plotting().anchored.get(), anchored, "a new span is a new anchor");
+        assert_ne!(
+            scatter.plotting().anchored.get(),
+            anchored,
+            "a new span is a new anchor"
+        );
     }
 }

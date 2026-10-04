@@ -68,9 +68,15 @@ impl Level {
 /// at the top. A value past either end sits at that end.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Scale {
-    Linear { from: f32, to: f32 },
+    Linear {
+        from: f32,
+        to: f32,
+    },
     /// By powers of ten; both ends above zero.
-    Log { from: f32, to: f32 },
+    Log {
+        from: f32,
+        to: f32,
+    },
 }
 
 /// A rectangle of the chart, in its own units: from the earlier time to the

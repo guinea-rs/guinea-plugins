@@ -82,13 +82,19 @@ fn a_drag_comes_back_in_dips_from_press_to_release(h: &mut Harness) {
     let mut page = Mounted::<Canvas>::mount(h.segment(), ()).unwrap();
 
     drag(&mut page, Drag::by(20.0, 0.0).from(10.0, 20.0).steps(2));
-    shows(&page, "pressed 10,20; moved 20,20; moved 30,20; lost; released 30,20");
+    shows(
+        &page,
+        "pressed 10,20; moved 20,20; moved 30,20; lost; released 30,20",
+    );
 }
 
 #[guinea::test(iterations = 2)]
 fn a_drag_whose_capture_was_lost_says_so_and_is_not_released(h: &mut Harness) {
     let mut page = Mounted::<Canvas>::mount(h.segment(), ()).unwrap();
 
-    drag(&mut page, Drag::by(0.0, 10.0).from(5.0, 5.0).steps(1).lost());
+    drag(
+        &mut page,
+        Drag::by(0.0, 10.0).from(5.0, 5.0).steps(1).lost(),
+    );
     shows(&page, "pressed 5,5; moved 5,15; lost");
 }
