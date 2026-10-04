@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use guinea::app::installed_plugins;
+use guinea::observability::snapshot::installed_plugins;
 use guinea_core::observability::changes::{self, Change};
 use guinea_core::trace::{self, Bus, Point, Trace};
 use guinea_devtools_protocol::{AppInfo, Changes, Panel, Report, TraceBatch};

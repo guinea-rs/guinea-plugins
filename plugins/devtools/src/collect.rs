@@ -4,8 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::Instant;
 
-use guinea::observability::snapshot::{self, RouterView, app_actors};
-use guinea::app::installed_plugins;
+use guinea::observability::snapshot::{self, RouterView, app_actors, installed_plugins};
 use guinea::timers::{TimerInfo, running};
 use guinea_core::actor::event_bus::GlobalEventBus;
 use guinea_core::actor::registry::ActorSnapshot;
