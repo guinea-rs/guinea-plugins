@@ -80,8 +80,16 @@ pub struct Frame {
     /// Time spent measuring and arranging, nested passes counted once.
     pub measure_us: u64,
     pub arrange_us: u64,
-    /// The costliest layout passes of the frame, costliest first.
+    /// Every layout pass of the frame, costliest first.
     pub passes: Vec<Pass>,
+    /// `QueryPerformanceCounter` when it started, as ETW stamped it; with
+    /// [`ClockAnchor`](crate::ClockAnchor) it lands on the trace's timeline.
+    /// Zero from a tap that does not read it.
+    #[serde(default)]
+    pub qpc: u64,
+    /// The operating system's id of the thread that drew it.
+    #[serde(default)]
+    pub thread: u32,
 }
 
 /// One element's measure or arrange, as long as it took including its
@@ -92,6 +100,9 @@ pub struct Pass {
     /// `measure` or `arrange`.
     pub kind: String,
     pub took_us: u64,
+    /// When it started, in microseconds since its frame did.
+    #[serde(default)]
+    pub at_us: u64,
 }
 
 /// An element named the way a test names it: by the mark it carries - its

@@ -111,7 +111,10 @@ mod tests {
                         element: 2,
                         kind: "measure".into(),
                         took_us: 700,
+                        at_us: 120,
                     }],
+                    qpc: 81_234_567_890,
+                    thread: 18_044,
                 }],
             },
             Report::Refused {
