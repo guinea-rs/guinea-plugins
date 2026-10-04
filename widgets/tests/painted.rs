@@ -4,7 +4,6 @@
 //! page in DIPs, through a drag that holds it and one that loses it.
 
 use guinea::app::Harness;
-use guinea::feature::Segment;
 use guinea::prelude::*;
 use guinea::winui::harness::{Drag, Mounted};
 use guinea::winui::{Page, PageCx, UpdateCx, page};
@@ -55,11 +54,6 @@ impl Page for Canvas {
             ))
             .into()
     }
-}
-
-impl Segment for Canvas {
-    type Installs = ();
-    type Above = ();
 }
 
 struct Named(&'static str);

@@ -41,10 +41,10 @@ impl Page for Traces {
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
-        let (live, _) = cx.read::<Live, _>();
-        let (focus, show) = cx.read::<Focus, _>();
-        let (view, dispatch) = cx.read::<TraceState, _>();
-        let (editor, _) = cx.read::<EditorChoice, _>();
+        let (live, _) = cx.read::<Live>();
+        let (focus, show) = cx.read::<Focus>();
+        let (view, dispatch) = cx.read::<TraceState>();
+        let (editor, _) = cx.read::<EditorChoice>();
         let nav = cx.navigate::<Route>();
         let ui = cx.ui();
 

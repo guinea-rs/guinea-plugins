@@ -22,8 +22,8 @@ impl Layout for Shell {
     }
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
-        let (live, _) = cx.read::<Live, _>();
-        let (last, _) = cx.read::<LastTab, _>();
+        let (live, _) = cx.read::<Live>();
+        let (last, _) = cx.read::<LastTab>();
         let nav = cx.navigate::<Route>();
         let waiting = cx.child_is::<Home>();
         let page = cx.outlet();

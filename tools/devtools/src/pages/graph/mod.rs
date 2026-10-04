@@ -27,8 +27,8 @@ impl Page for Graphs {
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {
-        let (live, _) = cx.read::<Live, _>();
-        let (focus, _) = cx.read::<Focus, _>();
+        let (live, _) = cx.read::<Live>();
+        let (focus, _) = cx.read::<Focus>();
         let ui = cx.ui();
 
         let graph = {

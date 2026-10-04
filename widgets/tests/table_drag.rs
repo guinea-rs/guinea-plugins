@@ -4,7 +4,6 @@
 //! and a header dragged along the row moves it - all but the first.
 
 use guinea::app::Harness;
-use guinea::feature::Segment;
 use guinea::prelude::*;
 use guinea::winui::harness::{Drag, Mounted};
 use guinea::winui::{Page, PageCx, UpdateCx, page};
@@ -101,11 +100,6 @@ impl Page for Columns {
         ))
         .into()
     }
-}
-
-impl Segment for Columns {
-    type Installs = ();
-    type Above = ();
 }
 
 fn shows(page: &Mounted<'_, Columns>, seen: &str) {

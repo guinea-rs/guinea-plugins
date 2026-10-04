@@ -1,7 +1,6 @@
 #![cfg(windows)]
 
 use guinea::app::Harness;
-use guinea::feature::Segment;
 use guinea::winui::harness::Mounted;
 use guinea::winui::{MarkExt, Page, PageCx, page};
 use guinea_plugin_l10n::{L10nAccess, L10nPlugin, Language, Localization, SwitchLanguage};
@@ -37,7 +36,7 @@ impl Page for Greeting {
     type Params = ();
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        let switch = cx.language_switch::<Strings, _>();
+        let switch = cx.language_switch::<Strings>();
         let strings: Strings = cx.l10n();
 
         StackPanel::new()
@@ -50,18 +49,6 @@ impl Page for Greeting {
             ))
             .into()
     }
-}
-
-pub struct App;
-
-impl Segment for App {
-    type Installs = (L10nPlugin<Strings>,);
-    type Above = ();
-}
-
-impl Segment for Greeting {
-    type Installs = ();
-    type Above = (App, ());
 }
 
 fn installed() -> Harness {
