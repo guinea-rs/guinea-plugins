@@ -75,6 +75,7 @@ fn options(now: u64) -> ScatterOptions {
     ScatterOptions {
         background: None,
         border: None,
+        corner_radius: Some(8.0),
         x: (now - SPAN, now),
         live: Some(1_000.0),
         y: Scale::Log {

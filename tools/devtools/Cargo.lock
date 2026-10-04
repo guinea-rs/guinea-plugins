@@ -2465,7 +2465,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.22.0"
+version = "0.22.1"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2531,7 +2531,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.22.0"
+version = "0.22.1"
 dependencies = [
  "anyhow",
  "guinea",
@@ -2540,7 +2540,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.23.9"
+version = "0.23.10"
 dependencies = [
  "amethystate",
  "anyhow",

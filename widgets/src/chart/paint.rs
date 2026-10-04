@@ -3,18 +3,18 @@
 
 use std::mem::ManuallyDrop;
 
-use d2d_numerics::Matrix3x2;
-use windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F;
-use windows::Win32::Graphics::Direct2D::{
-    D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_LAYER_OPTIONS1_NONE, D2D1_LAYER_PARAMETERS1,
-    D2D1_ROUNDED_RECT, ID2D1DeviceContext, ID2D1Geometry,
-};
-use windows::core::{Error, Interface};
 use windows_canvas::{
     Brush, ColorF, DrawingSession, GpuDevice, Path, PathBuilder, Rect, Result as CanvasResult,
     RoundedRect, Vector2,
 };
 
+use windows_core::{Error, Interface};
+use windows_numerics::Matrix3x2;
+
+use super::d2d::{
+    D2D_RECT_F, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_LAYER_OPTIONS1_NONE,
+    D2D1_LAYER_PARAMETERS1, D2D1_ROUNDED_RECT, ID2D1DeviceContext, ID2D1Geometry,
+};
 use super::geometry::Frame;
 use super::model::{ChartGrid, Interpolation, LineChartOptions, Series};
 use crate::painted::Metrics;
@@ -63,7 +63,7 @@ pub(super) fn clipped(
     radius: f32,
     inside: impl FnOnce(),
 ) {
-    let mask = || -> windows::core::Result<(ID2D1DeviceContext, ID2D1Geometry)> {
+    let mask = || -> windows_core::Result<(ID2D1DeviceContext, ID2D1Geometry)> {
         let raw = windows_core::Interface::as_raw(draw.raw());
         let context = unsafe { ID2D1DeviceContext::from_raw_borrowed(&raw) }
             .cloned()

@@ -16,6 +16,9 @@ const LABEL_SIZE: f32 = 11.0;
 const LABEL_TALL: f32 = 14.0;
 const LABEL_GAP: f32 = 6.0;
 const TICK_LONG: f32 = 4.0;
+/// How wide a time's label may be; one at either end of the chart is kept
+/// inside it rather than centred on its mark.
+const TICK_LABEL_WIDE: f32 = 64.0;
 const RING_WIDTH: f32 = 1.25;
 const HOVER_GAP: f32 = 3.0;
 
@@ -241,7 +244,13 @@ fn draw_labels(
         if x < plot.left || x > plot.right {
             continue;
         }
-        let rect = Rect::new(x - 40.0, plot.bottom + TICK_LONG, x + 40.0, height);
+        let middle = x.clamp(TICK_LABEL_WIDE / 2.0, (plot.right - TICK_LABEL_WIDE / 2.0).max(0.0));
+        let rect = Rect::new(
+            middle - TICK_LABEL_WIDE / 2.0,
+            plot.bottom + TICK_LONG,
+            middle + TICK_LABEL_WIDE / 2.0,
+            height,
+        );
         draw.draw_text(text, &labels.under, &rect, ink);
     }
 }

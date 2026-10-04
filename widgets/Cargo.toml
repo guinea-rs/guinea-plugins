@@ -16,26 +16,22 @@ windows-reactor = { workspace = true, optional = true }
 windows-canvas = { workspace = true, features = ["reactor"], optional = true }
 windows-core = { workspace = true, optional = true }
 
-# Direct2D itself, for the one thing the canvas does not wrap: a layer with a
-# geometric mask, which is how a chart clips to its rounded corners. The
-# windows-rs 0.100 family has no `windows` on crates.io; this is the one guinea
-# already links, reached through the canvas's raw device context.
-windows = { version = "0.61.3", features = [
-    "Win32_Graphics_Direct2D",
-    "Win32_Graphics_Direct2D_Common",
-], optional = true }
-d2d-numerics = { package = "windows-numerics", version = "0.2.0", optional = true }
+# The Direct2D layer a chart clips to its rounded corners with is bound in
+# src/chart/d2d.rs (windows-canvas does not wrap one); its mask transform is a
+# numerics matrix.
+windows-numerics = { version = "0.100.0", optional = true }
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]
 guinea = { workspace = true, features = ["winui", "harness"] }
 anyhow.workspace = true
+windows-bindgen = "0.100.0"
 
 [features]
 default = ["winui"]
 
 # Backends. Without one, what is left is the part that is pure layout and
 # geometry: sort state and ring series.
-winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-core", "dep:windows", "dep:d2d-numerics"]
+winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-core", "dep:windows-numerics"]
 
 [lints]
 workspace = true
