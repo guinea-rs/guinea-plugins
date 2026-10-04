@@ -135,6 +135,7 @@ impl StorePlugin {
 
 impl Plugin for StorePlugin {
     const ID: &'static str = "guinea.store";
+    type Exports = ();
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         let in_memory = matches!(self.open, Open::Memory);

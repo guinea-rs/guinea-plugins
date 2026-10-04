@@ -141,6 +141,7 @@ impl SingleInstancePlugin {
 
 impl Plugin for SingleInstancePlugin {
     const ID: &'static str = "guinea.single-instance";
+    type Exports = ();
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         let identifier = match self.identifier {
@@ -187,6 +188,7 @@ mod tests {
 
     impl Plugin for Earlier {
         const ID: &'static str = "test.earlier";
+        type Exports = ();
 
         fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
             app.on_cleanup(move |_| {

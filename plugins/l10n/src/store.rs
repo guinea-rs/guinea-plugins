@@ -29,30 +29,35 @@ impl<S: Clone + Default + 'static> Reducer for Language<S> {
     }
 }
 
-impl<S: Clone + Default + 'static> guinea::feature::AppExport for Language<S> {}
-
 /// The language from a page or a layout of any backend that reads as it
 /// draws.
-pub trait L10nAccess {
+///
+/// The segment reaches the language when `L10nPlugin<S>` is listed in the
+/// `app { .. }` block of `routes!`. `I` is where in the chain it is found,
+/// and is always inferred: `let strings: Strings = cx.l10n();`, or
+/// `cx.l10n::<Strings, _>()`.
+pub trait L10nAccess: guinea::feature::Reads {
     /// The strings the application shows; the segment is drawn again when
     /// they change.
-    fn l10n<S: Localization + PartialEq>(&mut self) -> S;
-
-    /// What switches the language, to keep in a callback. Taking it reads
-    /// nothing: the segment is not drawn again for it.
-    fn language_switch<S: Localization>(&self) -> LanguageSwitch;
-}
-
-impl<C: guinea::feature::Reads> L10nAccess for C {
-    fn l10n<S: Localization + PartialEq>(&mut self) -> S {
-        let (language, _) = self.read::<Language<S>, guinea::feature::FromApp>();
+    fn l10n<S: Localization + PartialEq, I>(&mut self) -> S
+    where
+        Self::Segment: guinea::feature::Reaches<Language<S>, I>,
+    {
+        let (language, _) = self.read::<Language<S>, I>();
         language.strings().clone()
     }
 
-    fn language_switch<S: Localization>(&self) -> LanguageSwitch {
-        LanguageSwitch(self.dispatch::<Language<S>, guinea::feature::FromApp>())
+    /// What switches the language, to keep in a callback. Taking it reads
+    /// nothing: the segment is not drawn again for it.
+    fn language_switch<S: Localization, I>(&self) -> LanguageSwitch
+    where
+        Self::Segment: guinea::feature::Reaches<Language<S>, I>,
+    {
+        LanguageSwitch(self.dispatch::<Language<S>, I>())
     }
 }
+
+impl<C: guinea::feature::Reads> L10nAccess for C {}
 
 /// Switches the language the application shows, by tag.
 #[derive(Clone)]

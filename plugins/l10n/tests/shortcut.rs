@@ -1,14 +1,14 @@
 #![cfg(windows)]
 
 use guinea::app::Harness;
-use guinea::feature::Segment;
+use guinea::feature::{Application, Segment};
 use guinea::winui::harness::Mounted;
 use guinea::winui::{MarkExt, Page, PageCx, page};
 use guinea_plugin_l10n::{L10nAccess, L10nPlugin, Language, Localization, SwitchLanguage};
 use windows_reactor::{Button, StackPanel, TextBlock, View};
 
 #[derive(Clone, Default, Debug, PartialEq)]
-struct Strings(String);
+pub struct Strings(String);
 
 impl Localization for Strings {
     fn for_tag(tag: &str) -> Option<Self> {
@@ -37,11 +37,12 @@ impl Page for Greeting {
     type Params = ();
 
     fn view(&self, cx: &mut PageCx<'_, '_, Self>) -> View {
-        let switch = cx.language_switch::<Strings>();
+        let switch = cx.language_switch::<Strings, _>();
+        let strings: Strings = cx.l10n();
 
         StackPanel::new()
             .children((
-                TextBlock::new().text(format!("in {}", cx.l10n::<Strings>().0)),
+                TextBlock::new().text(format!("in {}", strings.0)),
                 Button::new()
                     .mark(Marks::Russian)
                     .on_click(move || switch.to("ru"))
@@ -53,7 +54,7 @@ impl Page for Greeting {
 
 impl Segment for Greeting {
     type Installs = ();
-    type Above = ();
+    type Above = (Application<L10nPlugin<Strings>>, ());
 }
 
 fn installed() -> Harness {

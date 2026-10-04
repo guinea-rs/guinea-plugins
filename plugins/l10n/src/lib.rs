@@ -65,6 +65,7 @@ impl<S: Localization> L10nPlugin<S> {
 
 impl<S: Localization> Plugin for L10nPlugin<S> {
     const ID: &'static str = "guinea.l10n";
+    type Exports = (Language<S>,);
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         let tag = self
@@ -82,7 +83,6 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
             .ok_or_else(|| anyhow::anyhow!("`{}` is not a language tag", self.default_tag))?;
 
         let language = app.state::<Language<S>>().seed(Language::new(strings)).plain();
-        app.export::<Language<S>>()?;
         app.answers(move |SwitchLanguage(tag)| {
             match S::for_tag(&tag).filter(|strings| has_locale::<S>(&strings.tag())) {
                 Some(strings) => language.push(strings),

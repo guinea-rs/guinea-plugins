@@ -89,6 +89,7 @@ impl DevToolsPlugin {
 
 impl Plugin for DevToolsPlugin {
     const ID: &'static str = "guinea.devtools";
+    type Exports = ();
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         if !cfg!(debug_assertions) && !self.in_release {

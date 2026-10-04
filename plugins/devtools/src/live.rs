@@ -559,6 +559,8 @@ mod tests {
         pub struct Counting;
 
         impl AppFeature for Counting {
+            type Exports = ();
+
             fn install(self, app: &mut FeatureBuilder) -> anyhow::Result<()> {
                 let counter = app.spawn(Counter::default());
                 SPAWNED.set(Some(counter));

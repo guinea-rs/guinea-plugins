@@ -134,6 +134,17 @@ fn point(point: &Point) -> TracePoint {
             output: output.to_string(),
             source: *source,
         },
+        Point::Pull {
+            actor,
+            actor_id,
+            output,
+            source,
+        } => TracePoint::Pull {
+            actor: actor.to_string(),
+            actor_id: *actor_id,
+            output: output.to_string(),
+            source: *source,
+        },
         Point::Closed {
             actor,
             actor_id,
@@ -218,6 +229,9 @@ fn point(point: &Point) -> TracePoint {
             level: level.to_string(),
         },
         Point::Note(text) => TracePoint::Note { text: text.clone() },
+        unknown => TracePoint::Note {
+            text: unknown.to_string(),
+        },
     }
 }
 
@@ -617,6 +631,26 @@ mod tests {
             TracePoint::Span { level, .. } => assert_eq!(level, "WARN"),
             other => panic!("a span, not {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_pull_says_which_source_makes_what() {
+        let sent = point(&Point::Pull {
+            actor: "a::Agent",
+            actor_id: 3,
+            output: "a::Streamed",
+            source: 9,
+        });
+
+        assert_eq!(
+            sent,
+            TracePoint::Pull {
+                actor: "a::Agent".into(),
+                actor_id: 3,
+                output: "a::Streamed".into(),
+                source: 9,
+            }
+        );
     }
 
     #[test]

@@ -60,6 +60,7 @@ impl WindowStatePlugin {
 
 impl Plugin for WindowStatePlugin {
     const ID: &'static str = "guinea.window-state";
+    type Exports = ();
 
     fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
         let store = app.require::<Store>()?;
