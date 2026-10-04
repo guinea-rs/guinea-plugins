@@ -1,7 +1,7 @@
 //! Where things fall on a scatter chart, and back: times and levels to DIPs,
 //! a pointer to the point under it, a dragged rectangle to an area.
 
-use super::model::{Area, Hit, Level, Scale, ScatterOptions, ScatterSeries};
+use super::model::{Area, Hit, Key, Level, Scale, ScatterOptions, ScatterSeries};
 
 /// How wide the labels at the left are given, when there are any.
 pub(super) const LABELS_WIDE: f32 = 56.0;
@@ -136,20 +136,26 @@ impl Plot {
     }
 
     /// The point drawn nearest `(x, y)`, if it is within `reach`.
-    pub fn nearest(&self, series: &[ScatterSeries], x: f32, y: f32, reach: f32) -> Option<Hit> {
-        let mut nearest: Option<(f32, Hit)> = None;
+    pub fn nearest<K: Key>(
+        &self,
+        series: &[ScatterSeries<K>],
+        x: f32,
+        y: f32,
+        reach: f32,
+    ) -> Option<Hit<K>> {
+        let mut nearest: Option<(f32, Hit<K>)> = None;
         for (index, line) in series.iter().enumerate() {
             for point in &line.points {
                 let (px, py) = (self.x(point.at), self.y(point.value));
                 let far = (px - x).powi(2) + (py - y).powi(2);
-                if far > reach * reach || nearest.is_some_and(|(best, _)| best <= far) {
+                if far > reach * reach || nearest.as_ref().is_some_and(|(best, _)| *best <= far) {
                     continue;
                 }
                 nearest = Some((
                     far,
                     Hit {
                         series: index,
-                        key: point.key,
+                        key: point.key.clone(),
                         x: px,
                         y: py,
                     },
@@ -298,6 +304,25 @@ mod tests {
         assert_eq!((band.series, band.key), (1, 3));
 
         assert_eq!(plot.nearest(&series, L + 150.0, 100.0, 8.0), None, "too far below");
+    }
+
+    #[test]
+    fn a_point_is_handed_back_by_the_pages_own_key() {
+        let plot = plot();
+        let blank = dots(&[]);
+        let series = [ScatterSeries {
+            color: blank.color,
+            marker: blank.marker,
+            size: blank.size,
+            points: vec![ScatterPoint {
+                key: (4242_u32, "second run".to_string()),
+                at: 2_500,
+                value: Level::Value(1.0),
+            }],
+        }];
+
+        let hit = plot.nearest(&series, L + 150.0, 142.0, 8.0).expect("under it");
+        assert_eq!(hit.key, (4242, "second run".to_string()));
     }
 
     #[test]

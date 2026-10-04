@@ -1,7 +1,7 @@
 //! What the pointer means on a scatter chart: a point hovered, a rectangle
 //! dragged out, a click.
 
-use super::model::{Hit, ScatterEvent, ScatterSeries};
+use super::model::{Hit, Key, ScatterEvent, ScatterSeries};
 use super::plot::Plot;
 use crate::painted::Pointer;
 
@@ -9,32 +9,46 @@ use crate::painted::Pointer;
 pub(super) const CLICK_SLOP: f32 = 4.0;
 
 /// What the pointer is doing, between its events.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(super) struct Gesture {
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Gesture<K> {
     /// Where the button went down, while it is down.
     pressed: Option<(f32, f32)>,
     now: (f32, f32),
     dragging: bool,
-    hovered: Option<Hit>,
+    hovered: Option<Hit<K>>,
+}
+
+impl<K> Default for Gesture<K> {
+    fn default() -> Self {
+        Self {
+            pressed: None,
+            now: (0.0, 0.0),
+            dragging: false,
+            hovered: None,
+        }
+    }
 }
 
 /// What one pointer event came to.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(super) struct Took {
-    pub events: Vec<ScatterEvent>,
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Took<K> {
+    pub events: Vec<ScatterEvent<K>>,
     /// Whether what is drawn changed: the rectangle, or the ring.
     pub redraw: bool,
 }
 
-impl Gesture {
+impl<K: Key> Gesture<K> {
     pub fn take(
         &mut self,
         pointer: &Pointer,
         plot: &Plot,
-        series: &[ScatterSeries],
+        series: &[ScatterSeries<K>],
         reach: f32,
-    ) -> Took {
-        let mut took = Took::default();
+    ) -> Took<K> {
+        let mut took = Took {
+            events: Vec::new(),
+            redraw: false,
+        };
         match pointer {
             Pointer::Pressed(info) => {
                 let at = (info.x as f32, info.y as f32);
@@ -89,19 +103,19 @@ impl Gesture {
         &mut self,
         at: (f32, f32),
         plot: &Plot,
-        series: &[ScatterSeries],
+        series: &[ScatterSeries<K>],
         reach: f32,
-        took: &mut Took,
+        took: &mut Took<K>,
     ) {
         let under = plot.nearest(series, at.0, at.1, reach);
         if under != self.hovered {
-            self.hovered = under;
+            self.hovered = under.clone();
             took.events.push(ScatterEvent::Hovered(under));
             took.redraw = true;
         }
     }
 
-    fn unhover(&mut self, took: &mut Took) {
+    fn unhover(&mut self, took: &mut Took<K>) {
         if self.hovered.take().is_some() {
             took.events.push(ScatterEvent::Hovered(None));
             took.redraw = true;
@@ -114,8 +128,8 @@ impl Gesture {
         Some((from, self.now))
     }
 
-    pub fn hovered(&self) -> Option<Hit> {
-        self.hovered
+    pub fn hovered(&self) -> Option<&Hit<K>> {
+        self.hovered.as_ref()
     }
 }
 
@@ -173,7 +187,7 @@ mod tests {
     }
 
     struct Run {
-        gesture: Gesture,
+        gesture: Gesture<u64>,
         plot: Plot,
         series: Vec<ScatterSeries>,
         heard: Vec<ScatterEvent>,
@@ -218,7 +232,7 @@ mod tests {
         run.pointer(Pointer::Moved(info(52.0, 49.0, false)))
             .pointer(Pointer::Moved(info(51.0, 51.0, false)));
         assert_eq!(run.heard(), [ScatterEvent::Hovered(Some(hit()))]);
-        assert_eq!(run.gesture.hovered(), Some(hit()));
+        assert_eq!(run.gesture.hovered(), Some(&hit()));
 
         run.pointer(Pointer::Moved(info(80.0, 80.0, false)))
             .pointer(Pointer::Exited);

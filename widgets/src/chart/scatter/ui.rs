@@ -9,7 +9,7 @@ use windows_reactor::{IntoPayloadCallback, View};
 
 use super::super::live;
 use super::gesture::Gesture;
-use super::model::{Hit, ScatterEvent, ScatterOptions, ScatterSeries};
+use super::model::{Hit, Key, ScatterEvent, ScatterOptions, ScatterSeries};
 use super::paint::{self, Labels, Pointing};
 use super::plot::Plot;
 use crate::painted::{Metrics, Paint, Painted, Pointer};
@@ -25,17 +25,26 @@ fn moved(x: (u64, u64), per_second: Option<f64>, since: Duration) -> (u64, u64) 
 }
 
 /// What a scatter chart draws with, and what the pointer is doing over it.
-#[derive(Default)]
-struct Plotting {
-    series: RefCell<Vec<ScatterSeries>>,
+struct Plotting<K> {
+    series: RefCell<Vec<ScatterSeries<K>>>,
     options: RefCell<ScatterOptions>,
-    gesture: RefCell<Gesture>,
+    gesture: RefCell<Gesture<K>>,
     /// When the span shown was last handed over.
     anchored: Cell<Option<Instant>>,
     labels: RefCell<Option<Option<Labels>>>,
 }
 
-impl Plotting {
+impl<K> Plotting<K> {
+    fn new() -> Self {
+        Self {
+            series: RefCell::new(Vec::new()),
+            options: RefCell::new(ScatterOptions::default()),
+            gesture: RefCell::new(Gesture::default()),
+            anchored: Cell::new(None),
+            labels: RefCell::new(None),
+        }
+    }
+
     fn plot(&self, width: f32, height: f32, at: Instant) -> Plot {
         let options = self.options.borrow();
         let since = self
@@ -47,7 +56,7 @@ impl Plotting {
     }
 }
 
-impl Paint for Plotting {
+impl<K: Key> Paint for Plotting<K> {
     fn paint(&self, session: &DrawingSession<'_>, _device: &GpuDevice, metrics: Metrics) {
         let plot = self.plot(metrics.width, metrics.height, Instant::now());
         let gesture = self.gesture.borrow();
@@ -84,24 +93,27 @@ impl Paint for Plotting {
 /// A scatter chart of points in time against a value, and what it needs
 /// between draws. Held by the page as a field, as [`super::super::Chart`]
 /// is.
-pub struct Scatter {
-    painted: Rc<Painted<Plotting>>,
+///
+/// `K` is what the page knows a point by - its own id, whatever its type -
+/// and what a hovered or clicked point is handed back as.
+pub struct Scatter<K: Key = u64> {
+    painted: Rc<Painted<Plotting<K>>>,
 }
 
-impl Default for Scatter {
+impl<K: Key> Default for Scatter<K> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Scatter {
+impl<K: Key> Scatter<K> {
     pub fn new() -> Self {
         Self {
-            painted: Rc::new(Painted::default()),
+            painted: Rc::new(Painted::new(Plotting::new())),
         }
     }
 
-    fn plotting(&self) -> &Plotting {
+    fn plotting(&self) -> &Plotting<K> {
         self.painted.painter()
     }
 
@@ -112,7 +124,7 @@ impl Scatter {
     /// hands over `(now - length, now)` and need not publish again for the
     /// chart to keep up with the clock. Handed the same span again, the
     /// chart keeps moving from where it was.
-    pub fn publish(&self, series: Vec<ScatterSeries>, options: ScatterOptions) {
+    pub fn publish(&self, series: Vec<ScatterSeries<K>>, options: ScatterOptions) {
         let plotting = self.plotting();
         let moved = *plotting.series.borrow() != series;
         let restyled = *plotting.options.borrow() != options;
@@ -131,8 +143,8 @@ impl Scatter {
     /// The point under the pointer, where it is drawn now: the chart moves
     /// under a resting pointer, and what the page shows beside the point
     /// should follow it.
-    pub fn hovered(&self) -> Option<Hit> {
-        let hit = self.plotting().gesture.borrow().hovered()?;
+    pub fn hovered(&self) -> Option<Hit<K>> {
+        let hit = self.plotting().gesture.borrow().hovered()?.clone();
         let metrics = self.painted.metrics()?;
         let plot = self.plotting().plot(metrics.width, metrics.height, Instant::now());
         let series = self.plotting().series.borrow();
@@ -149,7 +161,7 @@ impl Scatter {
     }
 
     /// The chart, drawn.
-    pub fn view(&self, on_event: impl IntoPayloadCallback<ScatterEvent>) -> View {
+    pub fn view(&self, on_event: impl IntoPayloadCallback<ScatterEvent<K>>) -> View {
         let on_event = on_event.into_payload_callback();
         let painted = self.painted.clone();
 
@@ -194,7 +206,7 @@ mod tests {
             live: Some(1_000.0),
             ..ScatterOptions::default()
         };
-        let scatter = Scatter::new();
+        let scatter = Scatter::<u64>::new();
         scatter.publish(Vec::new(), options.clone());
         let anchored = scatter.plotting().anchored.get();
 

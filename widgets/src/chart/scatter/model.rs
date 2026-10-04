@@ -17,19 +17,25 @@ pub enum Marker {
     Tick,
 }
 
+/// The page's key for a point: whatever it knows the point by, handed back
+/// when the point is hovered or clicked.
+pub trait Key: Clone + PartialEq + std::fmt::Debug + 'static {}
+
+impl<K: Clone + PartialEq + std::fmt::Debug + 'static> Key for K {}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct ScatterSeries {
+pub struct ScatterSeries<K = u64> {
     pub color: ColorF,
     pub marker: Marker,
     /// Across, in DIPs.
     pub size: f32,
-    pub points: Vec<ScatterPoint>,
+    pub points: Vec<ScatterPoint<K>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ScatterPoint {
+pub struct ScatterPoint<K = u64> {
     /// What the page knows the point by; handed back when it is hovered.
-    pub key: u64,
+    pub key: K,
     pub at: u64,
     pub value: Level,
 }
@@ -134,9 +140,9 @@ impl Default for ScatterOptions {
 
 /// A point under the pointer.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Hit {
+pub struct Hit<K = u64> {
     pub series: usize,
-    pub key: u64,
+    pub key: K,
     /// Where it is drawn, in DIPs from the chart's top left corner: for
     /// placing what the page shows beside it.
     pub x: f32,
@@ -145,11 +151,11 @@ pub struct Hit {
 
 /// What the pointer did on a scatter chart.
 #[derive(Clone, Debug, PartialEq)]
-pub enum ScatterEvent {
+pub enum ScatterEvent<K = u64> {
     /// The point under the pointer changed; `None` when it left every point.
-    Hovered(Option<Hit>),
+    Hovered(Option<Hit<K>>),
     /// A rectangle was dragged out and let go.
     Brushed(Area),
     /// A press and release that hardly moved, and the point under it if any.
-    Clicked(Option<Hit>),
+    Clicked(Option<Hit<K>>),
 }

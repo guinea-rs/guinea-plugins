@@ -6,7 +6,7 @@ use windows_canvas::{
 };
 
 use super::super::paint::{Pixel, clipped, draw_backdrop, draw_border};
-use super::model::{Area, Hit, Level, Marker, ScatterOptions, ScatterSeries};
+use super::model::{Area, Hit, Key, Level, Marker, ScatterOptions, ScatterSeries};
 use super::plot::{LABELS_WIDE, Plot};
 use crate::painted::Metrics;
 
@@ -47,18 +47,18 @@ impl Labels {
 
 /// What is drawn besides the data: the rectangle being dragged and the point
 /// under the pointer.
-pub(super) struct Pointing {
+pub(super) struct Pointing<'a, K> {
     pub brush: Option<((f32, f32), (f32, f32))>,
-    pub hovered: Option<Hit>,
+    pub hovered: Option<&'a Hit<K>>,
 }
 
-pub(super) fn render(
+pub(super) fn render<K: Key>(
     draw: &DrawingSession<'_>,
     metrics: Metrics,
     plot: &Plot,
-    series: &[ScatterSeries],
+    series: &[ScatterSeries<K>],
     options: &ScatterOptions,
-    pointing: &Pointing,
+    pointing: &Pointing<'_, K>,
     labels: Option<&Labels>,
 ) {
     let Metrics { width, height, .. } = metrics;
@@ -163,11 +163,11 @@ fn draw_area(draw: &DrawingSession<'_>, plot: &Plot, area: Area, accent: ColorF,
     }
 }
 
-fn draw_points(
+fn draw_points<K: Key>(
     draw: &DrawingSession<'_>,
     plot: &Plot,
-    series: &[ScatterSeries],
-    hovered: Option<Hit>,
+    series: &[ScatterSeries<K>],
+    hovered: Option<&Hit<K>>,
     ink: ColorF,
 ) {
     let mut ring = None;
