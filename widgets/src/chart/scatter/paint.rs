@@ -33,7 +33,7 @@ impl Labels {
         let made = || -> windows_canvas::Result<Self> {
             Ok(Self {
                 left: TextFormat::new("Segoe UI", LABEL_SIZE)?
-                    .with_alignment(TextAlignment::Trailing)
+                    .with_alignment(TextAlignment::Leading)
                     .with_paragraph_alignment(ParagraphAlignment::Center)
                     .with_word_wrapping(WordWrapping::NoWrap),
                 under: TextFormat::new("Segoe UI", LABEL_SIZE)?
