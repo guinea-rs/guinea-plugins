@@ -146,6 +146,6 @@ impl Component for Demo {
     }
 }
 
-fn main() {
+pub fn run() {
     App::run_component::<Demo>(()).unwrap();
 }
