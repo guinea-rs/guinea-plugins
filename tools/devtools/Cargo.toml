@@ -14,9 +14,9 @@ members = ["model", "api", "hub", "mcp", "xaml-tap"]
 guinea-devtools-model = { path = "model" }
 guinea-devtools-api = { path = "api" }
 guinea-devtools-hub = { path = "hub" }
-guinea = { version = "0.22.0", default-features = false, features = ["eframe"] }
-guinea-core = "0.22.0"
-guinea-macros = "0.22.0"
+guinea = { version = "0.23.0", default-features = false, features = ["eframe"] }
+guinea-core = "0.23.0"
+guinea-macros = "0.23.0"
 guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
 guinea-plugin-store = { path = "../../plugins/store" }
 guinea-plugin-single-instance = { path = "../../plugins/single-instance" }
@@ -38,16 +38,3 @@ guinea-xaml-tap = { path = "xaml-tap" }
 
 [build-dependencies]
 winresource = "0.1"
-
-[patch.crates-io]
-guinea = { path = "../../../guinea/crates/guinea" }
-guinea-app = { path = "../../../guinea/crates/guinea-app" }
-guinea-codegen = { path = "../../../guinea/crates/guinea-codegen" }
-guinea-core = { path = "../../../guinea/crates/guinea-core" }
-guinea-macros = { path = "../../../guinea/crates/guinea-macros" }
-guinea-mark = { path = "../../../guinea/crates/guinea-mark" }
-guinea-meta = { path = "../../../guinea/crates/guinea-meta" }
-guinea-meta-build = { path = "../../../guinea/crates/guinea-meta-build" }
-guinea-route-dsl = { path = "../../../guinea/crates/guinea-route-dsl" }
-guinea-router = { path = "../../../guinea/crates/guinea-router" }
-guinea-trace = { path = "../../../guinea/crates/guinea-trace" }
