@@ -11,6 +11,7 @@ pub mod graph;
 pub mod names;
 pub mod native;
 pub mod panels;
+pub mod profile;
 pub mod properties;
 pub mod chains;
 pub mod sessions;

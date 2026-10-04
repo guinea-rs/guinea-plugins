@@ -9,6 +9,7 @@ use crate::chains::Chains;
 use crate::clock::Clock;
 use crate::tasks::Tasks;
 use crate::native::{Inspection, Picked};
+use crate::profile::{Profile, Timeline};
 use crate::timers::Timers;
 use crate::trace::{Classes, Reading};
 use crate::trace_log::TraceLog;
@@ -191,6 +192,38 @@ impl Sessions {
             .find(|session| session.info.pid == app.info.pid && app.info.pid != 0)
     }
 
+    /// The frames of session `id`'s last capture on its trace's timeline:
+    /// the clock comes from the application, the frames from its inspector.
+    /// Why there is none, when there is none.
+    pub fn profile(&self, id: u64) -> Result<Profile, String> {
+        let app = self
+            .clocked(id)
+            .ok_or("the application sent no clock: its devtools plugin speaks a protocol older than 3.3")?;
+        let anchor = app.info.clock.unwrap_or_default();
+        let timeline = Timeline::new(anchor).ok_or("the application read no QPC: frames are placed on Windows only")?;
+        let inspector = self
+            .native_for(app.id)
+            .ok_or("no native inspector: attach one first")?;
+
+        Ok(Profile::new(timeline, app.clock(), &inspector.inspection.frames))
+    }
+
+    /// The session of the application `id` belongs to that sent a clock:
+    /// `id` itself, or the newest session in its process that did. Its trace
+    /// is the one a profile's frames are placed on.
+    pub fn clocked(&self, id: u64) -> Option<&Session> {
+        let asked = self.get(id)?;
+        if asked.info.clock.is_some() {
+            return Some(asked);
+        }
+
+        self.by_id
+            .values()
+            .rev()
+            .filter(|session| session.info.clock.is_some())
+            .find(|session| session.info.pid == asked.info.pid && asked.info.pid != 0)
+    }
+
     /// The same application started again, when `id` went away.
     pub fn successor(&self, id: u64) -> Option<u64> {
         let gone = self.get(id).filter(|session| !session.connected)?;
@@ -330,6 +363,66 @@ mod tests {
                 ..AppInfo::default()
             })),
         )
+    }
+
+    #[test]
+    fn a_profile_takes_the_clock_from_the_application_and_the_frames_from_its_inspector() {
+        use guinea_devtools_protocol::ClockAnchor;
+        use guinea_devtools_protocol::native::Frame;
+
+        let anchor = ClockAnchor {
+            qpc: 1_000_000,
+            qpc_frequency: 1_000_000,
+            trace_us: 0,
+            puffin_ns: None,
+            ui_thread: 9,
+        };
+        let report = |id: u64, report: Report| Incoming::Report(id, Box::new(report));
+        let mut sessions = Sessions::default();
+
+        sessions.apply(Incoming::Opened(1));
+        sessions.apply(report(
+            1,
+            Report::Hello(AppInfo {
+                pid: 40,
+                clock: Some(anchor),
+                ..AppInfo::default()
+            }),
+        ));
+        assert!(
+            sessions.profile(1).is_err(),
+            "no inspector, no frames to place"
+        );
+
+        sessions.apply(Incoming::Opened(2));
+        sessions.apply(report(
+            2,
+            Report::Hello(AppInfo {
+                pid: 40,
+                capabilities: vec![Capability::NativeTree],
+                ..AppInfo::default()
+            }),
+        ));
+        sessions.apply(report(
+            2,
+            Report::NativePerf {
+                frames: vec![Frame {
+                    took_us: 20_000,
+                    qpc: 1_250_000,
+                    thread: 9,
+                    ..Frame::default()
+                }],
+            },
+        ));
+
+        let profile = sessions.profile(1).expect("a profile");
+        assert_eq!(profile.frames.len(), 1);
+        assert_eq!(profile.frames[0].at_us, 250_000);
+        assert_eq!(
+            sessions.profile(2).map(|profile| profile.frames.len()),
+            Ok(1),
+            "asked through the inspector's own session, the same profile"
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@
 mod apps;
 mod drive;
 mod native;
+mod profile;
 mod trace;
 
 use guinea_devtools_model::sessions::{Session, Sessions};
@@ -15,6 +16,7 @@ pub fn router() -> OpenApiRouter<crate::State> {
         .merge(apps::router())
         .merge(trace::router())
         .merge(native::router())
+        .merge(profile::router())
         .merge(drive::router())
 }
 

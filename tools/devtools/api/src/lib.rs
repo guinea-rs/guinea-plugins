@@ -94,6 +94,7 @@ connected."
         (name = "apps", description = "What connected, and what it is made of"),
         (name = "trace", description = "What the application did, record by record"),
         (name = "native", description = "The backend's own elements, through an inspector"),
+        (name = "profile", description = "Where a frame's time went: by second, by frame, and what the application recorded towards it"),
         (name = "drive", description = "Doing things to the application: actions, events, clicks and keystrokes")
     )
 )]
