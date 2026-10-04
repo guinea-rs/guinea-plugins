@@ -128,6 +128,25 @@ impl Plot {
 
     /// Where an area whose edge is `level` ends: at a value, there; in a
     /// band, at the band's far side, so that a band is taken whole.
+    /// Where the label of a line at `y`, `tall` high, is centred: on its
+    /// line, unless that would take it out of the chart or into a named band
+    /// beside the scale.
+    pub fn line_label(&self, y: f32, tall: f32, options: &ScatterOptions) -> f32 {
+        let half = tall / 2.0;
+        let named = |bands: &[String]| bands.first().is_some_and(|name| !name.is_empty());
+        let top = if named(&options.above) {
+            self.scale_top
+        } else {
+            self.top
+        };
+        let bottom = if named(&options.below) {
+            self.scale_bottom
+        } else {
+            self.bottom
+        };
+        y.clamp(top + half, (bottom - half).max(top + half))
+    }
+
     pub fn edge(&self, level: Level, top: bool) -> f32 {
         let half = self.band_height / 2.0;
         match level {
@@ -212,6 +231,56 @@ mod tests {
 
     fn plot() -> Plot {
         Plot::of(L + 300.0, 216.0, &lifetimes())
+    }
+
+    #[test]
+    fn a_line_label_sits_on_its_line_unless_a_named_band_or_the_edge_is_in_the_way() {
+        const TALL: f32 = 14.0;
+        let top = |options: &ScatterOptions| {
+            let plot = Plot::of(L + 300.0, 216.0, options);
+            let label = plot.line_label(plot.y(Level::Value(1_000.0)), TALL, options);
+            (plot.y(Level::Value(1_000.0)), label)
+        };
+        let bottom = |options: &ScatterOptions| {
+            let plot = Plot::of(L + 300.0, 216.0, options);
+            let label = plot.line_label(plot.y(Level::Value(0.1)), TALL, options);
+            (plot.y(Level::Value(0.1)), label)
+        };
+
+        let unnamed = ScatterOptions {
+            above: vec![String::new()],
+            below: vec![String::new()],
+            ..lifetimes()
+        };
+        let (line, label) = top(&unnamed);
+        assert!(
+            close(label, line),
+            "over an unnamed band: on its line, {label} vs {line}"
+        );
+        let (line, label) = bottom(&unnamed);
+        assert!(close(label, line), "under it too: {label} vs {line}");
+
+        let (line, label) = top(&lifetimes());
+        assert!(
+            close(label, line + TALL / 2.0),
+            "kept off the named band above: {label}"
+        );
+        let (line, label) = bottom(&lifetimes());
+        assert!(
+            close(label, line - TALL / 2.0),
+            "and the one below: {label}"
+        );
+
+        let bare = ScatterOptions {
+            above: Vec::new(),
+            below: Vec::new(),
+            ..lifetimes()
+        };
+        let (_, label) = top(&bare);
+        assert!(
+            close(label, TALL / 2.0),
+            "no band: kept inside the chart, {label}"
+        );
     }
 
     #[test]

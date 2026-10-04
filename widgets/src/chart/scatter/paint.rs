@@ -219,31 +219,36 @@ fn draw_labels(
     options: &ScatterOptions,
     height: f32,
 ) {
-    let left = |text: &str, y: f32, within: (f32, f32)| {
-        let half = LABEL_TALL / 2.0;
-        let middle = y.clamp(within.0 + half, (within.1 - half).max(within.0 + half));
+    let half = LABEL_TALL / 2.0;
+    let left = |text: &str, middle: f32| {
         let rect = Rect::new(0.0, middle - half, LABELS_WIDE - LABEL_GAP, middle + half);
         draw.draw_text(text, &labels.left, &rect, ink);
     };
+    let within =
+        |y: f32, (top, bottom): (f32, f32)| y.clamp(top + half, (bottom - half).max(top + half));
 
-    let scale = (plot.scale_top, plot.scale_bottom);
     for (value, text) in &options.y_lines {
-        left(text, plot.y(Level::Value(*value)), scale);
+        let y = plot.y(Level::Value(*value));
+        left(text, plot.line_label(y, LABEL_TALL, options));
     }
     for (band, name) in options.above.iter().enumerate() {
         let level = Level::Above(band);
         left(
             name,
-            plot.y(level),
-            (plot.edge(level, true), plot.edge(level, false)),
+            within(
+                plot.y(level),
+                (plot.edge(level, true), plot.edge(level, false)),
+            ),
         );
     }
     for (band, name) in options.below.iter().enumerate() {
         let level = Level::Below(band);
         left(
             name,
-            plot.y(level),
-            (plot.edge(level, true), plot.edge(level, false)),
+            within(
+                plot.y(level),
+                (plot.edge(level, true), plot.edge(level, false)),
+            ),
         );
     }
 
