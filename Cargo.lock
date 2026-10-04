@@ -1168,8 +1168,10 @@ dependencies = [
  "guinea-devtools-protocol",
  "guinea-plugin-single-instance",
  "ogurpchik",
+ "puffin",
  "puffin_http",
  "tracing",
+ "windows-link 0.100.0",
 ]
 
 [[package]]

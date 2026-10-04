@@ -33,7 +33,8 @@ pub fn received<T: DeserializeOwned>(params: &peer::SendParams) -> Result<T, cap
 mod tests {
     use super::*;
     use crate::{
-        Answer, AppInfo, BusKind, Capability, Command, End, Report, Span, TraceBatch, TracePoint,
+        Answer, AppInfo, BusKind, Capability, ClockAnchor, Command, End, Report, Span, TraceBatch,
+        TracePoint,
     };
 
     #[test]
@@ -196,6 +197,7 @@ mod tests {
         };
 
         assert!(info.capabilities.is_empty());
+        assert_eq!(info.clock, None);
     }
 
     #[test]
@@ -204,6 +206,13 @@ mod tests {
             Report::Hello(AppInfo {
                 name: "Processes".into(),
                 pid: 7,
+                clock: Some(ClockAnchor {
+                    qpc: 81_234_567_890,
+                    qpc_frequency: 10_000_000,
+                    trace_us: 2_400,
+                    puffin_ns: Some(1_790_000_000_000_000_000),
+                    ui_thread: 18_044,
+                }),
                 ..AppInfo::default()
             }),
             Report::Trace(TraceBatch {

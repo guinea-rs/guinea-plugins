@@ -30,7 +30,7 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 2, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 3, 0);
 
 /// The first version whose devtools take [`Report::Changed`] in place of
 /// one snapshot after another.
@@ -576,6 +576,28 @@ pub struct AppInfo {
     /// The events a tool may publish, by name.
     #[serde(default)]
     pub events: Vec<String>,
+    /// Every clock a profile is stitched from, read at one moment. `None`
+    /// from a peer that does not read them.
+    #[serde(default)]
+    pub clock: Option<ClockAnchor>,
+}
+
+/// One moment read on every clock a profile is stitched from, so that ETW,
+/// the trace and puffin land on one timeline.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClockAnchor {
+    /// `QueryPerformanceCounter` at the moment; what ETW stamps raw events
+    /// with. Zero off Windows.
+    pub qpc: u64,
+    /// Ticks of [`qpc`](Self::qpc) a second. Zero off Windows.
+    pub qpc_frequency: u64,
+    /// Microseconds since the moment [`Span::at`] counts from.
+    pub trace_us: u64,
+    /// `puffin::now_ns` at the moment; `None` without the profiler.
+    pub puffin_ns: Option<i64>,
+    /// The operating system's id of the thread the application runs its UI
+    /// on: what ETW names in `ThreadId`. Zero where it is not known.
+    pub ui_thread: u64,
 }
 
 impl AppInfo {

@@ -23,6 +23,7 @@
 //! call the application's remote actions, and a build shipped to users should
 //! not listen for that because a line was left in.
 
+mod clock;
 mod collect;
 mod launch;
 mod link;
@@ -128,6 +129,7 @@ impl Plugin for DevToolsPlugin {
                 .iter()
                 .map(|name| name.to_string())
                 .collect(),
+            clock: Some(clock::anchor()),
             ..info
         }));
 
