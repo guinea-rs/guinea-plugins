@@ -132,9 +132,21 @@ impl Devtools {
 
         let bearer = found.bearer.as_str();
         let sent = match tool.method {
-            "POST" => self.agent.post(&url).header("Authorization", bearer).send_empty(),
-            "PUT" => self.agent.put(&url).header("Authorization", bearer).send_empty(),
-            "DELETE" => self.agent.delete(&url).header("Authorization", bearer).call(),
+            "POST" => self
+                .agent
+                .post(&url)
+                .header("Authorization", bearer)
+                .send_empty(),
+            "PUT" => self
+                .agent
+                .put(&url)
+                .header("Authorization", bearer)
+                .send_empty(),
+            "DELETE" => self
+                .agent
+                .delete(&url)
+                .header("Authorization", bearer)
+                .call(),
             _ => self.agent.get(&url).header("Authorization", bearer).call(),
         };
 
@@ -155,7 +167,10 @@ impl Devtools {
         }
 
         let refused = said(
-            &format!("devtools refused with {status}: {}", body.unwrap_or_default()),
+            &format!(
+                "devtools refused with {status}: {}",
+                body.unwrap_or_default()
+            ),
             true,
         );
         if status == 401 {

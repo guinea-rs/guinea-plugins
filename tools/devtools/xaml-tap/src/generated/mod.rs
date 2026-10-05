@@ -13,7 +13,13 @@
 //! `winui.rs` is `windows-bindgen` output for the two WinUI methods at the
 //! top of `bindings.txt`. Nothing declares it, so nothing compiles it.
 
-#[allow(non_camel_case_types, non_snake_case, non_upper_case_globals, dead_code, clippy::all)]
+#[allow(
+    non_camel_case_types,
+    non_snake_case,
+    non_upper_case_globals,
+    dead_code,
+    clippy::all
+)]
 pub mod bindings;
 
 #[allow(non_snake_case, clippy::upper_case_acronyms)]

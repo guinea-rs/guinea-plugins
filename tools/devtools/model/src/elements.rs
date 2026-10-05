@@ -24,13 +24,26 @@ pub enum Element {
     App,
     Actor(u64),
     Window(u64),
-    Segment { root: u64, depth: usize },
+    Segment {
+        root: u64,
+        depth: usize,
+    },
     /// A feature, installed in a window's segment or, with no `at`, in the
     /// application.
-    Feature { at: Option<(u64, usize)>, name: String },
-    State { root: u64, depth: usize, type_name: String },
+    Feature {
+        at: Option<(u64, usize)>,
+        name: String,
+    },
+    State {
+        root: u64,
+        depth: usize,
+        type_name: String,
+    },
     /// A node of a window's view tree, by its path from the tree's top.
-    View { root: u64, path: Vec<usize> },
+    View {
+        root: u64,
+        path: Vec<usize>,
+    },
     /// An element of the backend's own tree, by the inspector's handle.
     Native(u64),
 }
@@ -70,8 +83,14 @@ impl FromStr for Element {
     fn from_str(id: &str) -> Result<Self, String> {
         let bad = || format!("not an element: {id}");
         let mut parts = id.splitn(4, '/');
-        let number = |part: Option<&str>| part.and_then(|part| part.parse::<u64>().ok()).ok_or_else(bad);
-        let index = |part: Option<&str>| part.and_then(|part| part.parse::<usize>().ok()).ok_or_else(bad);
+        let number = |part: Option<&str>| {
+            part.and_then(|part| part.parse::<u64>().ok())
+                .ok_or_else(bad)
+        };
+        let index = |part: Option<&str>| {
+            part.and_then(|part| part.parse::<usize>().ok())
+                .ok_or_else(bad)
+        };
 
         Ok(match parts.next() {
             Some("app") => Element::App,
@@ -84,7 +103,11 @@ impl FromStr for Element {
             Some("feature") => match parts.next() {
                 Some("app") => Element::Feature {
                     at: None,
-                    name: parts.next().filter(|name| !name.is_empty()).ok_or_else(bad)?.to_string(),
+                    name: parts
+                        .next()
+                        .filter(|name| !name.is_empty())
+                        .ok_or_else(bad)?
+                        .to_string(),
                 },
                 root => Element::Feature {
                     at: Some((number(root)?, index(parts.next())?)),
@@ -194,7 +217,9 @@ fn borders(snapshot: &Snapshot, tree: &NativeTree) -> Vec<((u64, usize), u64)> {
                 .filter(|handle| found.iter().all(|(_, claimed)| claimed != handle))
                 .collect();
             let inside = parent.and_then(|parent| {
-                free.iter().copied().find(|handle| tree.path(*handle).contains(&parent))
+                free.iter()
+                    .copied()
+                    .find(|handle| tree.path(*handle).contains(&parent))
             });
 
             let Some(border) = inside.or(free.first().copied()) else {
@@ -212,7 +237,14 @@ impl Lines<'_> {
     /// Adds a row; whether what is under it follows. A row is open unless it
     /// is flipped; a native one, of which there are thousands, is closed
     /// unless it is.
-    fn push(&mut self, depth: usize, element: Element, words: Vec<Word>, branch: bool, forced: bool) -> bool {
+    fn push(
+        &mut self,
+        depth: usize,
+        element: Element,
+        words: Vec<Word>,
+        branch: bool,
+        forced: bool,
+    ) -> bool {
         let flipped = self.flipped.contains(&element);
         let open = branch
             && (forced
@@ -234,14 +266,17 @@ impl Lines<'_> {
     fn revealing_under(&self, root: u64, depth: usize) -> bool {
         match self.reveal {
             Some(
-                Element::State { root: at, depth: d, .. }
+                Element::State {
+                    root: at, depth: d, ..
+                }
                 | Element::Feature {
-                    at: Some((at, d)),
-                    ..
+                    at: Some((at, d)), ..
                 },
             ) => *at == root && *d >= depth,
             Some(Element::Actor(id)) => self.snapshot.actors.iter().any(|actor| {
-                actor.id == *id && actor.root == Some(root) && actor.segment.is_some_and(|d| d >= depth)
+                actor.id == *id
+                    && actor.root == Some(root)
+                    && actor.segment.is_some_and(|d| d >= depth)
             }),
             Some(Element::View { root: at, .. } | Element::Segment { root: at, .. }) => *at == root,
             Some(Element::Native(_)) => self.owner.is_some_and(|(at, d)| at == root && d >= depth),
@@ -289,7 +324,10 @@ impl Lines<'_> {
         actors: &[&Actor],
         depth: usize,
     ) {
-        let mut named: Vec<&str> = features.iter().map(|feature| feature.name.as_str()).collect();
+        let mut named: Vec<&str> = features
+            .iter()
+            .map(|feature| feature.name.as_str())
+            .collect();
         let claimed = states
             .iter()
             .filter_map(|state| state.feature.as_deref())
@@ -323,7 +361,10 @@ impl Lines<'_> {
                 at,
                 name: feature.to_string(),
             };
-            let words = vec![word("feature ", Tone::Muted), word(feature, kind(Kind::Spawn))];
+            let words = vec![
+                word("feature ", Tone::Muted),
+                word(feature, kind(Kind::Spawn)),
+            ];
             let branch = !own_states.is_empty() || !own_actors.is_empty();
 
             if self.push(depth, element, words, branch, forced) {
@@ -352,7 +393,11 @@ impl Lines<'_> {
 
     fn app(&mut self) {
         let snapshot = self.snapshot;
-        let actors: Vec<&Actor> = snapshot.actors.iter().filter(|a| a.root.is_none()).collect();
+        let actors: Vec<&Actor> = snapshot
+            .actors
+            .iter()
+            .filter(|a| a.root.is_none())
+            .collect();
 
         let forced = match self.reveal {
             Some(Element::Actor(id)) => actors.iter().any(|a| a.id == *id),
@@ -361,7 +406,13 @@ impl Lines<'_> {
         };
         let branch = !actors.is_empty();
 
-        if self.push(0, Element::App, vec![word("application", Tone::Plain)], branch, forced) {
+        if self.push(
+            0,
+            Element::App,
+            vec![word("application", Tone::Plain)],
+            branch,
+            forced,
+        ) {
             self.members(None, &[], &[], &actors, 1);
         }
     }
@@ -396,9 +447,15 @@ impl Lines<'_> {
             return;
         };
 
-        let words = vec![word("segment ", Tone::Muted), word(&segment.name, Tone::Accent)];
+        let words = vec![
+            word("segment ", Tone::Muted),
+            word(&segment.name, Tone::Accent),
+        ];
         let forced = self.revealing_under(root.id, at);
-        let element = Element::Segment { root: root.id, depth: at };
+        let element = Element::Segment {
+            root: root.id,
+            depth: at,
+        };
         if !self.push(depth, element, words, true, forced) {
             return;
         }
@@ -438,7 +495,11 @@ impl Lines<'_> {
         let Some(tree) = self.native else {
             return;
         };
-        let Some(&(_, border)) = self.borders.iter().find(|(owner, _)| *owner == (root.id, at)) else {
+        let Some(&(_, border)) = self
+            .borders
+            .iter()
+            .find(|(owner, _)| *owner == (root.id, at))
+        else {
             return;
         };
 
@@ -451,7 +512,14 @@ impl Lines<'_> {
         self.native_row(tree, border, &later, depth, true);
     }
 
-    fn native_row(&mut self, tree: &NativeTree, handle: u64, later: &[u64], depth: usize, first: bool) {
+    fn native_row(
+        &mut self,
+        tree: &NativeTree,
+        handle: u64,
+        later: &[u64],
+        depth: usize,
+        first: bool,
+    ) {
         let Some(element) = tree.get(handle) else {
             return;
         };
@@ -521,7 +589,10 @@ impl Lines<'_> {
                 word(">", Tone::Muted),
                 word(text, Tone::Quote),
             ],
-            other => vec![word(&node.label, Tone::Plain), word(format!(" {other}"), Tone::Muted)],
+            other => vec![
+                word(&node.label, Tone::Plain),
+                word(format!(" {other}"), Tone::Muted),
+            ],
         };
 
         let branch = !node.children.is_empty();
@@ -553,7 +624,9 @@ pub fn lines(
     flipped: &HashSet<Element>,
     reveal: Option<&Element>,
 ) -> Vec<Line> {
-    let borders = native.map(|tree| borders(snapshot, tree)).unwrap_or_default();
+    let borders = native
+        .map(|tree| borders(snapshot, tree))
+        .unwrap_or_default();
     let native_path = match (native, reveal) {
         (Some(tree), Some(Element::Native(handle))) => tree.path(*handle),
         _ => Vec::new(),
@@ -643,7 +716,11 @@ fn find<'a>(node: &'a Node, path: &[usize]) -> Option<&'a Node> {
 }
 
 fn root_of(snapshot: &Snapshot, id: u64) -> Option<(usize, &Root)> {
-    snapshot.roots.iter().enumerate().find(|(_, root)| root.id == id)
+    snapshot
+        .roots
+        .iter()
+        .enumerate()
+        .find(|(_, root)| root.id == id)
 }
 
 fn row(name: &str, value: impl Into<String>) -> (String, String) {
@@ -692,7 +769,10 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
             let (index, root) = root_of(snapshot, *id)?;
             let mut rows = vec![
                 row("route", root.route.clone().unwrap_or_default()),
-                row("history", format!("{} back · {} forward", root.back, root.forward)),
+                row(
+                    "history",
+                    format!("{} back · {} forward", root.back, root.forward),
+                ),
             ];
             if let Some(question) = &root.pending {
                 rows.push(row("waiting on", question));
@@ -704,7 +784,11 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
             let (_, root) = root_of(snapshot, *root)?;
             let segment = root.chain.get(*depth)?;
 
-            let installs: Vec<&str> = segment.features.iter().map(|feature| feature.name.as_str()).collect();
+            let installs: Vec<&str> = segment
+                .features
+                .iter()
+                .map(|feature| feature.name.as_str())
+                .collect();
             let mut rows = vec![row("installs", installs.join(", "))];
             for listener in &segment.listeners {
                 rows.push(row(
@@ -752,7 +836,11 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
                     let (index, root) = root_of(snapshot, *root)?;
                     let segment = root.chain.get(*depth)?;
                     (
-                        format!("{} in {}", segment.name, window_name(root.label.as_deref(), index)),
+                        format!(
+                            "{} in {}",
+                            segment.name,
+                            window_name(root.label.as_deref(), index)
+                        ),
                         segment
                             .reducers
                             .iter()
@@ -764,7 +852,11 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
                             .iter()
                             .filter(|listener| mine(listener.feature.as_deref()))
                             .map(|listener| {
-                                format!("{} on the {:?} bus", type_name(&listener.event), listener.bus)
+                                format!(
+                                    "{} on the {:?} bus",
+                                    type_name(&listener.event),
+                                    listener.bus
+                                )
                             })
                             .collect(),
                     )
@@ -800,7 +892,12 @@ pub fn describe(session: &Session, element: &Element) -> Option<Details> {
                 None => None,
                 Some((root, depth)) => root_of(snapshot, *root)
                     .and_then(|(_, root)| root.chain.get(*depth))
-                    .and_then(|segment| segment.features.iter().find(|feature| mine(Some(&feature.name))))
+                    .and_then(|segment| {
+                        segment
+                            .features
+                            .iter()
+                            .find(|feature| mine(Some(&feature.name)))
+                    })
                     .and_then(|feature| feature.declared.clone()),
             };
 
@@ -941,7 +1038,10 @@ mod tests {
             vec![node(
                 "StackPanel",
                 "native",
-                vec![node("TextBlock", "\"hi\"", vec![]), node("Page", "segment", vec![])],
+                vec![
+                    node("TextBlock", "\"hi\"", vec![]),
+                    node("Page", "segment", vec![]),
+                ],
             )],
         );
 
@@ -1009,7 +1109,10 @@ mod tests {
         tree
     }
 
-    fn native_rows(flipped: &HashSet<Element>, reveal: Option<&Element>) -> Vec<(usize, Element, String)> {
+    fn native_rows(
+        flipped: &HashSet<Element>,
+        reveal: Option<&Element>,
+    ) -> Vec<(usize, Element, String)> {
         lines(&snapshot(), Some(&native()), flipped, reveal)
             .into_iter()
             .filter(|line| matches!(line.element, Element::Native(_)))
@@ -1022,8 +1125,16 @@ mod tests {
         assert_eq!(
             native_rows(&HashSet::new(), None),
             [
-                (2, Element::Native(2), "native <Border \"Shell\">".to_string()),
-                (4, Element::Native(4), "native <Border \"Page\">".to_string()),
+                (
+                    2,
+                    Element::Native(2),
+                    "native <Border \"Shell\">".to_string()
+                ),
+                (
+                    4,
+                    Element::Native(4),
+                    "native <Border \"Page\">".to_string()
+                ),
             ]
         );
     }
@@ -1035,9 +1146,17 @@ mod tests {
         assert_eq!(
             native_rows(&flipped, None),
             [
-                (2, Element::Native(2), "native <Border \"Shell\">".to_string()),
+                (
+                    2,
+                    Element::Native(2),
+                    "native <Border \"Shell\">".to_string()
+                ),
                 (3, Element::Native(3), "<Grid />".to_string()),
-                (4, Element::Native(4), "native <Border \"Page\">".to_string()),
+                (
+                    4,
+                    Element::Native(4),
+                    "native <Border \"Page\">".to_string()
+                ),
                 (5, Element::Native(5), "<TextBlock />".to_string()),
             ]
         );
@@ -1048,7 +1167,11 @@ mod tests {
         let closed = HashSet::from([Element::Segment { root: 1, depth: 0 }]);
         let shown = native_rows(&closed, Some(&Element::Native(5)));
 
-        assert!(shown.iter().any(|(_, element, _)| *element == Element::Native(5)));
+        assert!(
+            shown
+                .iter()
+                .any(|(_, element, _)| *element == Element::Native(5))
+        );
     }
 
     #[test]
@@ -1059,8 +1182,20 @@ mod tests {
                 (0, Element::App),
                 (0, Element::Window(1)),
                 (1, Element::Segment { root: 1, depth: 0 }),
-                (2, Element::View { root: 1, path: vec![0, 0] }),
-                (3, Element::View { root: 1, path: vec![0, 0, 0] }),
+                (
+                    2,
+                    Element::View {
+                        root: 1,
+                        path: vec![0, 0]
+                    }
+                ),
+                (
+                    3,
+                    Element::View {
+                        root: 1,
+                        path: vec![0, 0, 0]
+                    }
+                ),
                 (3, Element::Segment { root: 1, depth: 1 }),
                 (4, Element::Actor(7)),
             ]
@@ -1069,16 +1204,31 @@ mod tests {
 
     #[test]
     fn a_closed_row_hides_what_is_under_it() {
-        let closed = HashSet::from([Element::View { root: 1, path: vec![0, 0] }]);
+        let closed = HashSet::from([Element::View {
+            root: 1,
+            path: vec![0, 0],
+        }]);
         let rows = rows(&closed);
 
         assert_eq!(rows.len(), 4);
-        assert_eq!(rows[3], (2, Element::View { root: 1, path: vec![0, 0] }));
+        assert_eq!(
+            rows[3],
+            (
+                2,
+                Element::View {
+                    root: 1,
+                    path: vec![0, 0]
+                }
+            )
+        );
     }
 
     #[test]
     fn a_revealed_row_opens_the_way_to_it() {
-        let closed = HashSet::from([Element::View { root: 1, path: vec![0, 0] }]);
+        let closed = HashSet::from([Element::View {
+            root: 1,
+            path: vec![0, 0],
+        }]);
         let shown = lines(&snapshot(), None, &closed, Some(&Element::Actor(7)));
 
         assert!(shown.iter().any(|line| line.element == Element::Actor(7)));
@@ -1157,18 +1307,24 @@ mod tests {
             .map(|line| (line.depth, line.element))
             .collect();
 
-        assert_eq!(rows[..3], [
-            (0, Element::App),
-            (1, feature(None, "StartupFeature")),
-            (2, Element::Actor(8)),
-        ]);
-        assert_eq!(rows[rows.len() - 6..], [
-            (3, Element::Segment { root: 1, depth: 1 }),
-            (4, feature(Some((1, 1)), "PageFeature")),
-            (5, state("a::Page")),
-            (5, Element::Actor(7)),
-            (4, feature(Some((1, 1)), "EmptyFeature")),
-            (4, state("a::Loose")),
-        ]);
+        assert_eq!(
+            rows[..3],
+            [
+                (0, Element::App),
+                (1, feature(None, "StartupFeature")),
+                (2, Element::Actor(8)),
+            ]
+        );
+        assert_eq!(
+            rows[rows.len() - 6..],
+            [
+                (3, Element::Segment { root: 1, depth: 1 }),
+                (4, feature(Some((1, 1)), "PageFeature")),
+                (5, state("a::Page")),
+                (5, Element::Actor(7)),
+                (4, feature(Some((1, 1)), "EmptyFeature")),
+                (4, state("a::Loose")),
+            ]
+        );
     }
 }

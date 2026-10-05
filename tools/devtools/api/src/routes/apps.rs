@@ -98,7 +98,12 @@ async fn elements(
             .native_for(session.id)
             .map(|inspector| &inspector.inspection.tree);
 
-        Ok(Json(elements::lines(&session.snapshot, native, &flipped, reveal.as_ref())))
+        Ok(Json(elements::lines(
+            &session.snapshot,
+            native,
+            &flipped,
+            reveal.as_ref(),
+        )))
     })
 }
 

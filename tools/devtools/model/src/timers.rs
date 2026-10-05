@@ -49,7 +49,9 @@ impl Timers {
 
     /// The timers set up at `site`, running or not.
     pub fn at<'a>(&'a self, wanted: &'a str) -> impl Iterator<Item = &'a Timer> {
-        self.by_id.values().filter(move |timer| site(timer) == wanted)
+        self.by_id
+            .values()
+            .filter(move |timer| site(timer) == wanted)
     }
 }
 
@@ -69,7 +71,10 @@ pub fn label(timer: &Timer) -> String {
         Some(declared) => {
             let file = std::path::Path::new(&declared.file)
                 .file_name()
-                .map_or_else(|| declared.file.clone(), |name| name.to_string_lossy().into_owned());
+                .map_or_else(
+                    || declared.file.clone(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
             format!("{file}:{}", declared.line)
         }
         None => format!("#{}", timer.id),
@@ -99,7 +104,11 @@ mod tests {
     #[test]
     fn a_timer_is_known_by_its_place_and_called_by_its_name() {
         let mut timers = Timers::default();
-        timers.note(&[timer(1, Some("housekeeping"), 48), timer(2, None, 60), timer(3, None, 60)]);
+        timers.note(&[
+            timer(1, Some("housekeeping"), 48),
+            timer(2, None, 60),
+            timer(3, None, 60),
+        ]);
 
         assert_eq!(timers.label(1), "housekeeping");
         assert_eq!(timers.label(2), "startup.rs:60");
@@ -111,7 +120,11 @@ mod tests {
 
         timers.note(&[]);
         assert!(!timers.runs(1));
-        assert_eq!(timers.label(1), "housekeeping", "a stopped timer keeps its name");
+        assert_eq!(
+            timers.label(1),
+            "housekeeping",
+            "a stopped timer keeps its name"
+        );
         assert_eq!(timers.label(9), "#9");
     }
 }

@@ -89,5 +89,7 @@ pub fn inject(pid: u32, dll: &Path) -> Result<(), String> {
         }
     }
 
-    Err(format!("no XAML diagnostics endpoint took the tap: {last:?}"))
+    Err(format!(
+        "no XAML diagnostics endpoint took the tap: {last:?}"
+    ))
 }

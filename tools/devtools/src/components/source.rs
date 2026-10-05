@@ -11,9 +11,10 @@ use super::text::{dim, mono};
 
 pub fn link(ui: &mut egui::Ui, declared: &Declared, editor: Editor) {
     let file = Path::new(&declared.file);
-    let name = file
-        .file_name()
-        .map_or_else(|| declared.file.clone(), |name| name.to_string_lossy().into_owned());
+    let name = file.file_name().map_or_else(
+        || declared.file.clone(),
+        |name| name.to_string_lossy().into_owned(),
+    );
     let shown = format!("{name}:{}", declared.line);
 
     if !declared.found {

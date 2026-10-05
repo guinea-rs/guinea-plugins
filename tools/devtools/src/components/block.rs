@@ -17,10 +17,8 @@ pub fn heading(ui: &mut egui::Ui, title: &str) {
         ui.spacing_mut().item_spacing.y = 0.0;
         rule(ui);
 
-        let (rect, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), 22.0),
-            egui::Sense::hover(),
-        );
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 22.0), egui::Sense::hover());
 
         ui.painter().rect_filled(rect, 0, theme::FIELD);
         ui.painter().text(
@@ -53,7 +51,11 @@ pub fn head(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) -> bool {
         ui.horizontal_top(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 let size = ui.text_style_height(&egui::TextStyle::Body);
-                let cross = crate::icons::image(crate::icons::close(), size, ui.visuals().weak_text_color());
+                let cross = crate::icons::image(
+                    crate::icons::close(),
+                    size,
+                    ui.visuals().weak_text_color(),
+                );
                 let close = ui
                     .add(egui::Button::image(cross).frame(false))
                     .on_hover_text("close (Esc)")

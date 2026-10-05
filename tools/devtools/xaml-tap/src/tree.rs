@@ -11,8 +11,8 @@ use guinea_devtools_protocol::native::{Change, Element};
 use windows_core::{HRESULT, implement};
 
 use crate::diag::{
-    IVisualTreeServiceCallback, IVisualTreeServiceCallback3, IVisualTreeServiceCallback3_Impl,
-    IVisualTreeServiceCallback_Impl, InstanceHandle, MUTATION_ADD, ParentChildRelation,
+    IVisualTreeServiceCallback, IVisualTreeServiceCallback_Impl, IVisualTreeServiceCallback3,
+    IVisualTreeServiceCallback3_Impl, InstanceHandle, MUTATION_ADD, ParentChildRelation,
     VisualElement, text,
 };
 
@@ -70,7 +70,9 @@ impl State {
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
 fn with<R>(job: impl FnOnce(&mut State) -> R) -> R {
-    let mut state = STATE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut state = STATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     job(state.get_or_insert_with(State::default))
 }
 
@@ -210,7 +212,10 @@ mod tests {
         assert!(!state.children.contains_key(&2));
 
         state.add(element(4, 5));
-        assert!(!state.children.contains_key(&1), "a moved element leaves its old parent");
+        assert!(
+            !state.children.contains_key(&1),
+            "a moved element leaves its old parent"
+        );
         state.remove(5);
         let mut left: Vec<u64> = state.elements.keys().copied().collect();
         left.sort_unstable();

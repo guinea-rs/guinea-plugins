@@ -70,7 +70,10 @@ struct Remote {
     params(("app" = String, Path, description = "An application's id, or `latest`")),
     responses((status = 200, description = "The actions, the events, and whether input reaches its elements"))
 )]
-async fn remote(State(state): State<crate::State>, Path(app): Path<String>) -> Result<Json<Remote>, Failure> {
+async fn remote(
+    State(state): State<crate::State>,
+    Path(app): Path<String>,
+) -> Result<Json<Remote>, Failure> {
     state.read(|sessions| {
         let session = session(sessions, &app)?;
         let input = sessions
@@ -133,7 +136,10 @@ async fn act(
     Query(acting): Query<Acting>,
 ) -> Result<Json<Acted>, Failure> {
     let session = peer(&state, &app, Capability::Act, false)?;
-    let wait = acting.wait.map_or(FOLLOWED, Duration::from_millis).min(LONGEST_WAIT);
+    let wait = acting
+        .wait
+        .map_or(FOLLOWED, Duration::from_millis)
+        .min(LONGEST_WAIT);
 
     let answer = ask(&state, session, |request| Command::Act {
         request,
@@ -177,7 +183,10 @@ async fn publish(
     Query(publishing): Query<Publishing>,
 ) -> Result<Json<Acted>, Failure> {
     let session = peer(&state, &app, Capability::Act, false)?;
-    let wait = publishing.wait.map_or(FOLLOWED, Duration::from_millis).min(LONGEST_WAIT);
+    let wait = publishing
+        .wait
+        .map_or(FOLLOWED, Duration::from_millis)
+        .min(LONGEST_WAIT);
 
     let answer = ask(&state, session, |request| Command::Publish {
         request,
@@ -254,7 +263,12 @@ async fn find(
     let inspector = peer(&state, &app, Capability::NativeInput, true)?;
     let target = aimed.target();
 
-    match ask(&state, inspector, |request| Command::NativeFind { request, target }).await? {
+    match ask(&state, inspector, |request| Command::NativeFind {
+        request,
+        target,
+    })
+    .await?
+    {
         Answer::Found { element, bounds } => Ok(Json(Found { element, bounds })),
         other => Err(unexpected(other)),
     }
@@ -343,7 +357,12 @@ async fn type_text(
 
 /// The session that takes a command needing `capability`: the application's
 /// own, or with `native` its inspector.
-fn peer(state: &crate::State, app: &str, capability: Capability, native: bool) -> Result<u64, Failure> {
+fn peer(
+    state: &crate::State,
+    app: &str,
+    capability: Capability,
+    native: bool,
+) -> Result<u64, Failure> {
     state.read(|sessions: &Sessions| {
         let session = session(sessions, app)?;
         let peer = if native {
@@ -370,9 +389,15 @@ fn peer(state: &crate::State, app: &str, capability: Capability, native: bool) -
 
 /// Sends the command `made` makes of a fresh request id, and waits for the
 /// answer to it.
-async fn ask(state: &crate::State, session: u64, made: impl FnOnce(u64) -> Command) -> Result<Answer, Failure> {
+async fn ask(
+    state: &crate::State,
+    session: u64,
+    made: impl FnOnce(u64) -> Command,
+) -> Result<Answer, Failure> {
     let request = NEXT.fetch_add(1, Ordering::Relaxed);
-    state.send(session, made(request)).map_err(Failure::refused)?;
+    state
+        .send(session, made(request))
+        .map_err(Failure::refused)?;
 
     let asked = Instant::now();
     loop {
@@ -395,7 +420,12 @@ async fn ask(state: &crate::State, session: u64, made: impl FnOnce(u64) -> Comma
 
 /// Follows an action's cause through the trace until it goes quiet or
 /// `wait` runs out.
-async fn followed(state: &crate::State, session: u64, answer: Answer, wait: Duration) -> Result<Json<Acted>, Failure> {
+async fn followed(
+    state: &crate::State,
+    session: u64,
+    answer: Answer,
+    wait: Duration,
+) -> Result<Json<Acted>, Failure> {
     let Answer::Acted { cause } = answer else {
         return Err(unexpected(answer));
     };
@@ -406,14 +436,16 @@ async fn followed(state: &crate::State, session: u64, answer: Answer, wait: Dura
 
     loop {
         let (arrived, under, unfinished, chain) = state.read(|sessions| {
-            sessions.get(session).map_or((false, 0, 0, Vec::new()), |session| {
-                (
-                    session.trace.get(cause).is_some(),
-                    session.trace.under(cause).len(),
-                    session.trace.unfinished(cause),
-                    lines(session, cause),
-                )
-            })
+            sessions
+                .get(session)
+                .map_or((false, 0, 0, Vec::new()), |session| {
+                    (
+                        session.trace.get(cause).is_some(),
+                        session.trace.under(cause).len(),
+                        session.trace.unfinished(cause),
+                        lines(session, cause),
+                    )
+                })
         });
 
         if seen != Some(under) {
@@ -423,7 +455,11 @@ async fn followed(state: &crate::State, session: u64, answer: Answer, wait: Dura
 
         let settled = arrived && unfinished == 0 && still_since.elapsed() >= QUIET;
         if settled || started.elapsed() >= wait {
-            return Ok(Json(Acted { cause, settled, chain }));
+            return Ok(Json(Acted {
+                cause,
+                settled,
+                chain,
+            }));
         }
 
         tokio::time::sleep(POLL).await;
@@ -450,5 +486,7 @@ fn lines(session: &Session, cause: u64) -> Vec<String> {
 }
 
 fn unexpected(answer: Answer) -> Failure {
-    Failure::refused(format!("the application answered something else: {answer:?}"))
+    Failure::refused(format!(
+        "the application answered something else: {answer:?}"
+    ))
 }

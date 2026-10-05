@@ -77,9 +77,10 @@ pub fn said(ui: &mut egui::Ui, words: &[Word]) {
             }
             Some(target) => {
                 let full = match target {
-                    Target::Actor(full) | Target::Reducer(full) | Target::Records(full) | Target::Key(full) => {
-                        full.clone()
-                    }
+                    Target::Actor(full)
+                    | Target::Reducer(full)
+                    | Target::Records(full)
+                    | Target::Key(full) => full.clone(),
                     Target::Stream(id) => id.clone(),
                 };
                 ui.label(text.color(ui.visuals().strong_text_color()))
@@ -129,7 +130,8 @@ impl Line {
     fn put(&mut self, text: &str, format: TextFormat) -> Range<usize> {
         let start = self.chars;
         self.chars += text.chars().count();
-        self.job.append(text, std::mem::take(&mut self.room), format);
+        self.job
+            .append(text, std::mem::take(&mut self.room), format);
 
         start..self.chars
     }
@@ -202,9 +204,12 @@ impl Line {
         for word in words {
             match &word.link {
                 None => self.text(&word.text, theme::tone_color(&word.tone)),
-                Some(Target::Actor(full) | Target::Reducer(full) | Target::Records(full) | Target::Key(full)) => {
-                    self.hinted(&word.text, self.strong, full.clone())
-                }
+                Some(
+                    Target::Actor(full)
+                    | Target::Reducer(full)
+                    | Target::Records(full)
+                    | Target::Key(full),
+                ) => self.hinted(&word.text, self.strong, full.clone()),
                 Some(Target::Stream(_)) => self.text(&word.text, self.strong),
             }
         }
@@ -233,7 +238,10 @@ impl Line {
 
 /// A full-width row that only says: no click, its hints on hover.
 pub fn still(ui: &mut egui::Ui, height: f32, line: Line) {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::hover(),
+    );
     if !ui.is_rect_visible(rect) {
         return;
     }
@@ -267,7 +275,14 @@ pub fn still(ui: &mut egui::Ui, height: f32, line: Line) {
 }
 
 /// A full-width row that does `click` when clicked anywhere but a link.
-pub fn row(ui: &mut egui::Ui, height: f32, selected: bool, go: &mut Option<Go>, click: Go, line: Line) {
+pub fn row(
+    ui: &mut egui::Ui,
+    height: f32,
+    selected: bool,
+    go: &mut Option<Go>,
+    click: Go,
+    line: Line,
+) {
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), height),
         egui::Sense::click(),
@@ -284,7 +299,8 @@ pub fn row(ui: &mut egui::Ui, height: f32, selected: bool, go: &mut Option<Go>, 
         None
     };
     if let Some(fill) = fill {
-        ui.painter().rect_filled(rect, egui::CornerRadius::same(2), fill);
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(2), fill);
     }
 
     let text = rect.shrink2(egui::vec2(4.0, 0.0));
@@ -297,7 +313,12 @@ pub fn row(ui: &mut egui::Ui, height: f32, selected: bool, go: &mut Option<Go>, 
     let galley = ui.painter().layout_job(job);
 
     response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, galley.text())
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            true,
+            selected,
+            galley.text(),
+        )
     });
 
     let origin = egui::pos2(text.left(), text.center().y - galley.size().y / 2.0);

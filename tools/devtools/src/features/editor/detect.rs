@@ -90,7 +90,13 @@ fn jetbrains(product: &str, launcher: &str) -> Option<PathBuf> {
         .max_by(|(one, _), (other, _)| one.cmp(other))
         .map(|(_, exe)| exe);
 
-    newest.or_else(|| on_path(&[launcher, &format!("{launcher}64"), &format!("{launcher}.sh")]))
+    newest.or_else(|| {
+        on_path(&[
+            launcher,
+            &format!("{launcher}64"),
+            &format!("{launcher}.sh"),
+        ])
+    })
 }
 
 /// ` 2026.2.1` as numbers; `None` for another product that shares the prefix.

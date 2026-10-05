@@ -51,9 +51,12 @@ impl Page for Application {
             let Some(session) = sessions.get(focus.app) else {
                 return;
             };
-            components::memo(ui.ctx(), egui::Id::new(("panels", session.id)), session.revision, || {
-                panels::listed(&session.snapshot)
-            })
+            components::memo(
+                ui.ctx(),
+                egui::Id::new(("panels", session.id)),
+                session.revision,
+                || panels::listed(&session.snapshot),
+            )
         };
 
         if listed.is_empty() {
@@ -91,7 +94,11 @@ impl Page for Application {
             None if view.panel.as_ref() == Some(&open.key) => view.node.clone(),
             None => Vec::new(),
         };
-        let at = path.first().copied().filter(|at| *at < open.panel.nodes.len()).unwrap_or(0);
+        let at = path
+            .first()
+            .copied()
+            .filter(|at| *at < open.panel.nodes.len())
+            .unwrap_or(0);
         let Some(section) = open.panel.nodes.get(at) else {
             return;
         };
@@ -109,7 +116,9 @@ impl Page for Application {
             .size_range(160.0..=360.0)
             .default_size(220.0)
             .frame(components::side())
-            .show(ui, |ui| sections(ui, &listed, &section_place, &mut self.folded))
+            .show(ui, |ui| {
+                sections(ui, &listed, &section_place, &mut self.folded)
+            })
             .inner;
         if let Some(place) = chosen {
             dispatch.emit(Open(place.panel));
@@ -149,7 +158,13 @@ impl Page for Application {
 
                 let read_in = self.language.as_deref().or(showing.as_deref());
                 let lines = panels::lines(open, at, &self.closed, wanted.as_ref(), read_in);
-                show(ui, &lines, picked.as_ref(), wanted.as_ref(), &mut self.closed)
+                show(
+                    ui,
+                    &lines,
+                    picked.as_ref(),
+                    wanted.as_ref(),
+                    &mut self.closed,
+                )
             })
             .inner;
 
@@ -192,11 +207,20 @@ fn sections(
 }
 
 /// The languages messages can be read in; `picked` becomes the one chosen.
-fn language(ui: &mut egui::Ui, offered: &[String], showing: Option<&str>, picked: &mut Option<String>) {
+fn language(
+    ui: &mut egui::Ui,
+    offered: &[String],
+    showing: Option<&str>,
+    picked: &mut Option<String>,
+) {
     ui.horizontal(|ui| {
         ui.label(components::dim("messages in"));
 
-        let current = picked.as_deref().or(showing).unwrap_or_default().to_string();
+        let current = picked
+            .as_deref()
+            .or(showing)
+            .unwrap_or_default()
+            .to_string();
         components::select(ui, "application-language", current.as_str(), |ui| {
             for tag in offered {
                 let label = if Some(tag.as_str()) == showing {
@@ -262,5 +286,7 @@ fn title(ui: &mut egui::Ui, node: &Node) {
 fn properties(ui: &mut egui::Ui, node: &Node) {
     egui::ScrollArea::vertical()
         .auto_shrink(false)
-        .show(ui, |ui| components::block(ui, |ui| components::fields(ui, &node.properties)));
+        .show(ui, |ui| {
+            components::block(ui, |ui| components::fields(ui, &node.properties))
+        });
 }

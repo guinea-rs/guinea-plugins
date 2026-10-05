@@ -53,7 +53,10 @@ mod tests {
     fn a_time_reads_by_the_clock_when_the_application_gave_one() {
         let unknown = Clock { epoch_ms: 0 };
         assert_eq!(unknown.short(1_500_000), "1.500 s");
-        assert_eq!(unknown.long(1_500_000), "1.500 s since the application started");
+        assert_eq!(
+            unknown.long(1_500_000),
+            "1.500 s since the application started"
+        );
 
         let epoch_ms = 1_700_000_000_000;
         let known = Clock { epoch_ms };
@@ -61,7 +64,10 @@ mod tests {
             .expect("in range")
             .with_timezone(&chrono::Local);
 
-        assert_eq!(known.short(61_000_000), expected.format("%H:%M").to_string());
+        assert_eq!(
+            known.short(61_000_000),
+            expected.format("%H:%M").to_string()
+        );
         assert_eq!(
             known.long(61_000_000),
             format!(

@@ -147,7 +147,8 @@ fn tool(path: &str, method: &str, operation: &Map<String, Value>) -> Tool {
             .cloned()
             .unwrap_or_else(|| json!({ "type": "string" }));
 
-        if let (Some(schema), Some(about)) = (schema.as_object_mut(), parameter.get("description")) {
+        if let (Some(schema), Some(about)) = (schema.as_object_mut(), parameter.get("description"))
+        {
             schema.entry("description").or_insert_with(|| about.clone());
         }
 
@@ -211,7 +212,11 @@ mod tests {
         assert_eq!(names.len(), taken, "two operations share a name: {names:?}");
 
         for tool in &tools {
-            assert!(!tool.about.is_empty(), "{} says nothing about itself", tool.name);
+            assert!(
+                !tool.about.is_empty(),
+                "{} says nothing about itself",
+                tool.name
+            );
         }
     }
 
@@ -221,7 +226,9 @@ mod tests {
         let arguments = json!({ "app": "latest", "hide": "tick,render", "limit": 20 });
 
         assert_eq!(
-            trace.url(arguments.as_object().expect("an object")).expect("a url"),
+            trace
+                .url(arguments.as_object().expect("an object"))
+                .expect("a url"),
             "/apps/latest/trace?hide=tick%2Crender&limit=20"
         );
     }
@@ -232,7 +239,9 @@ mod tests {
         let arguments = json!({ "app": "1/../2?x#y" });
 
         assert_eq!(
-            trace.url(arguments.as_object().expect("an object")).expect("a url"),
+            trace
+                .url(arguments.as_object().expect("an object"))
+                .expect("a url"),
             "/apps/1%2F..%2F2%3Fx%23y/trace"
         );
     }
@@ -242,6 +251,9 @@ mod tests {
         let element = named("get_element");
         let missing = element.url(&Map::new()).expect_err("id is wanted");
 
-        assert!(missing.contains("app") || missing.contains("id"), "{missing}");
+        assert!(
+            missing.contains("app") || missing.contains("id"),
+            "{missing}"
+        );
     }
 }

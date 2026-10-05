@@ -16,7 +16,11 @@ pub fn open(editor: Editor, declared: &Declared) {
     let opened = command(editor, declared).is_some_and(|mut command| command.spawn().is_ok());
 
     if !opened && system(declared).spawn().is_err() {
-        tracing::warn!(file = declared.file, editor = editor.title(), "could not open the file");
+        tracing::warn!(
+            file = declared.file,
+            editor = editor.title(),
+            "could not open the file"
+        );
     }
 }
 
@@ -109,7 +113,10 @@ mod tests {
         };
 
         let command = configured("rustrover --line {line} {file}", &declared).expect("a command");
-        let args: Vec<_> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
 
         assert_eq!(command.get_program(), "rustrover");
         assert_eq!(args, ["--line", "12", "C:/src/actor.rs"]);
@@ -126,7 +133,10 @@ mod tests {
         };
 
         let command = system(&declared);
-        let args: Vec<_> = command.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
 
         assert_eq!(command.get_program(), "explorer");
         assert_eq!(args, [r"C:\work\R&D\a^b.rs"]);

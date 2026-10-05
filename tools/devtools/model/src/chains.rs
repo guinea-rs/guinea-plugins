@@ -165,7 +165,9 @@ impl Stream {
             Stream::Timer(_) => Some(Section::Timers),
             Stream::Source(_) => Some(Section::Sources),
             Stream::Loop(_) => Some(Section::Loops),
-            Stream::Navigation | Stream::Store | Stream::Log | Stream::Loose => Some(Section::Other),
+            Stream::Navigation | Stream::Store | Stream::Log | Stream::Loose => {
+                Some(Section::Other)
+            }
         }
     }
 
@@ -433,15 +435,15 @@ pub fn title(chains: &Chains, reading: Reading, stream: &Stream) -> String {
         .to_string(),
         Stream::Slow => format!("Slower than {}", took(crate::trace::SLOW_US)),
         Stream::Action(message) => {
-            let actor = chains
-                .roots_of(stream)
-                .max()
-                .and_then(|root| {
-                    reading.log.children(root).find_map(|child| match &child.point {
+            let actor = chains.roots_of(stream).max().and_then(|root| {
+                reading
+                    .log
+                    .children(root)
+                    .find_map(|child| match &child.point {
                         TracePoint::Send { actor, .. } => Some(type_name(actor).to_string()),
                         _ => None,
                     })
-                });
+            });
 
             match actor {
                 Some(actor) => format!("{} → {actor}", type_name(message)),
@@ -690,7 +692,12 @@ fn members(chains: &Chains, reading: Reading, root: u64) -> Vec<u64> {
             .log
             .children(id)
             .map(|child| child.id)
-            .filter(|child| chains.nodes.get(child).is_some_and(|node| node.root == root))
+            .filter(|child| {
+                chains
+                    .nodes
+                    .get(child)
+                    .is_some_and(|node| node.root == root)
+            })
             .collect();
         waiting.extend(children.into_iter().rev());
     }
@@ -725,14 +732,20 @@ fn steps(chains: &Chains, reading: Reading, root: u64) -> Vec<Word> {
 
         match &span.point {
             TracePoint::Log { level, target, .. } => {
-                out.push(Word::new(format!("{} {target}", level.to_lowercase()), Tone::Level(Level::named(level))));
+                out.push(Word::new(
+                    format!("{} {target}", level.to_lowercase()),
+                    Tone::Level(Level::named(level)),
+                ));
             }
             point => out.extend(words::gist_words(point, reading.timers)),
         }
     }
 
     if shown.len() > STEPS_SHOWN {
-        out.push(Word::new(format!(" → … {} more", shown.len() - STEPS_SHOWN), Tone::Muted));
+        out.push(Word::new(
+            format!(" → … {} more", shown.len() - STEPS_SHOWN),
+            Tone::Muted,
+        ));
     }
 
     out
@@ -747,10 +760,18 @@ mod tests {
     fn a_stream_of_records_is_named_and_says_its_class() {
         for (id, stream, class) in [
             ("records", Stream::Records, Some(Class::Own)),
-            ("level/warn", Stream::Level(Level::Warn), Some(Class::Level(Level::Warn))),
+            (
+                "level/warn",
+                Stream::Level(Level::Warn),
+                Some(Class::Level(Level::Warn)),
+            ),
             ("slow", Stream::Slow, Some(Class::Slow)),
             ("all", Stream::All, None),
-            ("timer/src/a.rs:4:9", Stream::Timer("src/a.rs:4:9".into()), None),
+            (
+                "timer/src/a.rs:4:9",
+                Stream::Timer("src/a.rs:4:9".into()),
+                None,
+            ),
         ] {
             assert_eq!(id.parse::<Stream>(), Ok(stream.clone()), "{id}");
             assert_eq!(stream.to_string(), id);
@@ -813,7 +834,13 @@ mod tests {
         let mut spans = tick(1);
         spans.extend(tick(3));
         spans.extend(tick(5));
-        spans.push(span(7, Some(5), TracePoint::Push { reducer: "a::List".into() }));
+        spans.push(span(
+            7,
+            Some(5),
+            TracePoint::Push {
+                reducer: "a::List".into(),
+            },
+        ));
         let log = log_of(spans);
 
         let mut chains = Chains::default();
@@ -833,7 +860,11 @@ mod tests {
 
         let view = view(&chains, reading, &timer, "");
         let counts: Vec<usize> = view.groups.iter().map(|group| group.count).collect();
-        assert_eq!(counts, [1, 2], "the one that also pushed is its own group, and newest");
+        assert_eq!(
+            counts,
+            [1, 2],
+            "the one that also pushed is its own group, and newest"
+        );
         assert_eq!(
             words::text(&view.groups[1].words),
             "timer sweep → Worker handles Sweep"
@@ -850,23 +881,35 @@ mod tests {
     fn what_a_source_did_to_make_its_next_item_is_a_chain_of_that_source() {
         let timers = Timers::default();
         let log = log_of(vec![
-            span(1, None, TracePoint::Pull {
-                actor: "a::Agent".into(),
-                actor_id: 1,
-                output: "a::Streamed".into(),
-                source: 9,
-            }),
-            span(2, Some(1), TracePoint::Publish {
-                event: "a::Changed".into(),
-                bus: guinea_devtools_protocol::BusKind::Global,
-                subscribers: 1,
-            }),
-            span(3, None, TracePoint::Arrived {
-                actor: "a::Agent".into(),
-                actor_id: 1,
-                output: "a::Streamed".into(),
-                source: 9,
-            }),
+            span(
+                1,
+                None,
+                TracePoint::Pull {
+                    actor: "a::Agent".into(),
+                    actor_id: 1,
+                    output: "a::Streamed".into(),
+                    source: 9,
+                },
+            ),
+            span(
+                2,
+                Some(1),
+                TracePoint::Publish {
+                    event: "a::Changed".into(),
+                    bus: guinea_devtools_protocol::BusKind::Global,
+                    subscribers: 1,
+                },
+            ),
+            span(
+                3,
+                None,
+                TracePoint::Arrived {
+                    actor: "a::Agent".into(),
+                    actor_id: 1,
+                    output: "a::Streamed".into(),
+                    source: 9,
+                },
+            ),
         ]);
 
         let mut chains = Chains::default();
@@ -878,15 +921,30 @@ mod tests {
         };
 
         let listed = streams(&chains, reading);
-        let lines: Vec<(Stream, usize)> = listed.iter().map(|line| (line.stream.clone(), line.chains)).collect();
-        assert_eq!(lines, [(Stream::Source(Stream::source_of("a::Agent", "a::Streamed")), 2)]);
+        let lines: Vec<(Stream, usize)> = listed
+            .iter()
+            .map(|line| (line.stream.clone(), line.chains))
+            .collect();
+        assert_eq!(
+            lines,
+            [(
+                Stream::Source(Stream::source_of("a::Agent", "a::Streamed")),
+                2
+            )]
+        );
     }
 
     #[test]
     fn a_loop_is_a_run_of_short_chains() {
         let timers = Timers::default();
         let log = log_of(vec![
-            span(1, None, TracePoint::Action { message: "a::Start".into() }),
+            span(
+                1,
+                None,
+                TracePoint::Action {
+                    message: "a::Start".into(),
+                },
+            ),
             span(2, Some(1), handle("a::Tick")),
             span(3, Some(2), handle("a::Work")),
             span(4, Some(3), handle("a::Tick")),
@@ -917,7 +975,8 @@ mod tests {
         );
 
         let all = view(&chains, reading, &Stream::All, "");
-        let opens: Vec<Option<Stream>> = all.groups.iter().map(|group| group.opens.clone()).collect();
+        let opens: Vec<Option<Stream>> =
+            all.groups.iter().map(|group| group.opens.clone()).collect();
         assert!(opens.contains(&Some(Stream::Loop("Worker handles Tick".into()))));
     }
 
@@ -943,7 +1002,13 @@ mod tests {
         };
 
         let log = log_of(vec![
-            span(1, None, TracePoint::Action { message: "a::Start".into() }),
+            span(
+                1,
+                None,
+                TracePoint::Action {
+                    message: "a::Start".into(),
+                },
+            ),
             span(2, Some(1), handle("a::Connect")),
             settled(3, 1_289_600),
             span(4, Some(3), handle("a::Connect")),
@@ -967,7 +1032,11 @@ mod tests {
             .map(|line| (line.stream, line.chains))
             .collect();
 
-        assert_eq!(loops.len(), 1, "one loop, however long each turn of it took: {loops:?}");
+        assert_eq!(
+            loops.len(),
+            1,
+            "one loop, however long each turn of it took: {loops:?}"
+        );
         assert_eq!(loops[0].1, 2);
 
         let Stream::Loop(step) = &loops[0].0 else {
@@ -1002,7 +1071,12 @@ mod tests {
         });
         chains.absorb(&log, &timers);
 
-        assert!(chains.chains.keys().all(|root| *root >= log.first_id().unwrap_or(0)));
+        assert!(
+            chains
+                .chains
+                .keys()
+                .all(|root| *root >= log.first_id().unwrap_or(0))
+        );
         assert!(chains.groups.values().all(|roots| !roots.contains(&1)));
     }
 

@@ -72,7 +72,11 @@ impl Inspecting {
     ) {
         ui.horizontal_centered(|ui| {
             let picks = inspector.info.can(Capability::NativeHitTest);
-            let label = if view.picking { "picking… click an element" } else { "pick an element" };
+            let label = if view.picking {
+                "picking… click an element"
+            } else {
+                "pick an element"
+            };
             if ui
                 .add_enabled(picks, egui::Button::selectable(view.picking, label))
                 .clicked()
@@ -94,7 +98,10 @@ impl Inspecting {
 
             if let Some((command, reason)) = &inspector.inspection.refused {
                 ui.separator();
-                ui.label(egui::RichText::new(format!("{command}: {reason}")).color(ui.visuals().warn_fg_color));
+                ui.label(
+                    egui::RichText::new(format!("{command}: {reason}"))
+                        .color(ui.visuals().warn_fg_color),
+                );
             }
         });
     }
@@ -195,7 +202,13 @@ const MAX_BAR: f32 = 48.0;
 impl Inspecting {
     /// Every captured frame as a bar, and the layout passes of the one
     /// clicked.
-    pub fn frames(&mut self, ui: &mut egui::Ui, tree: &NativeTree, frames: &[Frame], dispatch: &Dispatch) {
+    pub fn frames(
+        &mut self,
+        ui: &mut egui::Ui,
+        tree: &NativeTree,
+        frames: &[Frame],
+        dispatch: &Dispatch,
+    ) {
         let chosen = self.frame;
         let slowest = frames.iter().map(|frame| frame.took_us).max().unwrap_or(0) as f32;
 
@@ -204,7 +217,10 @@ impl Inspecting {
 
         components::block(ui, |ui| {
             ui.horizontal(|ui| {
-                let late = frames.iter().filter(|frame| frame.took_us as f32 > BUDGET_US).count();
+                let late = frames
+                    .iter()
+                    .filter(|frame| frame.took_us as f32 > BUDGET_US)
+                    .count();
                 ui.label(components::dim(format!(
                     "{} frames over {:.1} s · {} over 16.7 ms · slowest {:.1} ms",
                     frames.len(),
@@ -214,7 +230,11 @@ impl Inspecting {
                 )));
 
                 ui.separator();
-                let zoomed = ui.add(egui::Slider::new(&mut width, MIN_BAR..=MAX_BAR).logarithmic(true).text("px per frame"));
+                let zoomed = ui.add(
+                    egui::Slider::new(&mut width, MIN_BAR..=MAX_BAR)
+                        .logarithmic(true)
+                        .text("px per frame"),
+                );
                 let fitted = ui.button("fit").clicked();
 
                 if fitted {
@@ -236,7 +256,12 @@ impl Inspecting {
                     egui::Sense::click(),
                 );
 
-                let wheel = ui.input(|input| input.modifiers.command.then_some(input.smooth_scroll_delta.y));
+                let wheel = ui.input(|input| {
+                    input
+                        .modifiers
+                        .command
+                        .then_some(input.smooth_scroll_delta.y)
+                });
                 let zoomed = wheel
                     .filter(|delta| *delta != 0.0 && response.hovered())
                     .map(|delta| (width * (1.0 + delta / 200.0)).clamp(MIN_BAR, MAX_BAR));
@@ -258,12 +283,23 @@ impl Inspecting {
                         ui.visuals().weak_text_color()
                     };
                     let right = (left + width - 1.0).max(left + 1.0);
-                    painter.rect_filled(egui::Rect::from_min_max(egui::pos2(left, top), egui::pos2(right, rect.bottom())), 0.0, color);
+                    painter.rect_filled(
+                        egui::Rect::from_min_max(
+                            egui::pos2(left, top),
+                            egui::pos2(right, rect.bottom()),
+                        ),
+                        0.0,
+                        color,
+                    );
                 }
 
                 let budget = rect.bottom() - BUDGET_US * scale;
                 if budget >= rect.top() {
-                    painter.hline(rect.x_range(), budget, ui.visuals().widgets.noninteractive.bg_stroke);
+                    painter.hline(
+                        rect.x_range(),
+                        budget,
+                        ui.visuals().widgets.noninteractive.bg_stroke,
+                    );
                 }
 
                 let clicked = response
@@ -285,28 +321,36 @@ impl Inspecting {
         }
 
         let Some(frame) = chosen.and_then(|index| frames.get(index)) else {
-            components::block(ui, |ui| ui.label(components::dim("click a bar for its layout passes")));
+            components::block(ui, |ui| {
+                ui.label(components::dim("click a bar for its layout passes"))
+            });
             return;
         };
 
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            components::block(ui, |ui| {
-                ui.label(format!(
-                    "{:.2} ms at {:.2} s · measure {:.2} ms · arrange {:.2} ms",
-                    frame.took_us as f32 / 1000.0,
-                    frame.at_us as f32 / 1e6,
-                    frame.measure_us as f32 / 1000.0,
-                    frame.arrange_us as f32 / 1000.0
-                ));
+        egui::ScrollArea::vertical()
+            .auto_shrink(false)
+            .show(ui, |ui| {
+                components::block(ui, |ui| {
+                    ui.label(format!(
+                        "{:.2} ms at {:.2} s · measure {:.2} ms · arrange {:.2} ms",
+                        frame.took_us as f32 / 1000.0,
+                        frame.at_us as f32 / 1e6,
+                        frame.measure_us as f32 / 1000.0,
+                        frame.arrange_us as f32 / 1000.0
+                    ));
 
-                for pass in &frame.passes {
-                    let kind = tree.get(pass.element).map_or("(gone)", |element| short(&element.kind));
-                    let line = format!("{:>6} µs  {:<8} {kind}", pass.took_us, pass.kind);
-                    if ui.selectable_label(false, components::mono(line)).clicked() && tree.get(pass.element).is_some() {
-                        dispatch.emit(Select(pass.element));
+                    for pass in &frame.passes {
+                        let kind = tree
+                            .get(pass.element)
+                            .map_or("(gone)", |element| short(&element.kind));
+                        let line = format!("{:>6} µs  {:<8} {kind}", pass.took_us, pass.kind);
+                        if ui.selectable_label(false, components::mono(line)).clicked()
+                            && tree.get(pass.element).is_some()
+                        {
+                            dispatch.emit(Select(pass.element));
+                        }
                     }
-                }
-            })
-        });
+                })
+            });
     }
 }

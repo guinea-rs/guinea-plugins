@@ -69,7 +69,11 @@ async fn native(
             ))
         })?;
 
-        Ok(Json(View::of(inspector, cut.root, cut.depth.unwrap_or(6).min(DEEPEST))))
+        Ok(Json(View::of(
+            inspector,
+            cut.root,
+            cut.depth.unwrap_or(6).min(DEEPEST),
+        )))
     })
 }
 
@@ -86,7 +90,10 @@ async fn native(
         (status = 501, description = "Not this platform")
     )
 )]
-async fn attach(State(state): State<crate::State>, Path(app): Path<String>) -> Result<Json<Done>, Failure> {
+async fn attach(
+    State(state): State<crate::State>,
+    Path(app): Path<String>,
+) -> Result<Json<Done>, Failure> {
     let id = state.read(|sessions| session(sessions, &app).map(|session| session.id))?;
 
     state.attach(id).map_err(Failure::refused)?;
@@ -118,7 +125,13 @@ async fn properties(
     Path(app): Path<String>,
     Query(one): Query<One>,
 ) -> Result<Json<Done>, Failure> {
-    command(&state, &app, Command::NativeProperties { element: one.element })
+    command(
+        &state,
+        &app,
+        Command::NativeProperties {
+            element: one.element,
+        },
+    )
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -173,7 +186,13 @@ async fn highlight(
     Path(app): Path<String>,
     Query(maybe): Query<Maybe>,
 ) -> Result<Json<Done>, Failure> {
-    command(&state, &app, Command::NativeHighlight { element: maybe.element })
+    command(
+        &state,
+        &app,
+        Command::NativeHighlight {
+            element: maybe.element,
+        },
+    )
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -230,7 +249,10 @@ async fn set(
         (status = 409, description = "The application has no inspector: attach one first")
     )
 )]
-async fn perf(State(state): State<crate::State>, Path(app): Path<String>) -> Result<Json<Done>, Failure> {
+async fn perf(
+    State(state): State<crate::State>,
+    Path(app): Path<String>,
+) -> Result<Json<Done>, Failure> {
     command(&state, &app, Command::NativePerfCapture)
 }
 
@@ -303,14 +325,23 @@ impl View {
                 inspector.inspection.enums.len(),
                 inspector.inspection.enums.values().map(Vec::len).sum(),
             ),
-            tree: starts.iter().filter_map(|&handle| node(tree, handle, depth)).collect(),
+            tree: starts
+                .iter()
+                .filter_map(|&handle| node(tree, handle, depth))
+                .collect(),
             properties: inspector.inspection.properties.clone(),
-            picked: inspector
+            picked: inspector.inspection.picked.as_ref().map(|picked| {
+                picked
+                    .chain
+                    .iter()
+                    .filter_map(|&handle| node(tree, handle, 0))
+                    .collect()
+            }),
+            picked_bounds: inspector
                 .inspection
                 .picked
                 .as_ref()
-                .map(|picked| picked.chain.iter().filter_map(|&handle| node(tree, handle, 0)).collect()),
-            picked_bounds: inspector.inspection.picked.as_ref().and_then(|picked| picked.bounds),
+                .and_then(|picked| picked.bounds),
             refused: inspector.inspection.refused.clone(),
             frames: inspector.inspection.frames.clone(),
         }
@@ -328,7 +359,10 @@ fn node(tree: &NativeTree, handle: u64, depth: usize) -> Option<Node> {
         children: if depth == 0 {
             Vec::new()
         } else {
-            children.iter().filter_map(|&child| node(tree, child, depth - 1)).collect()
+            children
+                .iter()
+                .filter_map(|&child| node(tree, child, depth - 1))
+                .collect()
         },
         hidden: if depth == 0 { children.len() } else { 0 },
     })

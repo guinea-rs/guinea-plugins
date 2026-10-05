@@ -13,7 +13,10 @@ const SIZE: f32 = 64.0;
 pub fn run_cycle(ctx: &egui::Context) -> TextureHandle {
     let sheet = eframe::icon_data::from_png_bytes(include_bytes!("../../assets/guinea-run.png"))
         .expect("the run cycle ships inside the binary");
-    let image = ColorImage::from_rgba_unmultiplied([sheet.width as usize, sheet.height as usize], &sheet.rgba);
+    let image = ColorImage::from_rgba_unmultiplied(
+        [sheet.width as usize, sheet.height as usize],
+        &sheet.rgba,
+    );
 
     ctx.load_texture("guinea-run", image, TextureOptions::NEAREST)
 }

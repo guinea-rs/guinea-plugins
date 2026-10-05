@@ -67,7 +67,9 @@ pub fn show(ui: &mut egui::Ui, selected: u64, properties: Option<&[Property]>, c
 
     let Some(properties) = properties else {
         components::rule(ui);
-        components::block(ui, |ui| ui.label(components::dim("asking for its properties…")));
+        components::block(ui, |ui| {
+            ui.label(components::dim("asking for its properties…"))
+        });
         return;
     };
 
@@ -86,7 +88,8 @@ pub fn show(ui: &mut egui::Ui, selected: u64, properties: Option<&[Property]>, c
         (sidebar.tab, sidebar.filter.to_lowercase(), sidebar.set_only)
     });
 
-    let matches = |property: &&Property| filter.is_empty() || property.name.to_lowercase().contains(&filter);
+    let matches =
+        |property: &&Property| filter.is_empty() || property.name.to_lowercase().contains(&filter);
 
     egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
         components::block(ui, |ui| match tab {
@@ -119,7 +122,12 @@ fn tabs(ui: &mut egui::Ui) {
     sidebar(|sidebar| {
         let open = match sidebar.tab {
             Tab::Set => 0,
-            Tab::Cluster(cluster) => 1 + Cluster::ALL.iter().position(|each| *each == cluster).unwrap_or(0),
+            Tab::Cluster(cluster) => {
+                1 + Cluster::ALL
+                    .iter()
+                    .position(|each| *each == cluster)
+                    .unwrap_or(0)
+            }
         };
 
         if let Some(index) = components::tabs(ui, "native-property-tabs", &titles, open) {
@@ -133,13 +141,25 @@ fn tabs(ui: &mut egui::Ui) {
 
 /// Everything not left at its default, grouped by where the value came from,
 /// with what it overrides struck through beneath it.
-fn set_here(ui: &mut egui::Ui, selected: u64, properties: &[Property], cx: &Context, matches: &dyn Fn(&&Property) -> bool) {
+fn set_here(
+    ui: &mut egui::Ui,
+    selected: u64,
+    properties: &[Property],
+    cx: &Context,
+    matches: &dyn Fn(&&Property) -> bool,
+) {
     let mut by_source: Vec<(&str, Vec<&Property>)> = Vec::new();
-    for property in properties.iter().filter(|property| !property.overridden && property.source != "default") {
+    for property in properties
+        .iter()
+        .filter(|property| !property.overridden && property.source != "default")
+    {
         if !matches(&property) {
             continue;
         }
-        match by_source.iter_mut().find(|(source, _)| *source == property.source) {
+        match by_source
+            .iter_mut()
+            .find(|(source, _)| *source == property.source)
+        {
             Some((_, listed)) => listed.push(property),
             None => by_source.push((&property.source, vec![property])),
         }
@@ -157,10 +177,20 @@ fn set_here(ui: &mut egui::Ui, selected: u64, properties: &[Property], cx: &Cont
 
         let overridden: Vec<&Property> = properties
             .iter()
-            .filter(|property| property.overridden && listed.iter().any(|set| set.index == property.index))
+            .filter(|property| {
+                property.overridden && listed.iter().any(|set| set.index == property.index)
+            })
             .collect();
         for property in overridden {
-            ui.label(components::dim(format!("    {} = {} ({})", property.name, shown_value(property, cx), property.source)).strikethrough());
+            ui.label(
+                components::dim(format!(
+                    "    {} = {} ({})",
+                    property.name,
+                    shown_value(property, cx),
+                    property.source
+                ))
+                .strikethrough(),
+            );
         }
     }
 }
@@ -168,7 +198,14 @@ fn set_here(ui: &mut egui::Ui, selected: u64, properties: &[Property], cx: &Cont
 /// A cluster's properties under its section headings, in the order they
 /// matter; whatever no section names folded at the end, open while
 /// `searching`.
-fn sections(ui: &mut egui::Ui, cluster: Cluster, listed: &[&Property], element: u64, cx: &Context, searching: bool) {
+fn sections(
+    ui: &mut egui::Ui,
+    cluster: Cluster,
+    listed: &[&Property],
+    element: u64,
+    cx: &Context,
+    searching: bool,
+) {
     for (at, section) in cluster.sections().iter().enumerate() {
         let mut shown: Vec<(usize, &Property)> = listed
             .iter()
@@ -183,7 +220,15 @@ fn sections(ui: &mut egui::Ui, cluster: Cluster, listed: &[&Property], element: 
         shown.sort_by_key(|(within, _)| *within);
 
         heading(ui, section.title);
-        rows(ui, &shown.into_iter().map(|(_, property)| property).collect::<Vec<_>>(), element, cx);
+        rows(
+            ui,
+            &shown
+                .into_iter()
+                .map(|(_, property)| property)
+                .collect::<Vec<_>>(),
+            element,
+            cx,
+        );
     }
 
     let mut rest: Vec<&Property> = listed
@@ -194,7 +239,11 @@ fn sections(ui: &mut egui::Ui, cluster: Cluster, listed: &[&Property], element: 
     if rest.is_empty() {
         return;
     }
-    rest.sort_by(|a, b| (a.source == "default").cmp(&(b.source == "default")).then(a.name.cmp(&b.name)));
+    rest.sort_by(|a, b| {
+        (a.source == "default")
+            .cmp(&(b.source == "default"))
+            .then(a.name.cmp(&b.name))
+    });
 
     if cluster.sections().is_empty() {
         rows(ui, &rest, element, cx);
@@ -202,11 +251,13 @@ fn sections(ui: &mut egui::Ui, cluster: Cluster, listed: &[&Property], element: 
     }
 
     ui.add_space(6.0);
-    egui::CollapsingHeader::new(egui::RichText::new(format!("More · {}", rest.len())).color(theme::MUTED))
-        .id_salt(("native-more", cluster.title()))
-        .default_open(false)
-        .open(searching.then_some(true))
-        .show_unindented(ui, |ui| rows(ui, &rest, element, cx));
+    egui::CollapsingHeader::new(
+        egui::RichText::new(format!("More · {}", rest.len())).color(theme::MUTED),
+    )
+    .id_salt(("native-more", cluster.title()))
+    .default_open(false)
+    .open(searching.then_some(true))
+    .show_unindented(ui, |ui| rows(ui, &rest, element, cx));
 }
 
 fn heading(ui: &mut egui::Ui, title: &str) {
@@ -226,7 +277,11 @@ fn rows(ui: &mut egui::Ui, shown: &[&Property], element: u64, cx: &Context) {
         .iter()
         .map(|property| {
             ui.painter()
-                .layout_no_wrap(property.name.clone(), font.clone(), egui::Color32::PLACEHOLDER)
+                .layout_no_wrap(
+                    property.name.clone(),
+                    font.clone(),
+                    egui::Color32::PLACEHOLDER,
+                )
                 .size()
                 .x
         })
@@ -241,34 +296,44 @@ fn rows(ui: &mut egui::Ui, shown: &[&Property], element: u64, cx: &Context) {
             let stripe = ui.painter().add(egui::Shape::Noop);
 
             let size = egui::vec2(ui.available_width(), height);
-            let row = ui.allocate_ui_with_layout(size, egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                let set_here = property.source != "default";
-                let name = egui::RichText::new(&property.name)
-                    .color(if set_here { theme::TEXT } else { theme::MUTED });
-                ui.add_sized([names, height], egui::Label::new(name).truncate())
-                    .on_hover_text(&property.declaring_type);
+            let row = ui.allocate_ui_with_layout(
+                size,
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let set_here = property.source != "default";
+                    let name = egui::RichText::new(&property.name).color(if set_here {
+                        theme::TEXT
+                    } else {
+                        theme::MUTED
+                    });
+                    ui.add_sized([names, height], egui::Label::new(name).truncate())
+                        .on_hover_text(&property.declaring_type);
 
-                let spacing = ui.spacing().item_spacing.x;
-                let value = (ui.available_width() - SOURCE_WIDTH - spacing).max(80.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(value, height),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        ui.set_width(value);
-                        components::field_look(ui);
-                        editor(ui, element, property, cx);
-                    },
-                );
+                    let spacing = ui.spacing().item_spacing.x;
+                    let value = (ui.available_width() - SOURCE_WIDTH - spacing).max(80.0);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(value, height),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_width(value);
+                            components::field_look(ui);
+                            editor(ui, element, property, cx);
+                        },
+                    );
 
-                let source = egui::RichText::new(property.source.replace('_', " "))
-                    .color(source_color(&property.source));
-                ui.add_sized([SOURCE_WIDTH, height], egui::Label::new(source).truncate())
-                    .on_hover_text(&property.value_type);
-            });
+                    let source = egui::RichText::new(property.source.replace('_', " "))
+                        .color(source_color(&property.source));
+                    ui.add_sized([SOURCE_WIDTH, height], egui::Label::new(source).truncate())
+                        .on_hover_text(&property.value_type);
+                },
+            );
 
             if index % 2 == 1 {
                 let rect = row.response.rect.expand2(egui::vec2(4.0, 2.0));
-                ui.painter().set(stripe, egui::epaint::RectShape::filled(rect, 4, ui.visuals().faint_bg_color));
+                ui.painter().set(
+                    stripe,
+                    egui::epaint::RectShape::filled(rect, 4, ui.visuals().faint_bg_color),
+                );
             }
         }
     });
@@ -324,7 +389,9 @@ fn value_color(property: &Property, cx: &Context) -> egui::Color32 {
     match property.value_type.as_str() {
         _ if property.object && property.value == "0" => theme::MUTED,
         "Windows.Foundation.Boolean" => theme::CYAN,
-        "Windows.Foundation.Double" | "Windows.Foundation.Single" | "Windows.Foundation.Int32"
+        "Windows.Foundation.Double"
+        | "Windows.Foundation.Single"
+        | "Windows.Foundation.Int32"
         | "Windows.Foundation.UInt32" => theme::PEACH,
         "Microsoft.UI.Xaml.Thickness" | "Microsoft.UI.Xaml.CornerRadius" => theme::PEACH,
         "Windows.Foundation.String" => theme::GREEN,
@@ -338,7 +405,12 @@ fn swatch(ui: &mut egui::Ui, rgba: [u8; 4]) {
     let checker = ui.visuals().weak_text_color();
     painter.rect_filled(rect, 2.0, checker);
     painter.rect_filled(rect, 2.0, color32(rgba));
-    painter.rect_stroke(rect, 2.0, ui.visuals().widgets.noninteractive.bg_stroke, egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        rect,
+        2.0,
+        ui.visuals().widgets.noninteractive.bg_stroke,
+        egui::StrokeKind::Inside,
+    );
 }
 
 /// The field for one value, by what the value is.
@@ -386,7 +458,9 @@ fn editor(ui: &mut egui::Ui, element: u64, property: &Property, cx: &Context) {
     }
 
     if let Some(values) = cx.enums.get(&property.value_type) {
-        let current = properties::enum_name(cx.enums, property).unwrap_or(&property.value).to_string();
+        let current = properties::enum_name(cx.enums, property)
+            .unwrap_or(&property.value)
+            .to_string();
         ui.spacing_mut().combo_width = ui.available_width();
         let shown = egui::RichText::new(&current).color(theme::VIOLET);
         components::select(ui, ("native-enum", element, property.index), shown, |ui| {
@@ -438,7 +512,11 @@ fn number(ui: &mut egui::Ui, property: &Property, set: impl Fn(String)) {
 
     let response = ui.add_sized([ui.available_width(), components::FIELD_HEIGHT], drag);
     if response.drag_stopped() || (response.changed() && !response.dragged()) {
-        set(if integer { format!("{}", value as i64) } else { format!("{value}") });
+        set(if integer {
+            format!("{}", value as i64)
+        } else {
+            format!("{value}")
+        });
     }
 }
 
@@ -450,16 +528,20 @@ fn sides(ui: &mut egui::Ui, property: &Property, set: impl Fn(String)) {
 
     let mut done = false;
     let row = egui::vec2(ui.available_width(), components::FIELD_HEIGHT);
-    ui.allocate_ui_with_layout(row, egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        let spacing = ui.spacing().item_spacing.x;
-        let each = ((ui.available_width() - spacing * 3.0) / 4.0).max(28.0);
+    ui.allocate_ui_with_layout(
+        row,
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            let spacing = ui.spacing().item_spacing.x;
+            let each = ((ui.available_width() - spacing * 3.0) / 4.0).max(28.0);
 
-        for side in &mut four {
-            let drag = egui::DragValue::new(side).speed(0.5).max_decimals(1);
-            let response = ui.add_sized([each, components::FIELD_HEIGHT], drag);
-            done |= response.drag_stopped() || (response.changed() && !response.dragged());
-        }
-    });
+            for side in &mut four {
+                let drag = egui::DragValue::new(side).speed(0.5).max_decimals(1);
+                let response = ui.add_sized([each, components::FIELD_HEIGHT], drag);
+                done |= response.drag_stopped() || (response.changed() && !response.dragged());
+            }
+        },
+    );
     if done {
         set(four.map(|side| side.to_string()).join(","));
     }
@@ -467,7 +549,10 @@ fn sides(ui: &mut egui::Ui, property: &Property, set: impl Fn(String)) {
 
 fn text(ui: &mut egui::Ui, property: &Property, set: impl Fn(String)) {
     let submitted = sidebar(|sidebar| {
-        let typed = sidebar.editing.entry(property.index).or_insert_with(|| property.value.clone());
+        let typed = sidebar
+            .editing
+            .entry(property.index)
+            .or_insert_with(|| property.value.clone());
         let width = ui.available_width();
         let edit = egui::TextEdit::singleline(typed)
             .font(egui::TextStyle::Monospace)
@@ -502,13 +587,28 @@ fn box_model(ui: &mut egui::Ui, properties: &[Property]) {
     };
 
     let layers = [
-        ("margin", four("Margin"), egui::Color32::from_rgba_unmultiplied(246, 178, 107, 90)),
-        ("border", four("BorderThickness"), egui::Color32::from_rgba_unmultiplied(255, 229, 153, 90)),
-        ("padding", four("Padding"), egui::Color32::from_rgba_unmultiplied(147, 196, 125, 90)),
+        (
+            "margin",
+            four("Margin"),
+            egui::Color32::from_rgba_unmultiplied(246, 178, 107, 90),
+        ),
+        (
+            "border",
+            four("BorderThickness"),
+            egui::Color32::from_rgba_unmultiplied(255, 229, 153, 90),
+        ),
+        (
+            "padding",
+            four("Padding"),
+            egui::Color32::from_rgba_unmultiplied(147, 196, 125, 90),
+        ),
     ];
 
     let width = ui.available_width().min(320.0);
-    let (row, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 150.0), egui::Sense::hover());
+    let (row, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), 150.0),
+        egui::Sense::hover(),
+    );
     let rect = egui::Rect::from_center_size(row.center(), egui::vec2(width, 150.0));
     let painter = ui.painter_at(rect);
     let font = egui::FontId::monospace(10.0);
@@ -518,19 +618,64 @@ fn box_model(ui: &mut egui::Ui, properties: &[Property]) {
     let mut area = rect;
     for (label, [left, top, right, bottom], fill) in layers {
         painter.rect_filled(area, 2.0, fill);
-        painter.rect_stroke(area, 2.0, egui::Stroke::new(1.0, ink.gamma_multiply(0.4)), egui::StrokeKind::Inside);
-        painter.text(area.left_top() + egui::vec2(4.0, 2.0), egui::Align2::LEFT_TOP, label, font.clone(), ink.gamma_multiply(0.7));
+        painter.rect_stroke(
+            area,
+            2.0,
+            egui::Stroke::new(1.0, ink.gamma_multiply(0.4)),
+            egui::StrokeKind::Inside,
+        );
+        painter.text(
+            area.left_top() + egui::vec2(4.0, 2.0),
+            egui::Align2::LEFT_TOP,
+            label,
+            font.clone(),
+            ink.gamma_multiply(0.7),
+        );
 
-        let side = |value: f64| if value == 0.0 { "-".to_string() } else { format!("{value}") };
-        painter.text(egui::pos2(area.center().x, area.top() + step / 2.0), egui::Align2::CENTER_CENTER, side(top), font.clone(), ink);
-        painter.text(egui::pos2(area.center().x, area.bottom() - step / 2.0), egui::Align2::CENTER_CENTER, side(bottom), font.clone(), ink);
-        painter.text(egui::pos2(area.left() + step / 2.0, area.center().y), egui::Align2::CENTER_CENTER, side(left), font.clone(), ink);
-        painter.text(egui::pos2(area.right() - step / 2.0, area.center().y), egui::Align2::CENTER_CENTER, side(right), font.clone(), ink);
+        let side = |value: f64| {
+            if value == 0.0 {
+                "-".to_string()
+            } else {
+                format!("{value}")
+            }
+        };
+        painter.text(
+            egui::pos2(area.center().x, area.top() + step / 2.0),
+            egui::Align2::CENTER_CENTER,
+            side(top),
+            font.clone(),
+            ink,
+        );
+        painter.text(
+            egui::pos2(area.center().x, area.bottom() - step / 2.0),
+            egui::Align2::CENTER_CENTER,
+            side(bottom),
+            font.clone(),
+            ink,
+        );
+        painter.text(
+            egui::pos2(area.left() + step / 2.0, area.center().y),
+            egui::Align2::CENTER_CENTER,
+            side(left),
+            font.clone(),
+            ink,
+        );
+        painter.text(
+            egui::pos2(area.right() - step / 2.0, area.center().y),
+            egui::Align2::CENTER_CENTER,
+            side(right),
+            font.clone(),
+            ink,
+        );
 
         area = area.shrink2(egui::vec2(step * 1.4, step));
     }
 
-    painter.rect_filled(area, 2.0, egui::Color32::from_rgba_unmultiplied(111, 168, 220, 110));
+    painter.rect_filled(
+        area,
+        2.0,
+        egui::Color32::from_rgba_unmultiplied(111, 168, 220, 110),
+    );
     painter.text(
         area.center(),
         egui::Align2::CENTER_CENTER,
@@ -543,23 +688,34 @@ fn box_model(ui: &mut egui::Ui, properties: &[Property]) {
 
 /// The element's text in its own font, size, weight, style and colour.
 fn text_sample(ui: &mut egui::Ui, properties: &[Property]) {
-    let value = |name: &str| properties::find(properties, name).map(|property| property.value.as_str());
+    let value =
+        |name: &str| properties::find(properties, name).map(|property| property.value.as_str());
 
     let Some(family) = value("FontFamily") else {
         return;
     };
-    let size = value("FontSize").and_then(|size| size.parse::<f32>().ok()).unwrap_or(14.0);
-    let sample = value("Text").filter(|text| !text.is_empty() && *text != "0").unwrap_or("The quick brown fox");
+    let size = value("FontSize")
+        .and_then(|size| size.parse::<f32>().ok())
+        .unwrap_or(14.0);
+    let sample = value("Text")
+        .filter(|text| !text.is_empty() && *text != "0")
+        .unwrap_or("The quick brown fox");
     let weight = value("FontWeight").unwrap_or("Normal");
 
     let mut text = egui::RichText::new(sample).size(size.clamp(6.0, 64.0));
-    if !matches!(weight, "Normal" | "Light" | "SemiLight" | "ExtraLight" | "Thin") {
+    if !matches!(
+        weight,
+        "Normal" | "Light" | "SemiLight" | "ExtraLight" | "Thin"
+    ) {
         text = text.strong();
     }
     if value("FontStyle").is_some_and(|style| style != "0") {
         text = text.italics();
     }
-    if let Some(rgba) = properties::find(properties, "Foreground").and_then(|brush| brush.color.as_deref()).and_then(properties::color) {
+    if let Some(rgba) = properties::find(properties, "Foreground")
+        .and_then(|brush| brush.color.as_deref())
+        .and_then(properties::color)
+    {
         text = text.color(color32(rgba));
     }
 
@@ -589,9 +745,15 @@ fn swatches(ui: &mut egui::Ui, properties: &[Property]) {
                 continue;
             };
             ui.vertical(|ui| {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(56.0, 28.0), egui::Sense::hover());
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(56.0, 28.0), egui::Sense::hover());
                 ui.painter().rect_filled(rect, 4.0, color32(rgba));
-                ui.painter().rect_stroke(rect, 4.0, ui.visuals().widgets.noninteractive.bg_stroke, egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(
+                    rect,
+                    4.0,
+                    ui.visuals().widgets.noninteractive.bg_stroke,
+                    egui::StrokeKind::Inside,
+                );
                 ui.label(components::dim(&brush.name));
             });
         }

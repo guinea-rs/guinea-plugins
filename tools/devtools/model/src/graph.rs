@@ -94,7 +94,13 @@ struct Builder {
 }
 
 impl Builder {
-    fn cluster(&mut self, key: String, label: &str, kind: ClusterKind, parent: Option<usize>) -> usize {
+    fn cluster(
+        &mut self,
+        key: String,
+        label: &str,
+        kind: ClusterKind,
+        parent: Option<usize>,
+    ) -> usize {
         if let Some(&at) = self.clusters.get(&key) {
             return at;
         }
@@ -127,7 +133,14 @@ impl Builder {
         at
     }
 
-    fn edge(&mut self, from: usize, to: usize, label: String, kind: EdgeKind, looping: bool) -> usize {
+    fn edge(
+        &mut self,
+        from: usize,
+        to: usize,
+        label: String,
+        kind: EdgeKind,
+        looping: bool,
+    ) -> usize {
         let key = (from, to, label.clone());
         if let Some(&at) = self.edges.get(&key) {
             return at;
@@ -159,7 +172,9 @@ fn home(
     feature: Option<&str>,
 ) -> usize {
     let Some(root) = root else { return app };
-    let Some(&window) = windows.get(&root) else { return app };
+    let Some(&window) = windows.get(&root) else {
+        return app;
+    };
     let Some(index) = segment else { return window };
 
     let name = snapshot
@@ -199,7 +214,12 @@ pub fn build(snapshot: &Snapshot, trace: &TraceLog) -> Graph {
 
     for (index, root) in snapshot.roots.iter().enumerate() {
         let label = crate::names::window_name(root.label.as_deref(), index);
-        let window = b.cluster(format!("window:{}", root.id), &label, ClusterKind::Window, None);
+        let window = b.cluster(
+            format!("window:{}", root.id),
+            &label,
+            ClusterKind::Window,
+            None,
+        );
         windows.insert(root.id, window);
 
         for (index, segment) in root.chain.iter().enumerate() {
@@ -244,7 +264,10 @@ pub fn build(snapshot: &Snapshot, trace: &TraceLog) -> Graph {
             b.roots.insert(node, root);
         }
 
-        actors_by_type.entry(&actor.type_name).or_default().push(node);
+        actors_by_type
+            .entry(&actor.type_name)
+            .or_default()
+            .push(node);
         for handled in &actor.handles {
             answering.entry(&handled.message).or_default().push(node);
         }
@@ -270,7 +293,15 @@ pub fn build(snapshot: &Snapshot, trace: &TraceLog) -> Graph {
                     continue;
                 }
 
-                let cluster = home(&mut b, &windows, snapshot, app, Some(root.id), Some(index), None);
+                let cluster = home(
+                    &mut b,
+                    &windows,
+                    snapshot,
+                    app,
+                    Some(root.id),
+                    Some(index),
+                    None,
+                );
                 let node = b.node(
                     format!("reducer:{}:{}", root.id, reducer.type_name),
                     short(&reducer.type_name),
@@ -286,7 +317,9 @@ pub fn build(snapshot: &Snapshot, trace: &TraceLog) -> Graph {
 
     let event_node = |b: &mut Builder, root: Option<u64>, event: &str, bus: BusKind| -> usize {
         let (cluster, key) = match (bus, root.and_then(|r| window_buses.get(&r))) {
-            (BusKind::Window, Some(&cluster)) => (cluster, format!("event:{}:{event}", root.unwrap_or(0))),
+            (BusKind::Window, Some(&cluster)) => {
+                (cluster, format!("event:{}:{event}", root.unwrap_or(0)))
+            }
             _ => (global, format!("event:global:{event}")),
         };
 
@@ -300,7 +333,9 @@ pub fn build(snapshot: &Snapshot, trace: &TraceLog) -> Graph {
             for listener in &segment.listeners {
                 let event = event_node(&mut b, Some(root.id), &listener.event, listener.bus);
                 let target = match &listener.actor {
-                    Some(actor) => actors_by_type.get(actor.as_str()).and_then(|nodes| nodes.first().copied()),
+                    Some(actor) => actors_by_type
+                        .get(actor.as_str())
+                        .and_then(|nodes| nodes.first().copied()),
                     None => None,
                 };
 
@@ -348,7 +383,10 @@ pub fn build(snapshot: &Snapshot, trace: &TraceLog) -> Graph {
                 let label = format!("{} {}", verb(flow.channel), short(&flow.target));
                 let targets = match flow.channel {
                     Channel::Bg => vec![from],
-                    _ => answering.get(flow.target.as_str()).cloned().unwrap_or_default(),
+                    _ => answering
+                        .get(flow.target.as_str())
+                        .cloned()
+                        .unwrap_or_default(),
                 };
 
                 let targets = if targets.is_empty() {
@@ -363,7 +401,13 @@ pub fn build(snapshot: &Snapshot, trace: &TraceLog) -> Graph {
                 };
 
                 for to in targets {
-                    b.edge(from, to, label.clone(), EdgeKind::Flow(flow.channel), flow.looping);
+                    b.edge(
+                        from,
+                        to,
+                        label.clone(),
+                        EdgeKind::Flow(flow.channel),
+                        flow.looping,
+                    );
                 }
             }
         }
@@ -378,7 +422,13 @@ pub fn build(snapshot: &Snapshot, trace: &TraceLog) -> Graph {
             };
 
             let to = event_node(&mut b, actor.root, event, bus);
-            b.edge(from, to, format!("publish {}", short(event)), EdgeKind::Publish, false);
+            b.edge(
+                from,
+                to,
+                format!("publish {}", short(event)),
+                EdgeKind::Publish,
+                false,
+            );
         }
 
         for event in &actor.subscribes {
@@ -409,7 +459,11 @@ fn activity(
     let since = latest.saturating_sub(RECENT);
 
     let parent = |span: &Span| span.parent.and_then(|id| trace.get(id));
-    let actor = |name: &str| actors_by_type.get(name).and_then(|nodes| nodes.first().copied());
+    let actor = |name: &str| {
+        actors_by_type
+            .get(name)
+            .and_then(|nodes| nodes.first().copied())
+    };
     let reducer = |name: &str, root: Option<u64>| match root {
         Some(root) => reducers.get(&(root, name)).copied(),
         None => reducers
@@ -419,30 +473,59 @@ fn activity(
     };
     let root_of = |node: usize, b: &Builder| b.roots.get(&node).copied();
 
-    let recent: Vec<&Span> = trace.iter().rev().take_while(|span| span.at >= since).collect();
+    let recent: Vec<&Span> = trace
+        .iter()
+        .rev()
+        .take_while(|span| span.at >= since)
+        .collect();
 
     for span in recent {
         let cause = parent(span);
         match (&span.point, cause.map(|c| &c.point)) {
-            (TracePoint::Send { actor: to, message }, Some(TracePoint::Handle { actor: from, .. })) => {
+            (
+                TracePoint::Send { actor: to, message },
+                Some(TracePoint::Handle { actor: from, .. }),
+            ) => {
                 if let (Some(from), Some(to)) = (actor(from), actor(to)) {
-                    let at = find_flow(b, from, to, message)
-                        .unwrap_or_else(|| b.edge(from, to, format!("send {}", short(message)), EdgeKind::Flow(Channel::Send), false));
+                    let at = find_flow(b, from, to, message).unwrap_or_else(|| {
+                        b.edge(
+                            from,
+                            to,
+                            format!("send {}", short(message)),
+                            EdgeKind::Flow(Channel::Send),
+                            false,
+                        )
+                    });
                     b.graph.edges[at].recent += 1;
                 }
             }
             (TracePoint::Send { actor: to, message }, Some(TracePoint::Action { .. })) => {
                 if let Some(to) = actor(to) {
                     let ui = b.node("ui".into(), "UI", NodeKind::Ui, app);
-                    let at = b.edge(ui, to, format!("action {}", short(message)), EdgeKind::Action, false);
+                    let at = b.edge(
+                        ui,
+                        to,
+                        format!("action {}", short(message)),
+                        EdgeKind::Action,
+                        false,
+                    );
                     b.graph.edges[at].recent += 1;
                 }
             }
-            (TracePoint::Publish { event, bus, .. }, Some(TracePoint::Handle { actor: from, .. })) => {
+            (
+                TracePoint::Publish { event, bus, .. },
+                Some(TracePoint::Handle { actor: from, .. }),
+            ) => {
                 if let Some(from) = actor(from) {
                     let root = root_of(from, b);
                     let to = event_node(b, root, event, *bus);
-                    let at = b.edge(from, to, format!("publish {}", short(event)), EdgeKind::Publish, false);
+                    let at = b.edge(
+                        from,
+                        to,
+                        format!("publish {}", short(event)),
+                        EdgeKind::Publish,
+                        false,
+                    );
                     b.graph.edges[at].recent += 1;
                 }
             }
@@ -486,7 +569,10 @@ fn activity(
 
 fn find_flow(b: &Builder, from: usize, to: usize, message: &str) -> Option<usize> {
     b.graph.edges.iter().position(|e| {
-        e.from == from && e.to == to && matches!(e.kind, EdgeKind::Flow(_)) && e.label.ends_with(short(message))
+        e.from == from
+            && e.to == to
+            && matches!(e.kind, EdgeKind::Flow(_))
+            && e.label.ends_with(short(message))
     })
 }
 
@@ -545,7 +631,11 @@ mod tests {
                     drives: Some("contracts::Processes".into()),
                     handles: vec![Handled {
                         message: "contracts::Kill".into(),
-                        edges: Some(vec![Flow { channel: Channel::Send, target: "startup::Sweep".into(), looping: false }]),
+                        edges: Some(vec![Flow {
+                            channel: Channel::Send,
+                            target: "startup::Sweep".into(),
+                            looping: false,
+                        }]),
                         declared: None,
                     }],
                     publishes: vec!["events::Killed".into()],
@@ -554,7 +644,11 @@ mod tests {
                 Actor {
                     id: 1,
                     type_name: "startup::Housekeeping".into(),
-                    handles: vec![Handled { message: "startup::Sweep".into(), edges: None, declared: None }],
+                    handles: vec![Handled {
+                        message: "startup::Sweep".into(),
+                        edges: None,
+                        declared: None,
+                    }],
                     ..Actor::default()
                 },
             ],
@@ -587,14 +681,23 @@ mod tests {
         let graph = build(&snapshot(), &TraceLog::default());
 
         let (_, actor) = node(&graph, "ProcessActor");
-        assert_eq!(path(&graph, actor.cluster), ["main", "Processes", "ProcessesFeature"]);
+        assert_eq!(
+            path(&graph, actor.cluster),
+            ["main", "Processes", "ProcessesFeature"]
+        );
 
         let (_, reducer) = node(&graph, "Processes");
         assert_eq!(reducer.kind, NodeKind::Reducer);
-        assert_eq!(reducer.cluster, actor.cluster, "a driven reducer sits with its actor");
+        assert_eq!(
+            reducer.cluster, actor.cluster,
+            "a driven reducer sits with its actor"
+        );
 
         let (_, listener) = node(&graph, "on Killed");
-        assert_eq!(path(&graph, listener.cluster), ["main", "Tabs", "TabsFeature"]);
+        assert_eq!(
+            path(&graph, listener.cluster),
+            ["main", "Tabs", "TabsFeature"]
+        );
 
         let (_, event) = node(&graph, "Killed");
         assert_eq!(path(&graph, event.cluster), ["Global bus"]);
@@ -612,7 +715,12 @@ mod tests {
         let (listener, _) = node(&graph, "on Killed");
         let (housekeeping, _) = node(&graph, "Housekeeping");
 
-        let has = |from, to, kind| graph.edges.iter().any(|e| e.from == from && e.to == to && e.kind == kind);
+        let has = |from, to, kind| {
+            graph
+                .edges
+                .iter()
+                .any(|e| e.from == from && e.to == to && e.kind == kind)
+        };
         assert!(has(actor, event, EdgeKind::Publish));
         assert!(has(event, listener, EdgeKind::Deliver));
         assert!(has(actor, housekeeping, EdgeKind::Flow(Channel::Send)));
@@ -621,15 +729,62 @@ mod tests {
     #[test]
     fn recent_traffic_lights_up_edges_and_adds_what_only_the_trace_knows() {
         let mut trace = TraceLog::default();
-        let span = |id: u64, parent: Option<u64>, point: TracePoint| Span { id, parent, at: 1_000 + id, took: None, point };
+        let span = |id: u64, parent: Option<u64>, point: TracePoint| Span {
+            id,
+            parent,
+            at: 1_000 + id,
+            took: None,
+            point,
+        };
         trace.absorb(TraceBatch {
             spans: vec![
-                span(1, None, TracePoint::Action { message: "contracts::Kill".into() }),
-                span(2, Some(1), TracePoint::Send { actor: "actor::ProcessActor".into(), message: "contracts::Kill".into() }),
-                span(3, Some(2), TracePoint::Handle { actor: "actor::ProcessActor".into(), message: "contracts::Kill".into() }),
-                span(4, Some(3), TracePoint::Publish { event: "events::Killed".into(), bus: BusKind::Global, subscribers: 1 }),
-                span(5, Some(4), TracePoint::Deliver { event: "events::Killed".into(), bus: BusKind::Global }),
-                span(6, Some(5), TracePoint::Push { reducer: "tabs::Tabs".into() }),
+                span(
+                    1,
+                    None,
+                    TracePoint::Action {
+                        message: "contracts::Kill".into(),
+                    },
+                ),
+                span(
+                    2,
+                    Some(1),
+                    TracePoint::Send {
+                        actor: "actor::ProcessActor".into(),
+                        message: "contracts::Kill".into(),
+                    },
+                ),
+                span(
+                    3,
+                    Some(2),
+                    TracePoint::Handle {
+                        actor: "actor::ProcessActor".into(),
+                        message: "contracts::Kill".into(),
+                    },
+                ),
+                span(
+                    4,
+                    Some(3),
+                    TracePoint::Publish {
+                        event: "events::Killed".into(),
+                        bus: BusKind::Global,
+                        subscribers: 1,
+                    },
+                ),
+                span(
+                    5,
+                    Some(4),
+                    TracePoint::Deliver {
+                        event: "events::Killed".into(),
+                        bus: BusKind::Global,
+                    },
+                ),
+                span(
+                    6,
+                    Some(5),
+                    TracePoint::Push {
+                        reducer: "tabs::Tabs".into(),
+                    },
+                ),
             ],
             ends: Vec::new(),
             dropped: 0,
@@ -644,7 +799,10 @@ mod tests {
         let edge = |from, to| graph.edges.iter().find(|e| e.from == from && e.to == to);
 
         assert_eq!(edge(ui, actor).map(|e| e.recent), Some(1));
-        assert_eq!(edge(listener, tabs).map(|e| (e.kind, e.recent)), Some((EdgeKind::Drives, 1)));
+        assert_eq!(
+            edge(listener, tabs).map(|e| (e.kind, e.recent)),
+            Some((EdgeKind::Drives, 1))
+        );
 
         let (event, _) = node(&graph, "Killed");
         assert_eq!(edge(actor, event).map(|e| e.recent), Some(1));

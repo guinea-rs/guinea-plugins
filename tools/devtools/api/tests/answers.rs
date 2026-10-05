@@ -50,7 +50,12 @@ async fn ask(method: &str, url: &str) -> (StatusCode, String) {
 
     let response = router.oneshot(request).await.expect("an answer");
     let status = response.status();
-    let body = response.into_body().collect().await.expect("a body").to_bytes();
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("a body")
+        .to_bytes();
 
     (status, String::from_utf8_lossy(&body).into_owned())
 }

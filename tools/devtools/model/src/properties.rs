@@ -49,7 +49,9 @@ impl Cluster {
         let owner = name.split_once('.').map(|(owner, _)| owner);
 
         match owner {
-            Some("Grid" | "Canvas" | "RelativePanel" | "VariableSizedWrapGrid") => return Cluster::Layout,
+            Some("Grid" | "Canvas" | "RelativePanel" | "VariableSizedWrapGrid") => {
+                return Cluster::Layout;
+            }
             Some("Typography") => return Cluster::Text,
             Some("AutomationProperties") => return Cluster::Accessibility,
             Some("ToolTipService" | "FlyoutBase") => return Cluster::Content,
@@ -59,33 +61,111 @@ impl Cluster {
         }
 
         const LAYOUT: &[&str] = &[
-            "Width", "Height", "MinWidth", "MinHeight", "MaxWidth", "MaxHeight", "Margin", "Padding",
-            "HorizontalAlignment", "VerticalAlignment", "HorizontalContentAlignment",
-            "VerticalContentAlignment", "ActualWidth", "ActualHeight", "ActualSize", "ActualOffset",
-            "DesiredSize", "RenderSize", "UseLayoutRounding", "FlowDirection", "Orientation", "Spacing",
-            "RowDefinitions", "ColumnDefinitions", "RowSpacing", "ColumnSpacing",
+            "Width",
+            "Height",
+            "MinWidth",
+            "MinHeight",
+            "MaxWidth",
+            "MaxHeight",
+            "Margin",
+            "Padding",
+            "HorizontalAlignment",
+            "VerticalAlignment",
+            "HorizontalContentAlignment",
+            "VerticalContentAlignment",
+            "ActualWidth",
+            "ActualHeight",
+            "ActualSize",
+            "ActualOffset",
+            "DesiredSize",
+            "RenderSize",
+            "UseLayoutRounding",
+            "FlowDirection",
+            "Orientation",
+            "Spacing",
+            "RowDefinitions",
+            "ColumnDefinitions",
+            "RowSpacing",
+            "ColumnSpacing",
         ];
         const APPEARANCE: &[&str] = &[
-            "Background", "Foreground", "BorderBrush", "BorderThickness", "CornerRadius", "Opacity",
-            "Visibility", "Fill", "Stroke", "StrokeThickness", "Shadow", "Clip", "BackgroundSizing",
-            "BackgroundTransition", "OpacityTransition", "ActualTheme", "RequestedTheme",
-            "CompositeMode", "Lights", "HighContrastAdjustment",
+            "Background",
+            "Foreground",
+            "BorderBrush",
+            "BorderThickness",
+            "CornerRadius",
+            "Opacity",
+            "Visibility",
+            "Fill",
+            "Stroke",
+            "StrokeThickness",
+            "Shadow",
+            "Clip",
+            "BackgroundSizing",
+            "BackgroundTransition",
+            "OpacityTransition",
+            "ActualTheme",
+            "RequestedTheme",
+            "CompositeMode",
+            "Lights",
+            "HighContrastAdjustment",
         ];
         const TEXT: &[&str] = &[
-            "Text", "FontFamily", "FontSize", "FontWeight", "FontStyle", "FontStretch",
-            "CharacterSpacing", "LineHeight", "LineStackingStrategy", "TextWrapping", "TextTrimming",
-            "TextAlignment", "TextLineBounds", "MaxLines", "IsTextScaleFactorEnabled",
-            "OpticalMarginAlignment", "TextDecorations", "TextReadingOrder", "IsTextSelectionEnabled",
+            "Text",
+            "FontFamily",
+            "FontSize",
+            "FontWeight",
+            "FontStyle",
+            "FontStretch",
+            "CharacterSpacing",
+            "LineHeight",
+            "LineStackingStrategy",
+            "TextWrapping",
+            "TextTrimming",
+            "TextAlignment",
+            "TextLineBounds",
+            "MaxLines",
+            "IsTextScaleFactorEnabled",
+            "OpticalMarginAlignment",
+            "TextDecorations",
+            "TextReadingOrder",
+            "IsTextSelectionEnabled",
         ];
         const TRANSFORM: &[&str] = &[
-            "RenderTransform", "RenderTransformOrigin", "Projection", "Transform3D", "TransformMatrix",
-            "Rotation", "RotationAxis", "RotationTransition", "Scale", "ScaleTransition", "Translation",
-            "TranslationTransition", "CenterPoint", "RasterizationScale",
+            "RenderTransform",
+            "RenderTransformOrigin",
+            "Projection",
+            "Transform3D",
+            "TransformMatrix",
+            "Rotation",
+            "RotationAxis",
+            "RotationTransition",
+            "Scale",
+            "ScaleTransition",
+            "Translation",
+            "TranslationTransition",
+            "CenterPoint",
+            "RasterizationScale",
         ];
         const CONTENT: &[&str] = &[
-            "Content", "ContentTemplate", "ContentTemplateSelector", "ContentTransitions", "Child",
-            "Children", "Style", "Template", "DataContext", "Tag", "Name", "Parent", "Resources",
-            "ContextFlyout", "Transitions", "ChildrenTransitions", "Triggers", "Source",
+            "Content",
+            "ContentTemplate",
+            "ContentTemplateSelector",
+            "ContentTransitions",
+            "Child",
+            "Children",
+            "Style",
+            "Template",
+            "DataContext",
+            "Tag",
+            "Name",
+            "Parent",
+            "Resources",
+            "ContextFlyout",
+            "Transitions",
+            "ChildrenTransitions",
+            "Triggers",
+            "Source",
         ];
 
         if LAYOUT.contains(&name) {
@@ -136,26 +216,49 @@ impl Cluster {
                 Section {
                     title: "Size",
                     names: &[
-                        "Width", "Height", "ActualWidth", "ActualHeight", "MinWidth", "MinHeight", "MaxWidth",
+                        "Width",
+                        "Height",
+                        "ActualWidth",
+                        "ActualHeight",
+                        "MinWidth",
+                        "MinHeight",
+                        "MaxWidth",
                         "MaxHeight",
                     ],
                 },
                 Section {
                     title: "Spacing",
-                    names: &["Margin", "Padding", "Spacing", "RowSpacing", "ColumnSpacing"],
+                    names: &[
+                        "Margin",
+                        "Padding",
+                        "Spacing",
+                        "RowSpacing",
+                        "ColumnSpacing",
+                    ],
                 },
                 Section {
                     title: "Alignment",
                     names: &[
-                        "HorizontalAlignment", "VerticalAlignment", "HorizontalContentAlignment",
-                        "VerticalContentAlignment", "Orientation", "FlowDirection",
+                        "HorizontalAlignment",
+                        "VerticalAlignment",
+                        "HorizontalContentAlignment",
+                        "VerticalContentAlignment",
+                        "Orientation",
+                        "FlowDirection",
                     ],
                 },
                 Section {
                     title: "Position",
                     names: &[
-                        "Grid.Row", "Grid.Column", "Grid.RowSpan", "Grid.ColumnSpan", "RowDefinitions",
-                        "ColumnDefinitions", "Canvas.Left", "Canvas.Top", "Canvas.ZIndex",
+                        "Grid.Row",
+                        "Grid.Column",
+                        "Grid.RowSpan",
+                        "Grid.ColumnSpan",
+                        "RowDefinitions",
+                        "ColumnDefinitions",
+                        "Canvas.Left",
+                        "Canvas.Top",
+                        "Canvas.ZIndex",
                     ],
                 },
             ],
@@ -170,7 +273,12 @@ impl Cluster {
                 },
                 Section {
                     title: "Border",
-                    names: &["BorderThickness", "CornerRadius", "StrokeThickness", "BackgroundSizing"],
+                    names: &[
+                        "BorderThickness",
+                        "CornerRadius",
+                        "StrokeThickness",
+                        "BackgroundSizing",
+                    ],
                 },
                 Section {
                     title: "Theme",
@@ -180,15 +288,32 @@ impl Cluster {
             Cluster::Text => &[
                 Section {
                     title: "Text",
-                    names: &["Text", "TextWrapping", "TextTrimming", "TextAlignment", "MaxLines"],
+                    names: &[
+                        "Text",
+                        "TextWrapping",
+                        "TextTrimming",
+                        "TextAlignment",
+                        "MaxLines",
+                    ],
                 },
                 Section {
                     title: "Font",
-                    names: &["FontFamily", "FontSize", "FontWeight", "FontStyle", "FontStretch"],
+                    names: &[
+                        "FontFamily",
+                        "FontSize",
+                        "FontWeight",
+                        "FontStyle",
+                        "FontStretch",
+                    ],
                 },
                 Section {
                     title: "Lines",
-                    names: &["LineHeight", "CharacterSpacing", "LineStackingStrategy", "TextLineBounds"],
+                    names: &[
+                        "LineHeight",
+                        "CharacterSpacing",
+                        "LineStackingStrategy",
+                        "TextLineBounds",
+                    ],
                 },
             ],
             Cluster::Transform => &[
@@ -198,18 +323,34 @@ impl Cluster {
                 },
                 Section {
                     title: "Composition",
-                    names: &["Translation", "Rotation", "RotationAxis", "Scale", "CenterPoint", "TransformMatrix"],
+                    names: &[
+                        "Translation",
+                        "Rotation",
+                        "RotationAxis",
+                        "Scale",
+                        "CenterPoint",
+                        "TransformMatrix",
+                    ],
                 },
             ],
             Cluster::Interaction => &[
                 Section {
                     title: "State",
-                    names: &["IsEnabled", "IsHitTestVisible", "IsTabStop", "TabIndex", "IsFocusEngaged"],
+                    names: &[
+                        "IsEnabled",
+                        "IsHitTestVisible",
+                        "IsTabStop",
+                        "TabIndex",
+                        "IsFocusEngaged",
+                    ],
                 },
                 Section {
                     title: "Focus",
                     names: &[
-                        "FocusState", "AllowFocusOnInteraction", "AllowFocusWhenDisabled", "UseSystemFocusVisuals",
+                        "FocusState",
+                        "AllowFocusOnInteraction",
+                        "AllowFocusWhenDisabled",
+                        "UseSystemFocusVisuals",
                         "TabFocusNavigation",
                     ],
                 },
@@ -221,7 +362,12 @@ impl Cluster {
                 },
                 Section {
                     title: "Templates",
-                    names: &["Style", "Template", "ContentTemplate", "ContentTemplateSelector"],
+                    names: &[
+                        "Style",
+                        "Template",
+                        "ContentTemplate",
+                        "ContentTemplateSelector",
+                    ],
                 },
                 Section {
                     title: "Data",
@@ -231,8 +377,10 @@ impl Cluster {
             Cluster::Accessibility => &[Section {
                 title: "Name",
                 names: &[
-                    "AutomationProperties.Name", "AutomationProperties.AutomationId",
-                    "AutomationProperties.HelpText", "AutomationProperties.LabeledBy",
+                    "AutomationProperties.Name",
+                    "AutomationProperties.AutomationId",
+                    "AutomationProperties.HelpText",
+                    "AutomationProperties.LabeledBy",
                 ],
             }],
             Cluster::Other => &[],
@@ -241,10 +389,16 @@ impl Cluster {
 
     /// Which of [`Cluster::sections`] names `property`, and where in it.
     pub fn place(self, property: &Property) -> Option<(usize, usize)> {
-        self.sections().iter().enumerate().find_map(|(at, section)| {
-            let within = section.names.iter().position(|name| *name == property.name)?;
-            Some((at, within))
-        })
+        self.sections()
+            .iter()
+            .enumerate()
+            .find_map(|(at, section)| {
+                let within = section
+                    .names
+                    .iter()
+                    .position(|name| *name == property.name)?;
+                Some((at, within))
+            })
     }
 }
 
@@ -288,11 +442,16 @@ pub fn color(value: &str) -> Option<[u8; 4]> {
         };
     }
 
-    csscolorparser::parse(value).ok().map(|color| color.to_rgba8())
+    csscolorparser::parse(value)
+        .ok()
+        .map(|color| color.to_rgba8())
 }
 
 /// What an enumeration value is called: `Stretch` for `3`.
-pub fn enum_name<'a>(enums: &'a HashMap<String, Vec<(i32, String)>>, property: &Property) -> Option<&'a str> {
+pub fn enum_name<'a>(
+    enums: &'a HashMap<String, Vec<(i32, String)>>,
+    property: &Property,
+) -> Option<&'a str> {
     let number: i32 = property.value.parse().ok()?;
     enums
         .get(&property.value_type)?
@@ -320,16 +479,28 @@ mod tests {
         assert_eq!(Cluster::of(&named("Typography.Kerning")), Cluster::Text);
         assert_eq!(Cluster::of(&named("Rotation")), Cluster::Transform);
         assert_eq!(Cluster::of(&named("IsTabStop")), Cluster::Interaction);
-        assert_eq!(Cluster::of(&named("AutomationProperties.Name")), Cluster::Accessibility);
+        assert_eq!(
+            Cluster::of(&named("AutomationProperties.Name")),
+            Cluster::Accessibility
+        );
         assert_eq!(Cluster::of(&named("Child")), Cluster::Content);
         assert_eq!(Cluster::of(&named("Language")), Cluster::Other);
     }
 
     #[test]
     fn what_matters_comes_first_and_the_rest_is_left_over() {
-        assert_eq!(Cluster::Appearance.place(&named("Visibility")), Some((0, 0)));
-        assert_eq!(Cluster::Appearance.place(&named("Background")), Some((1, 0)));
-        assert_eq!(Cluster::Appearance.place(&named("HighContrastAdjustment")), None);
+        assert_eq!(
+            Cluster::Appearance.place(&named("Visibility")),
+            Some((0, 0))
+        );
+        assert_eq!(
+            Cluster::Appearance.place(&named("Background")),
+            Some((1, 0))
+        );
+        assert_eq!(
+            Cluster::Appearance.place(&named("HighContrastAdjustment")),
+            None
+        );
         assert_eq!(Cluster::Other.place(&named("Language")), None);
     }
 

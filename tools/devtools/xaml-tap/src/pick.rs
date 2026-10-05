@@ -80,7 +80,12 @@ impl Picker {
     /// Starts watching the pointer for process `pid`. One at a time: a second
     /// picker replaces the first one's target.
     pub fn start(pid: u32) -> Picker {
-        seen(|seen| *seen = Seen { pid, ..Seen::default() });
+        seen(|seen| {
+            *seen = Seen {
+                pid,
+                ..Seen::default()
+            }
+        });
 
         if THREAD.load(Ordering::SeqCst) == 0 {
             std::thread::Builder::new()
@@ -92,7 +97,9 @@ impl Picker {
                     let hooked = unsafe { SetWindowsHookExW(WH_MOUSE_LL, Some(hook), module, 0) };
 
                     let mut message = MSG::default();
-                    while unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) }.as_bool() {}
+                    while unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) }.as_bool()
+                    {
+                    }
 
                     if !hooked.is_null() {
                         let _ = unsafe { UnhookWindowsHookEx(hooked) };

@@ -55,7 +55,9 @@ impl Hub {
     }
 
     pub fn read(&self) -> RwLockReadGuard<'_, Sessions> {
-        self.sessions.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.sessions
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Sends `command` to session `id`, if it listed what the command needs.
@@ -80,7 +82,9 @@ impl Hub {
         }
 
         let commands = self.commands.get().ok_or(Unsent::Closed)?;
-        commands.unbounded_send((id, command)).map_err(|_| Unsent::Closed)
+        commands
+            .unbounded_send((id, command))
+            .map_err(|_| Unsent::Closed)
     }
 
     /// Loads the XAML tap into session `id`'s process, unless one is already
@@ -106,7 +110,10 @@ impl Hub {
     fn apply_all(&self, inbox: Receiver<Incoming>) {
         while let Ok(first) = inbox.recv() {
             let moved = {
-                let mut sessions = self.sessions.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let mut sessions = self
+                    .sessions
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let before = sessions.revision();
                 sessions.apply(first);
 
@@ -119,7 +126,12 @@ impl Hub {
                 continue;
             }
 
-            for watcher in self.watchers.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).iter() {
+            for watcher in self
+                .watchers
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+            {
                 watcher();
             }
         }
@@ -165,13 +177,21 @@ pub fn attach_native_in(sessions: &Sessions, id: u64) -> Result<(), String> {
         let name = name.to_string_lossy();
         name.starts_with(TAP_COPY) && name.ends_with(".dll")
     };
-    for stale in std::fs::read_dir(&temp).into_iter().flatten().flatten().filter(copies) {
+    for stale in std::fs::read_dir(&temp)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(copies)
+    {
         let _ = std::fs::remove_file(stale.path());
     }
 
     let mut unique = [0u8; 8];
     getrandom::fill(&mut unique).map_err(|error| format!("no name for the tap's copy: {error}"))?;
-    let loaded = temp.join(format!("{TAP_COPY}{pid}-{:016x}.dll", u64::from_le_bytes(unique)));
+    let loaded = temp.join(format!(
+        "{TAP_COPY}{pid}-{:016x}.dll",
+        u64::from_le_bytes(unique)
+    ));
     std::fs::copy(built, &loaded)
         .map_err(|error| format!("copying the tap to {}: {error}", loaded.display()))?;
 
@@ -217,6 +237,10 @@ mod tests {
         .expect("sent");
         drop(out);
         hub.apply_all(inbox);
-        assert_eq!(called.load(Ordering::SeqCst), 1, "an answer alone draws nothing again");
+        assert_eq!(
+            called.load(Ordering::SeqCst),
+            1,
+            "an answer alone draws nothing again"
+        );
     }
 }

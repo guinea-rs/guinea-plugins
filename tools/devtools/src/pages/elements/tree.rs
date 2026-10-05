@@ -31,9 +31,12 @@ pub fn show(
     flipped: &mut HashSet<Element>,
 ) -> Answer {
     let key = (revision, flipped.clone(), reveal.cloned());
-    let lines = components::memo(ui.ctx(), egui::Id::new(("elements", revision.0)), key, || {
-        elements::lines(snapshot, native, flipped, reveal)
-    });
+    let lines = components::memo(
+        ui.ctx(),
+        egui::Id::new(("elements", revision.0)),
+        key,
+        || elements::lines(snapshot, native, flipped, reveal),
+    );
 
     let wanted = reveal.and_then(|wanted| lines.iter().position(|line| &line.element == wanted));
     let answer = tree::show(ui, lines.len(), wanted, |ui, index| {

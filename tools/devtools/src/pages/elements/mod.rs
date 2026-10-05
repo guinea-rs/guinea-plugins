@@ -83,7 +83,9 @@ impl Page for Elements {
         }
 
         match inspector {
-            Some(inspector) if view.picking => self.inspecting.pick(ui, session, inspector, &dispatch, &send),
+            Some(inspector) if view.picking => self
+                .inspecting
+                .pick(ui, session, inspector, &dispatch, &send),
             _ => self.inspecting.picker_off(),
         }
 
@@ -92,24 +94,31 @@ impl Page for Elements {
             .exact_size(30.0)
             .frame(components::side())
             .show(ui, |ui| match inspector {
-                Some(inspector) => self.inspecting.toolbar(ui, inspector, &view, &dispatch, &send),
+                Some(inspector) => self
+                    .inspecting
+                    .toolbar(ui, inspector, &view, &dispatch, &send),
                 None => self.inspecting.attach(ui, &sessions, session),
             });
 
-        if let Some(inspector) = inspector.filter(|inspector| !inspector.inspection.frames.is_empty()) {
+        if let Some(inspector) =
+            inspector.filter(|inspector| !inspector.inspection.frames.is_empty())
+        {
             egui::Panel::bottom("native-frames")
                 .resizable(true)
                 .size_range(120.0..=420.0)
                 .frame(components::side())
                 .show(ui, |ui| {
                     let inspection = &inspector.inspection;
-                    self.inspecting.frames(ui, &inspection.tree, &inspection.frames, &dispatch)
+                    self.inspecting
+                        .frames(ui, &inspection.tree, &inspection.frames, &dispatch)
                 });
         }
 
         let picked = self.picked.clone();
         let closed = match (&picked, inspector) {
-            (Some(Element::Native(handle)), Some(inspector)) if inspector.inspection.tree.get(*handle).is_some() => {
+            (Some(Element::Native(handle)), Some(inspector))
+                if inspector.inspection.tree.get(*handle).is_some() =>
+            {
                 self.inspecting.ask_for(*handle, &send);
                 let inspection = &inspector.inspection;
                 egui::Panel::right("native-properties")
@@ -134,14 +143,19 @@ impl Page for Elements {
                     });
                 false
             }
-            _ => match picked.as_ref().and_then(|element| elements::describe(session, element)) {
-                Some(details) => egui::Panel::right("element-details")
-                    .resizable(true)
-                    .size_range(280.0..=620.0)
-                    .default_size(400.0)
-                    .frame(components::side())
-                    .show(ui, |ui| show(ui, &details, editor))
-                    .inner,
+            _ => match picked
+                .as_ref()
+                .and_then(|element| elements::describe(session, element))
+            {
+                Some(details) => {
+                    egui::Panel::right("element-details")
+                        .resizable(true)
+                        .size_range(280.0..=620.0)
+                        .default_size(400.0)
+                        .frame(components::side())
+                        .show(ui, |ui| show(ui, &details, editor))
+                        .inner
+                }
                 None => false,
             },
         };
@@ -154,7 +168,11 @@ impl Page for Elements {
             .show(ui, |ui| {
                 tree::show(
                     ui,
-                    (session.id, session.revision, inspector.map(|inspector| inspector.revision)),
+                    (
+                        session.id,
+                        session.revision,
+                        inspector.map(|inspector| inspector.revision),
+                    ),
                     snapshot,
                     native,
                     picked.as_ref(),
@@ -203,32 +221,34 @@ fn show(ui: &mut egui::Ui, details: &Details, editor: Editor) -> bool {
 
     components::rule(ui);
 
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        components::block(ui, |ui| components::fields(ui, &details.rows));
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            components::block(ui, |ui| components::fields(ui, &details.rows));
 
-        if !details.handlers.is_empty() {
-            section(ui, "Handlers", |ui| {
-                for handler in &details.handlers {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(components::mono(&handler.message).strong());
+            if !details.handlers.is_empty() {
+                section(ui, "Handlers", |ui| {
+                    for handler in &details.handlers {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(components::mono(&handler.message).strong());
 
-                        if !handler.flows.is_empty() {
-                            ui.label(components::dim(format!("→ {}", handler.flows)));
-                        }
-                        if let Some(declared) = &handler.declared {
-                            source::link(ui, declared, editor);
-                        }
-                    });
-                }
-            });
-        }
+                            if !handler.flows.is_empty() {
+                                ui.label(components::dim(format!("→ {}", handler.flows)));
+                            }
+                            if let Some(declared) = &handler.declared {
+                                source::link(ui, declared, editor);
+                            }
+                        });
+                    }
+                });
+            }
 
-        if let Some(body) = &details.body {
-            section(ui, "State", |ui| {
-                ui.label(components::mono(body));
-            });
-        }
-    });
+            if let Some(body) = &details.body {
+                section(ui, "State", |ui| {
+                    ui.label(components::mono(body));
+                });
+            }
+        });
 
     closed
 }

@@ -16,12 +16,13 @@ use windows_core::{BSTR, IUnknown, Interface};
 
 use crate::bindings::{
     CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CUIAutomation, CoCreateInstance, CoInitializeEx,
-    GetCursorPos, GetSystemMetrics, HWND, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, IUIAutomation,
-    IUIAutomationElement, IUIAutomationInvokePattern, IUIAutomationTogglePattern,
-    IUIAutomationValuePattern, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, MOUSEEVENTF_ABSOLUTE,
-    MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT,
-    POINT, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
-    SendInput, SetForegroundWindow, VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0,
+    GetCursorPos, GetSystemMetrics, HWND, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE,
+    IUIAutomation, IUIAutomationElement, IUIAutomationInvokePattern, IUIAutomationTogglePattern,
+    IUIAutomationValuePattern, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MOVE,
+    MOUSEEVENTF_VIRTUALDESK, MOUSEINPUT, POINT, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SendInput, SetForegroundWindow, VARIANT, VARIANT_0,
+    VARIANT_0_0, VARIANT_0_0_0,
 };
 use crate::inspect::{self, Inspector};
 use crate::{tree, ui};
@@ -60,13 +61,15 @@ pub fn find(target: &Target) -> Result<(u64, Option<(Bounds, HWND)>), String> {
             None => None,
         };
 
-        let element = marked(inspector, under, &target.mark).nth(target.nth).ok_or_else(|| {
-            let count = marked(inspector, under, &target.mark).count();
-            format!(
-                "there is no element {} marked {:?} - {count} carry that mark",
-                target.nth, target.mark
-            )
-        })?;
+        let element = marked(inspector, under, &target.mark)
+            .nth(target.nth)
+            .ok_or_else(|| {
+                let count = marked(inspector, under, &target.mark).count();
+                format!(
+                    "there is no element {} marked {:?} - {count} carry that mark",
+                    target.nth, target.mark
+                )
+            })?;
 
         Ok((element, inspector.bounds(element)))
     })
@@ -131,7 +134,10 @@ fn aim(target: &Target) -> Result<(i32, i32), String> {
         placed.ok_or_else(|| format!("{:?} is not on the screen", target.mark))?;
 
     if bounds.width <= 0 || bounds.height <= 0 {
-        return Err(format!("{:?} has no size: collapsed, or not laid out", target.mark));
+        return Err(format!(
+            "{:?} has no size: collapsed, or not laid out",
+            target.mark
+        ));
     }
 
     let (x, y) = (bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);

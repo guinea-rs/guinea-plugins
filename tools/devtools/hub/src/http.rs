@@ -94,7 +94,10 @@ pub fn serve(hub: Arc<Hub>) -> io::Result<Access> {
     std::thread::Builder::new()
         .name("devtools-http".into())
         .spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
                 Ok(runtime) => runtime,
                 Err(error) => return tracing::error!(%error, "the API has no runtime"),
             };

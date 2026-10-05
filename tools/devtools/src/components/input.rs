@@ -19,7 +19,11 @@ pub fn search(ui: &mut egui::Ui, text: &mut String, hint: &str, width: f32) -> e
                 ui.spacing_mut().item_spacing.x = 6.0;
 
                 let size = ui.text_style_height(&egui::TextStyle::Body);
-                ui.add(crate::icons::image(crate::icons::search(), size, theme::MUTED));
+                ui.add(crate::icons::image(
+                    crate::icons::search(),
+                    size,
+                    theme::MUTED,
+                ));
 
                 let edit = egui::TextEdit::singleline(text)
                     .frame(egui::Frame::NONE)

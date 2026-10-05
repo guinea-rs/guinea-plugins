@@ -29,6 +29,7 @@ impl Access {
 
     pub fn read() -> io::Result<Self> {
         let text = std::fs::read_to_string(path()?)?;
-        serde_json::from_str(&text).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        serde_json::from_str(&text)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
 }

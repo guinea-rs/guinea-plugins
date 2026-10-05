@@ -89,7 +89,8 @@ impl Tasks {
 
     /// What the actors in `actors` are waiting on, together.
     pub fn of_actors<'a>(&'a self, actors: &'a [u64]) -> impl Iterator<Item = &'a Running> {
-        self.iter().filter(move |task| actors.contains(&task.actor_id))
+        self.iter()
+            .filter(move |task| actors.contains(&task.actor_id))
     }
 }
 

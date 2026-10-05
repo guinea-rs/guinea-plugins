@@ -151,7 +151,13 @@ impl Level {
         }
     }
 
-    pub const ALL: [Level; 5] = [Level::Error, Level::Warn, Level::Info, Level::Debug, Level::Trace];
+    pub const ALL: [Level; 5] = [
+        Level::Error,
+        Level::Warn,
+        Level::Info,
+        Level::Debug,
+        Level::Trace,
+    ];
 
     /// Lowercase, as a stream names it: `warn`.
     pub fn name(self) -> &'static str {
@@ -242,35 +248,75 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
     let said = tone(point);
     let text = |text: String| Word::new(text, said.clone());
     let name = Tone::Plain;
-    let actor = |full: &str| Word::link(&type_name(full), name.clone(), Target::Actor(full.to_string()));
-    let message =
-        |full: &str| Word::link(&type_name(full), name.clone(), Target::Records(full.to_string()));
+    let actor = |full: &str| {
+        Word::link(
+            &type_name(full),
+            name.clone(),
+            Target::Actor(full.to_string()),
+        )
+    };
+    let message = |full: &str| {
+        Word::link(
+            &type_name(full),
+            name.clone(),
+            Target::Records(full.to_string()),
+        )
+    };
 
     match point {
         TracePoint::Action { message: m } => vec![text("action ".into()), message(m)],
-        TracePoint::Send { actor: a, message: m } => {
-            vec![text("send ".into()), message(m), text(" to ".into()), actor(a)]
+        TracePoint::Send {
+            actor: a,
+            message: m,
+        } => {
+            vec![
+                text("send ".into()),
+                message(m),
+                text(" to ".into()),
+                actor(a),
+            ]
         }
-        TracePoint::Handle { actor: a, message: m } => {
+        TracePoint::Handle {
+            actor: a,
+            message: m,
+        } => {
             vec![actor(a), text(" handles ".into()), message(m)]
         }
-        TracePoint::Spawn { actor: a, output, .. } => {
+        TracePoint::Spawn {
+            actor: a, output, ..
+        } => {
             vec![actor(a), text(" starts work for ".into()), message(output)]
         }
         // How long it took is the row's own column, not part of what the row
         // says: a sentence carrying a number that changes every time is a
         // different sentence every time, and what groups records by shape
         // groups by the sentence.
-        TracePoint::Settled { actor: a, output, .. } => {
+        TracePoint::Settled {
+            actor: a, output, ..
+        } => {
             vec![actor(a), text(" has its ".into()), message(output)]
         }
-        TracePoint::Cancelled { actor: a, output, .. } => {
-            vec![actor(a), text(" is gone without its ".into()), message(output)]
+        TracePoint::Cancelled {
+            actor: a, output, ..
+        } => {
+            vec![
+                actor(a),
+                text(" is gone without its ".into()),
+                message(output),
+            ]
         }
-        TracePoint::Source { actor: a, output, .. } => {
-            vec![actor(a), text(" opens a source of ".into()), message(output)]
+        TracePoint::Source {
+            actor: a, output, ..
+        } => {
+            vec![
+                actor(a),
+                text(" opens a source of ".into()),
+                message(output),
+            ]
         }
-        TracePoint::Arrived { actor: a, output, .. } => vec![
+        TracePoint::Arrived {
+            actor: a, output, ..
+        } => vec![
             Word::link(
                 &type_name(output),
                 name.clone(),
@@ -279,7 +325,9 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
             text(" arrives at ".into()),
             actor(a),
         ],
-        TracePoint::Pull { actor: a, output, .. } => vec![
+        TracePoint::Pull {
+            actor: a, output, ..
+        } => vec![
             actor(a),
             text("'s source makes the next ".into()),
             Word::link(
@@ -378,7 +426,10 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
             fields,
             ..
         } => {
-            let mut said = vec![text("span ".into()), Word::new(spanned.clone(), Tone::Plain)];
+            let mut said = vec![
+                text("span ".into()),
+                Word::new(spanned.clone(), Tone::Plain),
+            ];
             if !fields.is_empty() {
                 said.push(Word::new(format!(" {fields}"), Tone::Muted));
             }
@@ -394,7 +445,9 @@ pub fn searchable(point: &TracePoint, timers: &Timers) -> String {
     sentence(point, timers)
         .iter()
         .map(|word| match &word.link {
-            Some(Target::Actor(full) | Target::Reducer(full) | Target::Records(full)) => full.as_str(),
+            Some(Target::Actor(full) | Target::Reducer(full) | Target::Records(full)) => {
+                full.as_str()
+            }
             _ => word.text.as_str(),
         })
         .collect()
@@ -481,7 +534,10 @@ mod tests {
             actor_id: 3,
             output: output.into(),
         };
-        assert_eq!(gist(&opened, &timers), "Watcher<Win> opens a source of Changed");
+        assert_eq!(
+            gist(&opened, &timers),
+            "Watcher<Win> opens a source of Changed"
+        );
 
         let arrived = TracePoint::Arrived {
             actor: actor.into(),
@@ -529,7 +585,10 @@ mod tests {
             level: String::new(),
         };
 
-        assert_eq!(text(&sentence(&span("rows=12"), &timers)), "span rows_from_report rows=12");
+        assert_eq!(
+            text(&sentence(&span("rows=12"), &timers)),
+            "span rows_from_report rows=12"
+        );
         assert_eq!(text(&sentence(&span(""), &timers)), "span rows_from_report");
         assert_eq!(Kind::of(&span("")).name(), span("").kind());
     }
@@ -552,7 +611,11 @@ mod tests {
 
         assert_eq!(Level::of(&log), Some(Level::Error));
         assert_eq!(Level::of(&span("DEBUG")), Some(Level::Debug));
-        assert_eq!(Level::of(&span("")), Some(Level::Info), "a span that did not say");
+        assert_eq!(
+            Level::of(&span("")),
+            Some(Level::Info),
+            "a span that did not say"
+        );
         assert_eq!(Level::of(&TracePoint::Tick { timer: None }), None);
         assert_eq!(Level::parse("warn"), Some(Level::Warn));
         assert_eq!(Level::parse("loud"), None);

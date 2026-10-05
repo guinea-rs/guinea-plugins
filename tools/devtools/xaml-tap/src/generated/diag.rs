@@ -146,7 +146,12 @@ pub unsafe trait IVisualTreeService: IUnknown {
         property_count: *mut u32,
         values: *mut *mut PropertyChainValue,
     ) -> HRESULT;
-    pub fn SetProperty(&self, handle: InstanceHandle, value: InstanceHandle, property: u32) -> HRESULT;
+    pub fn SetProperty(
+        &self,
+        handle: InstanceHandle,
+        value: InstanceHandle,
+        property: u32,
+    ) -> HRESULT;
 }
 
 #[interface("18C9E2B6-3F43-4116-9F2B-FF935D7770D2")]
@@ -154,8 +159,16 @@ pub unsafe trait IXamlDiagnostics: IUnknown {
     fn GetDispatcher(&self, dispatcher: *mut *mut c_void) -> HRESULT;
     fn GetUiLayer(&self, layer: *mut *mut c_void) -> HRESULT;
     fn GetApplication(&self, application: *mut *mut c_void) -> HRESULT;
-    pub fn GetIInspectableFromHandle(&self, handle: InstanceHandle, instance: *mut *mut c_void) -> HRESULT;
-    fn GetHandleFromIInspectable(&self, instance: *mut c_void, handle: *mut InstanceHandle) -> HRESULT;
+    pub fn GetIInspectableFromHandle(
+        &self,
+        handle: InstanceHandle,
+        instance: *mut *mut c_void,
+    ) -> HRESULT;
+    fn GetHandleFromIInspectable(
+        &self,
+        instance: *mut c_void,
+        handle: *mut InstanceHandle,
+    ) -> HRESULT;
 }
 
 #[interface("523A35EE-EB38-4AE6-A3E1-5B7D0D547BD0")]

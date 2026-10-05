@@ -23,9 +23,9 @@ use crate::components;
 use crate::components::source;
 use crate::features::editor::contracts::{Editor, EditorChoice};
 use crate::features::focus::contracts::{Focus, Show};
+use crate::features::sessions::contracts::Live;
 use crate::features::trace::TraceFeature;
 use crate::features::trace::contracts::{Filter, Freeze, OpenStream, Select, TraceState};
-use crate::features::sessions::contracts::Live;
 use crate::routes::Route;
 use crate::theme;
 
@@ -62,7 +62,9 @@ impl Page for Traces {
             egui::Panel::top("trace-tools")
                 .resizable(false)
                 .frame(components::bare(ui))
-                .show(ui, |ui| toolbar(ui, &view, &dispatch, log.len(), log.dropped, records));
+                .show(ui, |ui| {
+                    toolbar(ui, &view, &dispatch, log.len(), log.dropped, records)
+                });
 
             egui::Panel::left("trace-streams")
                 .resizable(true)
@@ -87,27 +89,31 @@ impl Page for Traces {
             } else {
                 view.selected
                     .and_then(|id| trace::record(session.reading(), id, &query))
-                    .is_some_and(|record| side(ui, &mut |ui| detail(ui, &record, editor.0, &mut go)))
+                    .is_some_and(|record| {
+                        side(ui, &mut |ui| detail(ui, &record, editor.0, &mut go))
+                    })
             };
             if closed {
                 go = Some(Go::Close);
             }
 
-            egui::CentralPanel::default().frame(components::bare(ui)).show(ui, |ui| {
-                if records {
-                    components::block(ui, |ui| list(ui, session, &view, &query, &mut go));
-                } else {
-                    streams::stream(
-                        ui,
-                        session,
-                        &view.stream,
-                        &view.query,
-                        view.selected,
-                        editor.0,
-                        &mut go,
-                    );
-                }
-            });
+            egui::CentralPanel::default()
+                .frame(components::bare(ui))
+                .show(ui, |ui| {
+                    if records {
+                        components::block(ui, |ui| list(ui, session, &view, &query, &mut go));
+                    } else {
+                        streams::stream(
+                            ui,
+                            session,
+                            &view.stream,
+                            &view.query,
+                            view.selected,
+                            editor.0,
+                            &mut go,
+                        );
+                    }
+                });
 
             log.len()
         };
@@ -157,11 +163,25 @@ fn jump_id() -> egui::Id {
     egui::Id::new("trace-jump")
 }
 
-fn toolbar(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize, dropped: u64, records: bool) {
+fn toolbar(
+    ui: &mut egui::Ui,
+    view: &TraceState,
+    dispatch: &Dispatch,
+    kept: usize,
+    dropped: u64,
+    records: bool,
+) {
     components::block(ui, |ui| tools(ui, view, dispatch, kept, dropped, records));
 }
 
-fn tools(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize, dropped: u64, records: bool) {
+fn tools(
+    ui: &mut egui::Ui,
+    view: &TraceState,
+    dispatch: &Dispatch,
+    kept: usize,
+    dropped: u64,
+    records: bool,
+) {
     ui.horizontal_wrapped(|ui| {
         let mut query = view.query.clone();
         if components::search(ui, &mut query, "filter", 220.0).changed() {
@@ -194,13 +214,22 @@ fn tools(ui: &mut egui::Ui, view: &TraceState, dispatch: &Dispatch, kept: usize,
 /// Every record the query lets through, one per line. A class unfiltered is
 /// the session's own list, kept as the trace arrives; filtered or frozen,
 /// the page keeps one of its own.
-fn list(ui: &mut egui::Ui, session: &Session, view: &TraceState, query: &Query, go: &mut Option<Go>) {
+fn list(
+    ui: &mut egui::Ui,
+    session: &Session,
+    view: &TraceState,
+    query: &Query,
+    go: &mut Option<Go>,
+) {
     let log = &session.trace;
     let reading = session.reading();
 
     let kept: Arc<Mutex<Shown>> = ui.data_mut(|data| {
-        data.get_temp_mut_or_default::<Arc<Mutex<Shown>>>(egui::Id::new(("trace-shown", session.id)))
-            .clone()
+        data.get_temp_mut_or_default::<Arc<Mutex<Shown>>>(egui::Id::new((
+            "trace-shown",
+            session.id,
+        )))
+        .clone()
     });
     let mut own = kept.lock().unwrap_or_else(PoisonError::into_inner);
     let unfiltered = query.text.is_empty() && query.upto.is_none();
@@ -240,7 +269,14 @@ fn list(ui: &mut egui::Ui, session: &Session, view: &TraceState, query: &Query, 
 
         for span in shown.spans(log, range) {
             let line = Line::own(ui, &trace::row(reading, span));
-            row(ui, height, view.selected == Some(span.id), go, Go::Select(span.id), line);
+            row(
+                ui,
+                height,
+                view.selected == Some(span.id),
+                go,
+                Go::Select(span.id),
+                line,
+            );
         }
     });
 }
@@ -268,28 +304,30 @@ fn detail(ui: &mut egui::Ui, record: &Record, editor: Editor, go: &mut Option<Go
 
     let height = row_height(ui);
 
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        components::heading(ui, "Where it came from");
-        components::block(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            origins(ui, &record.origins, record.row.id, height, go);
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            components::heading(ui, "Where it came from");
+            components::block(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                origins(ui, &record.origins, record.row.id, height, go);
+            });
+
+            components::heading(ui, "What it set off");
+            components::block(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+
+                if record.set_off.is_empty() {
+                    ui.label(components::dim("nothing observed"));
+                }
+
+                consequences(ui, &record.set_off, height, go);
+
+                if record.cut {
+                    ui.label(components::dim("… more than devtools draw at once"));
+                }
+            });
         });
-
-        components::heading(ui, "What it set off");
-        components::block(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-
-            if record.set_off.is_empty() {
-                ui.label(components::dim("nothing observed"));
-            }
-
-            consequences(ui, &record.set_off, height, go);
-
-            if record.cut {
-                ui.label(components::dim("… more than devtools draw at once"));
-            }
-        });
-    });
 
     closed
 }
@@ -328,28 +366,30 @@ fn about_panel(ui: &mut egui::Ui, about: &About, editor: Editor) -> bool {
 
     let height = row_height(ui);
 
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        components::heading(ui, "Ran in");
-        components::block(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            ran_in(ui, about, height);
-        });
-
-        if !about.inside.is_empty() || about.row.took.is_some() {
-            components::heading(ui, "Inside it");
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            components::heading(ui, "Ran in");
             components::block(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-
-                if about.inside.is_empty() {
-                    ui.label(components::dim("nothing devtools saw"));
-                }
-                inside(ui, &about.inside, height);
-                if about.inside_cut {
-                    ui.label(components::dim("… more than devtools draw at once"));
-                }
+                ran_in(ui, about, height);
             });
-        }
-    });
+
+            if !about.inside.is_empty() || about.row.took.is_some() {
+                components::heading(ui, "Inside it");
+                components::block(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+
+                    if about.inside.is_empty() {
+                        ui.label(components::dim("nothing devtools saw"));
+                    }
+                    inside(ui, &about.inside, height);
+                    if about.inside_cut {
+                        ui.label(components::dim("… more than devtools draw at once"));
+                    }
+                });
+            }
+        });
 
     closed
 }
@@ -424,7 +464,14 @@ fn origins(ui: &mut egui::Ui, origins: &Origins, selected: u64, height: f32, go:
         line.indent(depth as f32 * 12.0);
         line.weak(if at == 0 { "  " } else { "└ " });
         line.words(&step.row.words);
-        row(ui, height, step.row.id == selected, go, Go::Record(step.row.id), line);
+        row(
+            ui,
+            height,
+            step.row.id == selected,
+            go,
+            Go::Record(step.row.id),
+            line,
+        );
 
         let indent = (depth + 1) as f32 * 12.0 + 12.0;
         for between in &step.between {
@@ -442,7 +489,10 @@ fn origins(ui: &mut egui::Ui, origins: &Origins, selected: u64, height: f32, go:
         if step.more > 0 {
             ui.horizontal(|ui| {
                 ui.add_space(indent);
-                ui.label(components::dim(format!("… and {} more in between", step.more)));
+                ui.label(components::dim(format!(
+                    "… and {} more in between",
+                    step.more
+                )));
             });
         }
     }

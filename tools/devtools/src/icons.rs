@@ -14,7 +14,11 @@ pub fn once(ctx: &egui::Context) {
 }
 
 /// An icon the size of a line of text, in `color`.
-pub fn image(source: ImageSource<'static>, size: f32, color: egui::Color32) -> egui::Image<'static> {
+pub fn image(
+    source: ImageSource<'static>,
+    size: f32,
+    color: egui::Color32,
+) -> egui::Image<'static> {
     egui::Image::new(source)
         .fit_to_exact_size(egui::vec2(size, size))
         .tint(color)

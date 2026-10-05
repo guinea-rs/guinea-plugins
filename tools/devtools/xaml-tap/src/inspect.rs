@@ -7,12 +7,13 @@ use guinea_devtools_protocol::native::{Bounds, Enumeration, Property};
 use windows_core::{BSTR, IInspectable, Interface};
 
 use crate::bindings::{
-    AutomationProperties, ClientToScreen, CoTaskMemFree, DependencyObject, GetDpiForWindow, HWND, POINT, Point,
-    ScreenToClient, UIElement,
+    AutomationProperties, ClientToScreen, CoTaskMemFree, DependencyObject, GetDpiForWindow, HWND,
+    POINT, Point, ScreenToClient, UIElement,
 };
 use crate::diag::{
-    EnumType, IS_PROPERTY_READ_ONLY, IS_VALUE_BINDING_EXPRESSION, IS_VALUE_HANDLE, IVisualTreeService, IXamlDiagnostics,
-    IXamlDiagnostics2, InstanceHandle, PropertyChainSource, PropertyChainValue, RECT, SafeArray, free_safe_array, text,
+    EnumType, IS_PROPERTY_READ_ONLY, IS_VALUE_BINDING_EXPRESSION, IS_VALUE_HANDLE,
+    IVisualTreeService, IXamlDiagnostics, IXamlDiagnostics2, InstanceHandle, PropertyChainSource,
+    PropertyChainValue, RECT, SafeArray, free_safe_array, text,
 };
 use crate::{tree, ui};
 
@@ -112,7 +113,8 @@ impl Inspector {
         let mut properties = self.chain(element)?;
 
         for property in &mut properties {
-            let brush = property.object && property.value_type.ends_with("Brush") && property.value != "0";
+            let brush =
+                property.object && property.value_type.ends_with("Brush") && property.value != "0";
             if let Some(handle) = brush.then(|| property.value.parse().ok()).flatten() {
                 property.color = self.winning(handle, "Color");
             }
@@ -148,7 +150,11 @@ impl Inspector {
                 let names = unsafe { safe_array::<*const u16>(kind.value_strings) };
                 Enumeration {
                     name: text(kind.name),
-                    values: ints.iter().zip(names).map(|(&value, &name)| (value, text(name))).collect(),
+                    values: ints
+                        .iter()
+                        .zip(names)
+                        .map(|(&value, &name)| (value, text(name)))
+                        .collect(),
                 }
             })
             .collect();
@@ -175,7 +181,13 @@ impl Inspector {
 
         unsafe {
             self.service
-                .GetPropertyValuesChain(element, &mut source_count, &mut sources, &mut value_count, &mut values)
+                .GetPropertyValuesChain(
+                    element,
+                    &mut source_count,
+                    &mut sources,
+                    &mut value_count,
+                    &mut values,
+                )
                 .ok()
                 .map_err(|error| format!("reading the properties: {error}"))?;
         }
@@ -204,12 +216,24 @@ impl Inspector {
             .collect();
 
         for source in chain {
-            for bstr in [source.target_type, source.name, source.source_info.file_name, source.source_info.hash] {
+            for bstr in [
+                source.target_type,
+                source.name,
+                source.source_info.file_name,
+                source.source_info.hash,
+            ] {
                 free(bstr);
             }
         }
         for value in read {
-            for bstr in [value.kind, value.declaring_type, value.value_type, value.item_type, value.value, value.property_name] {
+            for bstr in [
+                value.kind,
+                value.declaring_type,
+                value.value_type,
+                value.item_type,
+                value.value,
+                value.property_name,
+            ] {
                 free(bstr);
             }
         }
@@ -290,7 +314,12 @@ impl Inspector {
     /// The mark `element` carries - its `AutomationId` - when it has one.
     pub fn mark(&self, element: InstanceHandle) -> Option<String> {
         let mut raw = std::ptr::null_mut();
-        unsafe { self.diagnostics.GetIInspectableFromHandle(element, &mut raw).ok().ok()? };
+        unsafe {
+            self.diagnostics
+                .GetIInspectableFromHandle(element, &mut raw)
+                .ok()
+                .ok()?
+        };
         let inspectable = unsafe { IInspectable::from_raw(raw) };
         let object: DependencyObject = inspectable.cast().ok()?;
 
@@ -320,7 +349,12 @@ impl Inspector {
 
     fn bounds_in(&self, element: InstanceHandle, window: HWND) -> Option<Bounds> {
         let mut raw = std::ptr::null_mut();
-        unsafe { self.diagnostics.GetIInspectableFromHandle(element, &mut raw).ok().ok()? };
+        unsafe {
+            self.diagnostics
+                .GetIInspectableFromHandle(element, &mut raw)
+                .ok()
+                .ok()?
+        };
         let inspectable = unsafe { IInspectable::from_raw(raw) };
         let element: UIElement = inspectable.cast().ok()?;
 

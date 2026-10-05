@@ -34,7 +34,10 @@ pub fn answer(devtools: &Devtools, tools: &[Tool], request: Request) -> Option<V
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": listed(tools) })),
         "tools/call" => call(devtools, tools, &request.params),
-        other => Err(Refusal(Refusal::NO_METHOD, format!("no such method: {other}"))),
+        other => Err(Refusal(
+            Refusal::NO_METHOD,
+            format!("no such method: {other}"),
+        )),
     };
 
     Some(match answered {
@@ -64,8 +67,8 @@ fn initialize(params: &Value) -> Value {
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": NAME, "version": env!("CARGO_PKG_VERSION") },
         "instructions": "Looks inside a running guinea application: what it is made of, \
-what it did, and what its backend draws. `app` is an application's id as `list_apps` \
-gives it, or `latest` for the newest one still connected.",
+    what it did, and what its backend draws. `app` is an application's id as `list_apps` \
+    gives it, or `latest` for the newest one still connected.",
     })
 }
 
@@ -94,8 +97,14 @@ fn call(devtools: &Devtools, tools: &[Tool], params: &Value) -> Result<Value, Re
         .ok_or_else(|| Refusal(Refusal::BAD_PARAMS, format!("no such tool: {name}")))?;
 
     let empty = Map::new();
-    if params.get("arguments").is_some_and(|arguments| !arguments.is_object()) {
-        return Err(Refusal(Refusal::BAD_PARAMS, "arguments are an object".into()));
+    if params
+        .get("arguments")
+        .is_some_and(|arguments| !arguments.is_object())
+    {
+        return Err(Refusal(
+            Refusal::BAD_PARAMS,
+            "arguments are an object".into(),
+        ));
     }
     let arguments = params
         .get("arguments")

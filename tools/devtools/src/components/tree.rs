@@ -86,7 +86,12 @@ pub fn show(
 
             let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
             response.widget_info(|| {
-                egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, line.selected, galley.text())
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::SelectableLabel,
+                    true,
+                    line.selected,
+                    galley.text(),
+                )
             });
 
             let painter = ui.painter();
@@ -101,11 +106,15 @@ pub fn show(
                 painter.vline(x, rect.y_range(), Stroke::new(1.0, theme::DIVIDER));
             }
 
-            let cell = Rect::from_min_size(pos2(rect.left() + indent, rect.top()), vec2(STEP, height));
+            let cell =
+                Rect::from_min_size(pos2(rect.left() + indent, rect.top()), vec2(STEP, height));
             let mut on_arrow = false;
             if line.branch {
                 arrow(painter, cell, line.open);
-                if ui.interact(cell, ui.id().with(("arrow", index)), Sense::click()).clicked() {
+                if ui
+                    .interact(cell, ui.id().with(("arrow", index)), Sense::click())
+                    .clicked()
+                {
                     on_arrow = true;
                     answer.toggled = Some(index);
                 }

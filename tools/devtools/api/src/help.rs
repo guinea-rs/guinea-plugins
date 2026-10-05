@@ -80,7 +80,9 @@ fn operations(document: &OpenApi) -> Vec<(String, HttpMethod, &Operation)> {
             ]
             .into_iter()
             .filter_map(move |(method, operation)| {
-                operation.as_ref().map(|operation| (path.clone(), method, operation))
+                operation
+                    .as_ref()
+                    .map(|operation| (path.clone(), method, operation))
             })
         })
         .collect()
@@ -232,4 +234,3 @@ mod tests {
         println!("{printed}");
     }
 }
-

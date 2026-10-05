@@ -21,7 +21,9 @@ impl Page for Home {
         let (live, _) = cx.read::<Live>();
         let ui = cx.ui();
         let listening = live.read().listening.describe();
-        let cycle = self.cycle.get_or_insert_with(|| components::run_cycle(ui.ctx()));
+        let cycle = self
+            .cycle
+            .get_or_insert_with(|| components::run_cycle(ui.ctx()));
 
         ui.vertical_centered(|ui| {
             ui.add_space(ui.available_height() / 3.0);

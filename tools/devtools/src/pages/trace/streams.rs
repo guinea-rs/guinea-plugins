@@ -33,55 +33,88 @@ fn section_title(section: Section) -> &'static str {
 
 /// The streams, by section.
 pub fn rail(ui: &mut egui::Ui, session: &Session, current: &Stream, go: &mut Option<Go>) {
-    let lines = components::memo(ui.ctx(), egui::Id::new(("streams", session.id)), session.revision, || {
-        chains::streams(&session.chains, session.reading())
-    });
+    let lines = components::memo(
+        ui.ctx(),
+        egui::Id::new(("streams", session.id)),
+        session.revision,
+        || chains::streams(&session.chains, session.reading()),
+    );
     let chains: usize = lines.iter().map(|line| line.chains).sum();
     let height = row_height(ui);
 
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 0.0;
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
 
-        let reading = session.reading();
-        let counted = |stream: &Stream| stream.class().map_or(0, |class| session.classes.count(class));
+            let reading = session.reading();
+            let counted = |stream: &Stream| {
+                stream
+                    .class()
+                    .map_or(0, |class| session.classes.count(class))
+            };
 
-        components::block(ui, |ui| {
-            entry(ui, height, current, &Stream::All, "Everything", chains, go);
-            entry(ui, height, current, &Stream::Records, "Records", counted(&Stream::Records), go);
-        });
-
-        components::heading(ui, "Levels");
-        components::block(ui, |ui| {
-            for level in Level::ALL {
-                let stream = Stream::Level(level);
-                let title = chains::title(&session.chains, reading, &stream);
-                entry(ui, height, current, &stream, &title, counted(&stream), go);
-            }
-        });
-
-        components::heading(ui, "Performance");
-        components::block(ui, |ui| {
-            let title = chains::title(&session.chains, reading, &Stream::Slow);
-            entry(ui, height, current, &Stream::Slow, &title, counted(&Stream::Slow), go);
-        });
-
-        let mut sections: Vec<(Section, Vec<&StreamLine>)> = Vec::new();
-        for line in lines.iter() {
-            match sections.last_mut() {
-                Some((section, members)) if *section == line.section => members.push(line),
-                _ => sections.push((line.section, vec![line])),
-            }
-        }
-
-        for (section, members) in sections {
-            components::heading(ui, section_title(section));
             components::block(ui, |ui| {
-                for line in members {
-                    entry(ui, height, current, &line.stream, &line.title, line.chains, go);
+                entry(ui, height, current, &Stream::All, "Everything", chains, go);
+                entry(
+                    ui,
+                    height,
+                    current,
+                    &Stream::Records,
+                    "Records",
+                    counted(&Stream::Records),
+                    go,
+                );
+            });
+
+            components::heading(ui, "Levels");
+            components::block(ui, |ui| {
+                for level in Level::ALL {
+                    let stream = Stream::Level(level);
+                    let title = chains::title(&session.chains, reading, &stream);
+                    entry(ui, height, current, &stream, &title, counted(&stream), go);
                 }
             });
-        }
-    });
+
+            components::heading(ui, "Performance");
+            components::block(ui, |ui| {
+                let title = chains::title(&session.chains, reading, &Stream::Slow);
+                entry(
+                    ui,
+                    height,
+                    current,
+                    &Stream::Slow,
+                    &title,
+                    counted(&Stream::Slow),
+                    go,
+                );
+            });
+
+            let mut sections: Vec<(Section, Vec<&StreamLine>)> = Vec::new();
+            for line in lines.iter() {
+                match sections.last_mut() {
+                    Some((section, members)) if *section == line.section => members.push(line),
+                    _ => sections.push((line.section, vec![line])),
+                }
+            }
+
+            for (section, members) in sections {
+                components::heading(ui, section_title(section));
+                components::block(ui, |ui| {
+                    for line in members {
+                        entry(
+                            ui,
+                            height,
+                            current,
+                            &line.stream,
+                            &line.title,
+                            line.chains,
+                            go,
+                        );
+                    }
+                });
+            }
+        });
 }
 
 /// One stream in the list: its title, and how many it holds on the right.
@@ -112,13 +145,18 @@ fn entry(
         None
     };
     if let Some(fill) = fill {
-        ui.painter().rect_filled(rect, egui::CornerRadius::same(3), fill);
+        ui.painter()
+            .rect_filled(rect, egui::CornerRadius::same(3), fill);
     }
 
     let font = egui::TextStyle::Body.resolve(ui.style());
     let inner = rect.shrink2(egui::vec2(6.0, 0.0));
     let glyph = font.size;
-    let tint = if on { visuals.strong_text_color() } else { visuals.weak_text_color() };
+    let tint = if on {
+        visuals.strong_text_color()
+    } else {
+        visuals.weak_text_color()
+    };
 
     let icon = egui::Rect::from_min_size(
         egui::pos2(inner.left(), inner.center().y - glyph / 2.0),
@@ -127,17 +165,26 @@ fn entry(
     icons::image(icons::stream(stream), glyph, tint).paint_at(ui, icon);
 
     let text_left = icon.right() + 6.0;
-    let number = ui.painter().layout_no_wrap(count.to_string(), font.clone(), visuals.weak_text_color());
+    let number =
+        ui.painter()
+            .layout_no_wrap(count.to_string(), font.clone(), visuals.weak_text_color());
     let room = (inner.right() - text_left - number.size().x - 8.0).max(0.0);
 
-    let mut job = egui::text::LayoutJob::simple_singleline(title.to_string(), font, visuals.text_color());
+    let mut job =
+        egui::text::LayoutJob::simple_singleline(title.to_string(), font, visuals.text_color());
     job.wrap = egui::text::TextWrapping::truncate_at_width(room);
     let label = ui.painter().layout_job(job);
 
-    ui.painter()
-        .galley(egui::pos2(text_left, inner.center().y - label.size().y / 2.0), label, visuals.text_color());
     ui.painter().galley(
-        egui::pos2(inner.right() - number.size().x, inner.center().y - number.size().y / 2.0),
+        egui::pos2(text_left, inner.center().y - label.size().y / 2.0),
+        label,
+        visuals.text_color(),
+    );
+    ui.painter().galley(
+        egui::pos2(
+            inner.right() - number.size().x,
+            inner.center().y - number.size().y / 2.0,
+        ),
         number,
         visuals.weak_text_color(),
     );
@@ -175,23 +222,25 @@ pub fn stream(
     components::heading(ui, "Chains");
 
     let height = row_height(ui);
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        components::block(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, |ui| {
+            components::block(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
 
-            if view.groups.is_empty() {
-                ui.label(components::dim(if text.is_empty() {
-                    "nothing started here yet"
-                } else {
-                    "no chain says that"
-                }));
-            }
+                if view.groups.is_empty() {
+                    ui.label(components::dim(if text.is_empty() {
+                        "nothing started here yet"
+                    } else {
+                        "no chain says that"
+                    }));
+                }
 
-            for group in &view.groups {
-                chain(ui, height, group, open.contains(&group.key), selected, go);
-            }
+                for group in &view.groups {
+                    chain(ui, height, group, open.contains(&group.key), selected, go);
+                }
+            });
         });
-    });
 }
 
 fn chain(
@@ -229,9 +278,19 @@ fn chain(
         let mut line = Line::new(ui);
         line.indent(36.0);
         line.weak(&format!("{}  ", run.time));
-        line.text(run.took.as_deref().unwrap_or("–"), ui.visuals().text_color());
+        line.text(
+            run.took.as_deref().unwrap_or("–"),
+            ui.visuals().text_color(),
+        );
 
-        row(ui, height, selected == Some(run.root), go, Go::Select(run.root), line);
+        row(
+            ui,
+            height,
+            selected == Some(run.root),
+            go,
+            Go::Select(run.root),
+            line,
+        );
     }
 
     let older = group.count.saturating_sub(group.runs.len());
@@ -247,7 +306,11 @@ fn timer_head(ui: &mut egui::Ui, timer: &TimerView, editor: Editor) {
     components::block(ui, |ui| {
         ui.horizontal(|ui| {
             let size = ui.text_style_height(&egui::TextStyle::Heading);
-            ui.add(icons::image(guicons::icon!(timer), size, ui.visuals().weak_text_color()));
+            ui.add(icons::image(
+                guicons::icon!(timer),
+                size,
+                ui.visuals().weak_text_color(),
+            ));
             ui.heading(&timer.title);
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -288,7 +351,8 @@ fn chart(ui: &mut egui::Ui, recent: &[u64]) {
         return;
     }
 
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::hover());
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::hover());
     let most = recent.iter().copied().max().unwrap_or(1).max(1);
     let step = (rect.width() / chains::TICKS_DRAWN as f32).min(8.0);
 
@@ -299,7 +363,11 @@ fn chart(ui: &mut egui::Ui, recent: &[u64]) {
             egui::pos2(left, rect.bottom() - height),
             egui::pos2(left + step - 2.0, rect.bottom()),
         );
-        let color = if *took == most { theme::ACCENT } else { theme::SCROLL };
+        let color = if *took == most {
+            theme::ACCENT
+        } else {
+            theme::SCROLL
+        };
 
         ui.painter().rect_filled(bar, 0, color);
     }

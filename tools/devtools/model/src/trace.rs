@@ -156,7 +156,11 @@ pub fn shown<'a>(reading: Reading<'a>, query: &Query) -> Vec<&'a Span> {
     let mut shown = Shown::default();
     shown.refresh(reading, query);
 
-    shown.ids.iter().filter_map(|id| reading.log.get(*id)).collect()
+    shown
+        .ids
+        .iter()
+        .filter_map(|id| reading.log.get(*id))
+        .collect()
 }
 
 /// The records a query lets through, kept by id and brought up to date by
@@ -300,7 +304,9 @@ impl Classes {
     /// Takes in what arrived and what ended since the last time.
     pub fn absorb(&mut self, reading: Reading) {
         if self.lists.is_empty() {
-            self.lists = Classes::offered().map(|class| (class, Shown::default())).collect();
+            self.lists = Classes::offered()
+                .map(|class| (class, Shown::default()))
+                .collect();
         }
 
         for (class, shown) in &mut self.lists {
@@ -330,7 +336,11 @@ impl Classes {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cause", rename_all = "snake_case")]
 pub enum Cause {
-    Known { id: u64, gist: String, tone: Tone },
+    Known {
+        id: u64,
+        gist: String,
+        tone: Tone,
+    },
     /// Older than what devtools kept.
     Forgotten,
 }
@@ -403,7 +413,9 @@ pub fn origins(reading: Reading, span: &Span, query: &Query) -> Origins {
     let log = reading.log;
     let (chain, cut) = log.provenance(span.id, CHAIN_LIMIT);
     let note = if cut {
-        Some(format!("the {CHAIN_LIMIT} nearest causes; the chain goes back further"))
+        Some(format!(
+            "the {CHAIN_LIMIT} nearest causes; the chain goes back further"
+        ))
     } else if chain.len() <= 1 {
         Some(if span.parent.is_some() {
             "its cause is older than what devtools kept".to_string()
@@ -611,7 +623,9 @@ pub fn about(reading: Reading, id: u64) -> Option<About> {
     let inside = ran_inside(reading, span, span.id, 0, &mut walk);
 
     let (target, fields, written) = match &span.point {
-        TracePoint::Log { target, written, .. } => (Some(target.clone()), None, written.clone()),
+        TracePoint::Log {
+            target, written, ..
+        } => (Some(target.clone()), None, written.clone()),
         TracePoint::Span {
             target,
             fields,
@@ -641,7 +655,13 @@ pub fn about(reading: Reading, id: u64) -> Option<About> {
 /// What `from` set off while `outer` ran, as the tree of what is worth a
 /// line: the application's own records and work that took time. A mark in
 /// between - a send, a push - is passed through to what it set off.
-fn ran_inside(reading: Reading, outer: &Span, from: u64, depth: usize, walk: &mut Walk) -> Vec<Consequence> {
+fn ran_inside(
+    reading: Reading,
+    outer: &Span,
+    from: u64,
+    depth: usize,
+    walk: &mut Walk,
+) -> Vec<Consequence> {
     let mut out = Vec::new();
 
     for child in reading.log.children(from) {
@@ -694,10 +714,28 @@ mod tests {
         let mut log = TraceLog::default();
         log.absorb(TraceBatch {
             spans: vec![
-                span(1, None, TracePoint::Action { message: "a::Kill".into() }),
+                span(
+                    1,
+                    None,
+                    TracePoint::Action {
+                        message: "a::Kill".into(),
+                    },
+                ),
                 span(2, Some(1), TracePoint::Tick { timer: None }),
-                span(3, None, TracePoint::Note { text: "else".into() }),
-                span(4, Some(2), TracePoint::Push { reducer: "a::Tabs".into() }),
+                span(
+                    3,
+                    None,
+                    TracePoint::Note {
+                        text: "else".into(),
+                    },
+                ),
+                span(
+                    4,
+                    Some(2),
+                    TracePoint::Push {
+                        reducer: "a::Tabs".into(),
+                    },
+                ),
             ],
             ends: Vec::new(),
             dropped: 0,
@@ -716,12 +754,24 @@ mod tests {
         };
         let record = record(read(&log, &timers), 4, &query).expect("kept");
 
-        let steps: Vec<u64> = record.origins.steps.iter().map(|step| step.row.id).collect();
+        let steps: Vec<u64> = record
+            .origins
+            .steps
+            .iter()
+            .map(|step| step.row.id)
+            .collect();
         assert_eq!(steps, [1, 2, 4]);
 
-        let between: Vec<u64> = record.origins.steps[1].between.iter().map(|row| row.id).collect();
+        let between: Vec<u64> = record.origins.steps[1]
+            .between
+            .iter()
+            .map(|row| row.id)
+            .collect();
         assert_eq!(between, [3]);
-        assert!(record.origins.steps[0].between.is_empty(), "nothing between 1 and 2");
+        assert!(
+            record.origins.steps[0].between.is_empty(),
+            "nothing between 1 and 2"
+        );
     }
 
     /// `send X to A` followed by `A handles X` is one thing said twice, and
@@ -747,10 +797,22 @@ mod tests {
         let mut log = TraceLog::default();
         log.absorb(TraceBatch {
             spans: vec![
-                span(1, None, TracePoint::Action { message: "a::Kill".into() }),
+                span(
+                    1,
+                    None,
+                    TracePoint::Action {
+                        message: "a::Kill".into(),
+                    },
+                ),
                 span(2, Some(1), send("a::Worker", "a::Kill")),
                 span(3, Some(2), handle("a::Worker", "a::Kill")),
-                span(4, Some(3), TracePoint::Push { reducer: "a::Tabs".into() }),
+                span(
+                    4,
+                    Some(3),
+                    TracePoint::Push {
+                        reducer: "a::Tabs".into(),
+                    },
+                ),
                 // A send nobody handled: the actor was gone by then.
                 span(5, Some(3), send("a::Gone", "a::Later")),
             ],
@@ -770,7 +832,11 @@ mod tests {
             .iter()
             .map(|next| next.row.id)
             .collect();
-        assert_eq!(under, [4, 5], "what the handling set off hangs where the send was");
+        assert_eq!(
+            under,
+            [4, 5],
+            "what the handling set off hangs where the send was"
+        );
         assert_eq!(
             record.set_off[0].children[1].row.kind,
             Kind::Send,
@@ -779,10 +845,19 @@ mod tests {
 
         // And the same pair, read the other way, from the push.
         let pushed = super::record(read(&log, &timers), 4, &Query::default()).expect("kept");
-        let steps: Vec<u64> = pushed.origins.steps.iter().map(|step| step.row.id).collect();
+        let steps: Vec<u64> = pushed
+            .origins
+            .steps
+            .iter()
+            .map(|step| step.row.id)
+            .collect();
         assert_eq!(steps, [1, 3, 4], "the send is not a step of its own");
         assert!(
-            pushed.origins.steps.iter().all(|step| step.between.is_empty()),
+            pushed
+                .origins
+                .steps
+                .iter()
+                .all(|step| step.between.is_empty()),
             "and it does not come back as something that happened in between"
         );
     }
@@ -810,15 +885,26 @@ mod tests {
         let timers = Timers::default();
         let record = record(read(&log, &timers), 50_000, &Query::default()).expect("kept");
         assert_eq!(record.origins.steps.len(), CHAIN_LIMIT);
-        assert_eq!(record.origins.steps.last().map(|step| step.row.id), Some(50_000));
+        assert_eq!(
+            record.origins.steps.last().map(|step| step.row.id),
+            Some(50_000)
+        );
         assert!(record.origins.note.is_some(), "says the chain goes further");
 
         fn depth(set_off: &[Consequence]) -> usize {
-            set_off.iter().map(|next| 1 + depth(&next.children)).max().unwrap_or(0)
+            set_off
+                .iter()
+                .map(|next| 1 + depth(&next.children))
+                .max()
+                .unwrap_or(0)
         }
 
         let first = super::record(read(&log, &timers), 1, &Query::default()).expect("kept");
-        assert_eq!(depth(&first.set_off), DEPTH_LIMIT, "a loop does not nest past the limit");
+        assert_eq!(
+            depth(&first.set_off),
+            DEPTH_LIMIT,
+            "a loop does not nest past the limit"
+        );
         assert!(first.cut, "and says it went further");
     }
 
@@ -831,7 +917,10 @@ mod tests {
             ..Query::default()
         };
         let ids = |shown: &Shown, log: &TraceLog| -> Vec<u64> {
-            shown.spans(log, 0..shown.len()).map(|span| span.id).collect()
+            shown
+                .spans(log, 0..shown.len())
+                .map(|span| span.id)
+                .collect()
         };
 
         let mut shown = Shown::default();
@@ -844,7 +933,9 @@ mod tests {
                 parent: None,
                 at: 50,
                 took: None,
-                point: TracePoint::Note { text: "later".into() },
+                point: TracePoint::Note {
+                    text: "later".into(),
+                },
             }],
             ends: Vec::new(),
             dropped: 0,
@@ -881,10 +972,15 @@ mod tests {
             parent: None,
             at: id * 10,
             took: None,
-            point: TracePoint::Note { text: "later".into() },
+            point: TracePoint::Note {
+                text: "later".into(),
+            },
         };
         let ids = |shown: &Shown, log: &TraceLog| -> Vec<u64> {
-            shown.spans(log, 0..shown.len()).map(|span| span.id).collect()
+            shown
+                .spans(log, 0..shown.len())
+                .map(|span| span.id)
+                .collect()
         };
 
         let mut shown = Shown::default();
@@ -964,7 +1060,15 @@ mod tests {
         let mut log = TraceLog::default();
         log.absorb(TraceBatch {
             spans: vec![
-                at(1, None, 0, None, TracePoint::Action { message: "a::Kill".into() }),
+                at(
+                    1,
+                    None,
+                    0,
+                    None,
+                    TracePoint::Action {
+                        message: "a::Kill".into(),
+                    },
+                ),
                 at(2, Some(1), 10, Some(5), handle("a::Kill")),
                 at(3, Some(2), 11, None, logged("INFO")),
                 at(4, Some(2), 12, Some(2), spanned("DEBUG")),
@@ -979,7 +1083,11 @@ mod tests {
         let reading = read(&log, &timers);
 
         assert_eq!(ids(reading, &of(Class::Own)), [3, 4, 6, 7]);
-        assert_eq!(ids(reading, &of(Class::Level(Level::Info))), [3, 6], "a span that did not say is info");
+        assert_eq!(
+            ids(reading, &of(Class::Level(Level::Info))),
+            [3, 6],
+            "a span that did not say is info"
+        );
         assert_eq!(ids(reading, &of(Class::Level(Level::Debug))), [4]);
         assert_eq!(ids(reading, &of(Class::Level(Level::Warn))), [7]);
         assert_eq!(ids(reading, &of(Class::Every)).len(), 7);
@@ -992,21 +1100,39 @@ mod tests {
             spans: vec![
                 at(1, None, 0, Some(3_000), handle("a::Outer")),
                 at(2, Some(1), 100, Some(1_500), handle("a::Inner")),
-                at(3, Some(2), 200, None, TracePoint::Send {
-                    actor: "a::Worker".into(),
-                    message: "a::Later".into(),
-                }),
+                at(
+                    3,
+                    Some(2),
+                    200,
+                    None,
+                    TracePoint::Send {
+                        actor: "a::Worker".into(),
+                        message: "a::Later".into(),
+                    },
+                ),
                 at(4, Some(3), 5_000, Some(1_200), handle("a::Later")),
-                at(5, None, 6_000, None, TracePoint::Render {
-                    segment: "Processes".into(),
-                    took_us: 2_000,
-                }),
-                at(6, None, 6_500, None, TracePoint::Settled {
-                    actor: "a::Worker".into(),
-                    actor_id: 1,
-                    output: "a::Scan".into(),
-                    took_us: 90_000,
-                }),
+                at(
+                    5,
+                    None,
+                    6_000,
+                    None,
+                    TracePoint::Render {
+                        segment: "Processes".into(),
+                        took_us: 2_000,
+                    },
+                ),
+                at(
+                    6,
+                    None,
+                    6_500,
+                    None,
+                    TracePoint::Settled {
+                        actor: "a::Worker".into(),
+                        actor_id: 1,
+                        output: "a::Scan".into(),
+                        took_us: 90_000,
+                    },
+                ),
                 at(7, None, 7_000, Some(5_000), spanned("INFO")),
                 at(8, None, 9_000, Some(900), handle("a::Quick")),
             ],
@@ -1027,11 +1153,17 @@ mod tests {
         let mut log = TraceLog::default();
         log.absorb(TraceBatch {
             spans: vec![
-                at(1, None, 0, None, TracePoint::Publish {
-                    event: "a::Changed".into(),
-                    bus: guinea_devtools_protocol::BusKind::Global,
-                    subscribers: 1,
-                }),
+                at(
+                    1,
+                    None,
+                    0,
+                    None,
+                    TracePoint::Publish {
+                        event: "a::Changed".into(),
+                        bus: guinea_devtools_protocol::BusKind::Global,
+                        subscribers: 1,
+                    },
+                ),
                 at(2, Some(1), 100, None, handle("a::Changed")),
             ],
             ends: vec![guinea_devtools_protocol::End { id: 2, took: 1_500 }],
@@ -1040,7 +1172,10 @@ mod tests {
         let timers = Timers::default();
         let query = of(Class::Slow);
         let listed = |shown: &Shown, log: &TraceLog| -> Vec<u64> {
-            shown.spans(log, 0..shown.len()).map(|span| span.id).collect()
+            shown
+                .spans(log, 0..shown.len())
+                .map(|span| span.id)
+                .collect()
         };
 
         let mut shown = Shown::default();
@@ -1053,7 +1188,11 @@ mod tests {
             dropped: 0,
         });
         shown.refresh(read(&log, &timers), &query);
-        assert_eq!(listed(&shown, &log), [1], "the handling is the publish's breakdown now");
+        assert_eq!(
+            listed(&shown, &log),
+            [1],
+            "the handling is the publish's breakdown now"
+        );
     }
 
     fn pulled() -> TracePoint {
@@ -1071,11 +1210,17 @@ mod tests {
         log.absorb(TraceBatch {
             spans: vec![
                 at(1, None, 0, Some(400_000), pulled()),
-                at(2, Some(1), 399_000, None, TracePoint::Publish {
-                    event: "a::Changed".into(),
-                    bus: guinea_devtools_protocol::BusKind::Global,
-                    subscribers: 1,
-                }),
+                at(
+                    2,
+                    Some(1),
+                    399_000,
+                    None,
+                    TracePoint::Publish {
+                        event: "a::Changed".into(),
+                        bus: guinea_devtools_protocol::BusKind::Global,
+                        subscribers: 1,
+                    },
+                ),
             ],
             ends: Vec::new(),
             dropped: 0,
@@ -1083,11 +1228,22 @@ mod tests {
         let timers = Timers::default();
         let reading = read(&log, &timers);
 
-        assert_eq!(ids(reading, &of(Class::Every)), [2], "every record but the pull");
-        assert!(ids(reading, &of(Class::Slow)).is_empty(), "a pull is mostly waiting");
+        assert_eq!(
+            ids(reading, &of(Class::Every)),
+            [2],
+            "every record but the pull"
+        );
+        assert!(
+            ids(reading, &of(Class::Slow)).is_empty(),
+            "a pull is mostly waiting"
+        );
 
         let publish = about(reading, 2).expect("kept");
-        let within: Vec<(u64, Kind)> = publish.within.iter().map(|row| (row.id, row.kind)).collect();
+        let within: Vec<(u64, Kind)> = publish
+            .within
+            .iter()
+            .map(|row| (row.id, row.kind))
+            .collect();
         assert_eq!(within, [(1, Kind::Pull)]);
         assert_eq!(
             words::text(&publish.within[0].words),
@@ -1098,7 +1254,10 @@ mod tests {
     #[test]
     fn about_a_record_says_what_it_ran_in_and_what_ran_inside_it() {
         let mut scan = spanned("DEBUG");
-        if let TracePoint::Span { fields, declared, .. } = &mut scan {
+        if let TracePoint::Span {
+            fields, declared, ..
+        } = &mut scan
+        {
             *fields = "rows=3".into();
             *declared = Some(Declared {
                 file: "src/scan.rs".into(),
@@ -1112,18 +1271,38 @@ mod tests {
             spans: vec![
                 at(1, None, 0, None, TracePoint::Tick { timer: None }),
                 at(2, Some(1), 10, Some(3_000), handle("a::Scan")),
-                at(3, Some(2), 20, None, TracePoint::Send {
-                    actor: "a::Worker".into(),
-                    message: "a::Later".into(),
-                }),
+                at(
+                    3,
+                    Some(2),
+                    20,
+                    None,
+                    TracePoint::Send {
+                        actor: "a::Worker".into(),
+                        message: "a::Later".into(),
+                    },
+                ),
                 at(4, Some(2), 30, Some(2_000), scan),
                 at(5, Some(4), 40, None, logged("INFO")),
-                at(6, Some(4), 50, None, TracePoint::Push { reducer: "a::Rows".into() }),
+                at(
+                    6,
+                    Some(4),
+                    50,
+                    None,
+                    TracePoint::Push {
+                        reducer: "a::Rows".into(),
+                    },
+                ),
                 at(7, Some(3), 5_000, Some(100), handle("a::Later")),
-                at(8, Some(4), 60, None, TracePoint::Render {
-                    segment: "Processes".into(),
-                    took_us: 500,
-                }),
+                at(
+                    8,
+                    Some(4),
+                    60,
+                    None,
+                    TracePoint::Render {
+                        segment: "Processes".into(),
+                        took_us: 500,
+                    },
+                ),
             ],
             ends: Vec::new(),
             dropped: 0,
@@ -1134,7 +1313,12 @@ mod tests {
         let tree = |inside: &[Consequence]| -> Vec<(u64, Vec<u64>)> {
             inside
                 .iter()
-                .map(|next| (next.row.id, next.children.iter().map(|child| child.row.id).collect()))
+                .map(|next| {
+                    (
+                        next.row.id,
+                        next.children.iter().map(|child| child.row.id).collect(),
+                    )
+                })
                 .collect()
         };
 
@@ -1209,7 +1393,10 @@ mod tests {
             upto: None,
         };
 
-        let ids: Vec<u64> = shown(read(&log, &timers), &query).iter().map(|span| span.id).collect();
+        let ids: Vec<u64> = shown(read(&log, &timers), &query)
+            .iter()
+            .map(|span| span.id)
+            .collect();
         assert_eq!(ids, [4]);
 
         let as_shown = Query {

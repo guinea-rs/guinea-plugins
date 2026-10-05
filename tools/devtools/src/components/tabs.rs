@@ -19,7 +19,8 @@ pub fn tabs(ui: &mut egui::Ui, id: &str, titles: &[&str], open: usize) -> Option
         egui::Sense::hover(),
     );
     let line = ui.visuals().widgets.noninteractive.bg_stroke;
-    ui.painter().hline(bar.x_range(), bar.bottom() - line.width / 2.0, line);
+    ui.painter()
+        .hline(bar.x_range(), bar.bottom() - line.width / 2.0, line);
 
     let typing = ui.memory(|memory| memory.focused().is_some());
     if ui.rect_contains_pointer(bar) && !typing {
@@ -86,7 +87,8 @@ fn tab(ui: &mut egui::Ui, title: &str, on: bool) -> egui::Response {
 
     let visuals = ui.visuals();
     if response.hovered() && !on {
-        ui.painter().rect_filled(rect, 0, visuals.widgets.hovered.weak_bg_fill);
+        ui.painter()
+            .rect_filled(rect, 0, visuals.widgets.hovered.weak_bg_fill);
     }
     let color = if on {
         visuals.strong_text_color()
@@ -103,7 +105,8 @@ fn tab(ui: &mut egui::Ui, title: &str, on: bool) -> egui::Response {
         );
         ui.painter().rect_filled(underline, 0, theme::ACCENT);
     }
-    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, color);
+    ui.painter()
+        .galley(rect.center() - galley.size() / 2.0, galley, color);
 
     response
 }

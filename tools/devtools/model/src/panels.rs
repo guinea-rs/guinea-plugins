@@ -17,7 +17,10 @@ use crate::words::{Level, Tone, Word};
 
 /// Whether a panel is a window's view tree, which the elements show instead.
 pub fn is_view(panel: &Panel) -> bool {
-    panel.nodes.first().is_some_and(|node| node.kind == "segment")
+    panel
+        .nodes
+        .first()
+        .is_some_and(|node| node.kind == "segment")
 }
 
 /// A panel, with the key it is found by and what it is called in a list.
@@ -69,7 +72,11 @@ pub fn find<'a>(nodes: &'a [Node], path: &[usize]) -> Option<&'a Node> {
 /// The path to the first node whose property `name` reads `value`.
 pub fn holding(nodes: &[Node], name: &str, value: &str) -> Option<Vec<usize>> {
     nodes.iter().enumerate().find_map(|(index, node)| {
-        if node.properties.iter().any(|(key, found)| key == name && found == value) {
+        if node
+            .properties
+            .iter()
+            .any(|(key, found)| key == name && found == value)
+        {
             return Some(vec![index]);
         }
         holding(&node.children, name, value).map(|mut path| {
@@ -145,7 +152,10 @@ fn property<'a>(node: &'a Node, name: &str) -> Option<&'a str> {
 pub enum Entry {
     Panel(String),
     /// The sections of a panel whose names start with `prefix`: `pages/`.
-    Folder { panel: String, prefix: String },
+    Folder {
+        panel: String,
+        prefix: String,
+    },
     Section(Place),
 }
 
@@ -317,10 +327,16 @@ fn rows(
 /// A node's label, then what it holds: its text in `language`, its value, or
 /// else its kind.
 fn words(node: &Node, language: Option<&str>) -> Vec<Word> {
-    let label = if node.label.is_empty() { &node.kind } else { &node.label };
+    let label = if node.label.is_empty() {
+        &node.kind
+    } else {
+        &node.label
+    };
     let mut words = vec![Word::new(label, Tone::Plain)];
 
-    let translated = language.filter(|_| node.children.is_empty()).map(|tag| property(node, tag));
+    let translated = language
+        .filter(|_| node.children.is_empty())
+        .map(|tag| property(node, tag));
     let beside = match translated {
         Some(Some(text)) => Some(Word::new(text, Tone::Quote)),
         Some(None) => Some(Word::new("untranslated", Tone::Level(Level::Warn))),
@@ -356,7 +372,10 @@ mod tests {
 
         let path = holding(&nodes, "path", "app.language").expect("found");
         assert_eq!(path, [0, 0]);
-        assert_eq!(find(&nodes, &path).map(|n| n.label.as_str()), Some("language"));
+        assert_eq!(
+            find(&nodes, &path).map(|n| n.label.as_str()),
+            Some("language")
+        );
     }
 
     fn node(label: &str, kind: &str, properties: &[(&str, &str)], children: Vec<Node>) -> Node {
@@ -380,7 +399,12 @@ mod tests {
                 "app",
                 "group",
                 &[],
-                vec![node("language", "value", &[("value", "\"ru\""), ("path", "app.language")], vec![])],
+                vec![node(
+                    "language",
+                    "value",
+                    &[("value", "\"ru\""), ("path", "app.language")],
+                    vec![],
+                )],
             )],
         );
         let file = node(
@@ -388,23 +412,31 @@ mod tests {
             "file",
             &[("languages", "en, ru"), ("language", "en")],
             vec![
-                node("hello", "message", &[("en", "Hello"), ("ru", "Привет")], vec![]),
+                node(
+                    "hello",
+                    "message",
+                    &[("en", "Hello"), ("ru", "Привет")],
+                    vec![],
+                ),
                 node("bye", "untranslated", &[("en", "Bye")], vec![]),
             ],
         );
 
-        [("guinea.store", "Store", keys), ("guinea.l10n", "Localization", file)]
-            .into_iter()
-            .map(|(key, title, section)| Listed {
-                key: key.into(),
+        [
+            ("guinea.store", "Store", keys),
+            ("guinea.l10n", "Localization", file),
+        ]
+        .into_iter()
+        .map(|(key, title, section)| Listed {
+            key: key.into(),
+            title: title.into(),
+            panel: Panel {
+                id: key.into(),
                 title: title.into(),
-                panel: Panel {
-                    id: key.into(),
-                    title: title.into(),
-                    nodes: vec![section],
-                },
-            })
-            .collect()
+                nodes: vec![section],
+            },
+        })
+        .collect()
     }
 
     fn shown(lines: &[Line]) -> Vec<(usize, String)> {
@@ -441,19 +473,31 @@ mod tests {
             panel: "guinea.store".into(),
             path: vec![0],
         };
-        assert_eq!(sections(&listed, &closed, Some(&keys)).len(), 4, "the open section stays in view");
+        assert_eq!(
+            sections(&listed, &closed, Some(&keys)).len(),
+            4,
+            "the open section stays in view"
+        );
     }
 
     #[test]
     fn a_section_named_like_a_path_sits_in_its_folder() {
-        let files = ["layouts/shell.ftl", "pages/processes.ftl", "pages/wsl.ftl", "taskmgr.ftl"];
+        let files = [
+            "layouts/shell.ftl",
+            "pages/processes.ftl",
+            "pages/wsl.ftl",
+            "taskmgr.ftl",
+        ];
         let listed = vec![Listed {
             key: "guinea.l10n".into(),
             title: "Localization".into(),
             panel: Panel {
                 id: "guinea.l10n".into(),
                 title: "Localization".into(),
-                nodes: files.iter().map(|file| node(file, "file", &[], vec![])).collect(),
+                nodes: files
+                    .iter()
+                    .map(|file| node(file, "file", &[], vec![]))
+                    .collect(),
             },
         }];
 
@@ -482,7 +526,11 @@ mod tests {
             path: vec![2],
         };
         let rows = sections(&listed, &closed, Some(&wsl));
-        assert!(rows.iter().any(|row| row.entry == Entry::Section(wsl.clone())), "the open section stays in view");
+        assert!(
+            rows.iter()
+                .any(|row| row.entry == Entry::Section(wsl.clone())),
+            "the open section stays in view"
+        );
     }
 
     #[test]
@@ -491,7 +539,10 @@ mod tests {
 
         assert_eq!(
             shown(&lines(&listed[0], 0, &HashSet::new(), None, None)),
-            [(0, "app  group".to_string()), (1, "language  \"ru\"".to_string())]
+            [
+                (0, "app  group".to_string()),
+                (1, "language  \"ru\"".to_string())
+            ]
         );
         assert_eq!(
             shown(&lines(&listed[1], 0, &HashSet::new(), None, None)),
@@ -530,6 +581,9 @@ mod tests {
         assert_eq!(wanted.path, [0, 0, 0]);
         let lines = lines(&listed[0], 0, &closed, Some(&wanted), None);
         assert!(lines.iter().any(|line| line.place == wanted));
-        assert_eq!(wanted.node(&listed).map(|node| node.label.as_str()), Some("language"));
+        assert_eq!(
+            wanted.node(&listed).map(|node| node.label.as_str()),
+            Some("language")
+        );
     }
 }
