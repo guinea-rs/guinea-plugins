@@ -1,10 +1,10 @@
-# guinea-plugin-l10n
+![guinea-plugin-l10n](https://raw.githubusercontent.com/guinea-rs/guinea-plugins/master/assets/banners/guinea-plugin-l10n.png)
 
 Loads a guinea application's localisation before the first render, and
 remembers the language the user picked.
 
 ```rust
-guinea::app::App::new()
+guinea::app::GuineaApp::new()
     .plugin(guinea_plugin_store::StorePlugin::for_app("my-app", "settings"))
     .plugin(guinea_plugin_l10n::L10nPlugin::<L10n>::new("en"))
 ```

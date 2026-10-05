@@ -1,10 +1,10 @@
-# guinea-plugin-store
+![guinea-plugin-store](https://raw.githubusercontent.com/guinea-rs/guinea-plugins/master/assets/banners/guinea-plugin-store.png)
 
 Persistent key-value storage for guinea applications, backed by
 [amethystate](https://crates.io/crates/amethystate).
 
 ```rust
-guinea::app::App::new()
+guinea::app::GuineaApp::new()
     .plugin(guinea_plugin_store::StorePlugin::for_app("my-app", "settings"))
 ```
 
