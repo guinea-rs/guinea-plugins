@@ -18,6 +18,7 @@ mod inspect;
 mod link;
 mod perf;
 pub mod pick;
+mod sample;
 #[allow(non_snake_case)]
 mod tree;
 mod ui;

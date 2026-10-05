@@ -6,11 +6,14 @@ windows_core::link!("ole32.dll" "system" fn CoInitializeEx(pvreserved : *const c
 windows_core::link!("ole32.dll" "system" fn CoTaskMemFree(pv : *mut core::ffi::c_void));
 windows_core::link!("gdi32.dll" "system" fn CreateSolidBrush(color : COLORREF) -> HBRUSH);
 windows_core::link!("kernel32.dll" "system" fn CreateToolhelp32Snapshot(dwflags : u32, th32processid : u32) -> HANDLE);
+windows_core::link!("kernel32.dll" "system" fn CreateWaitableTimerExW(lptimerattributes : *const SECURITY_ATTRIBUTES, lptimername : windows_core::PCWSTR, dwflags : u32, dwdesiredaccess : u32) -> HANDLE);
 windows_core::link!("user32.dll" "system" fn CreateWindowExW(dwexstyle : u32, lpclassname : windows_core::PCWSTR, lpwindowname : windows_core::PCWSTR, dwstyle : u32, x : i32, y : i32, nwidth : i32, nheight : i32, hwndparent : HWND, hmenu : HMENU, hinstance : HINSTANCE, lpparam : *const core::ffi::c_void) -> HWND);
 windows_core::link!("user32.dll" "system" fn DefWindowProcW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn DestroyWindow(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn EnumThreadWindows(dwthreadid : u32, lpfn : WNDENUMPROC, lparam : LPARAM) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetAncestor(hwnd : HWND, gaflags : u32) -> HWND);
+windows_core::link!("kernel32.dll" "system" fn GetCurrentProcess() -> HANDLE);
+windows_core::link!("kernel32.dll" "system" fn GetCurrentThread() -> HANDLE);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentThreadId() -> u32);
 windows_core::link!("user32.dll" "system" fn GetCursorPos(lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetDpiForWindow(hwnd : HWND) -> u32);
@@ -18,24 +21,276 @@ windows_core::link!("user32.dll" "system" fn GetMessageW(lpmsg : *mut MSG, hwnd 
 windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(lpmodulename : windows_core::PCWSTR) -> HMODULE);
 windows_core::link!("kernel32.dll" "system" fn GetProcAddress(hmodule : HMODULE, lpprocname : windows_core::PCSTR) -> FARPROC);
 windows_core::link!("user32.dll" "system" fn GetSystemMetrics(nindex : i32) -> i32);
+windows_core::link!("kernel32.dll" "system" fn GetThreadContext(hthread : HANDLE, lpcontext : LPCONTEXT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex : i32) -> i32);
 windows_core::link!("user32.dll" "system" fn GetWindowThreadProcessId(hwnd : HWND, lpdwprocessid : *mut u32) -> u32);
 windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn LoadLibraryW(lplibfilename : windows_core::PCWSTR) -> HMODULE);
 windows_core::link!("kernel32.dll" "system" fn Module32FirstW(hsnapshot : HANDLE, lpme : *mut MODULEENTRY32W) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn Module32NextW(hsnapshot : HANDLE, lpme : *mut MODULEENTRY32W) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn OpenThread(dwdesiredaccess : u32, binherithandle : windows_core::BOOL, dwthreadid : u32) -> HANDLE);
 windows_core::link!("user32.dll" "system" fn PostThreadMessageW(idthread : u32, msg : u32, wparam : WPARAM, lparam : LPARAM) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn QueryPerformanceCounter(lpperformancecount : *mut i64) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn RegisterClassW(lpwndclass : *const WNDCLASSW) -> ATOM);
+windows_core::link!("kernel32.dll" "system" fn ResumeThread(hthread : HANDLE) -> u32);
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+windows_core::link!("kernel32.dll" "system" fn RtlVirtualUnwind(handlertype : u32, imagebase : u64, controlpc : u64, functionentry : *const RUNTIME_FUNCTION, contextrecord : *mut CONTEXT, handlerdata : *mut *mut core::ffi::c_void, establisherframe : *mut u64, contextpointers : *mut KNONVOLATILE_CONTEXT_POINTERS) -> PEXCEPTION_ROUTINE);
+#[cfg(target_arch = "aarch64")]
+windows_core::link!("kernel32.dll" "system" fn RtlVirtualUnwind(handlertype : u32, imagebase : usize, controlpc : usize, functionentry : *const ARM64_RUNTIME_FUNCTION, contextrecord : *mut ARM64_NT_CONTEXT, handlerdata : *mut *mut core::ffi::c_void, establisherframe : *mut u64, contextpointers : *mut KNONVOLATILE_CONTEXT_POINTERS_ARM64) -> PEXCEPTION_ROUTINE);
 windows_core::link!("user32.dll" "system" fn ScreenToClient(hwnd : HWND, lppoint : *mut POINT) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SendInput(cinputs : u32, pinputs : *const INPUT, cbsize : i32) -> u32);
 windows_core::link!("user32.dll" "system" fn SendMessageW(hwnd : HWND, msg : u32, wparam : WPARAM, lparam : LPARAM) -> LRESULT);
 windows_core::link!("user32.dll" "system" fn SetForegroundWindow(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetLayeredWindowAttributes(hwnd : HWND, crkey : COLORREF, balpha : u8, dwflags : u32) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn SetThreadPriority(hthread : HANDLE, npriority : i32) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn SetWaitableTimer(htimer : HANDLE, lpduetime : *const i64, lperiod : i32, pfncompletionroutine : PTIMERAPCROUTINE, lpargtocompletionroutine : *const core::ffi::c_void, fresume : windows_core::BOOL) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetWindowPos(hwnd : HWND, hwndinsertafter : HWND, x : i32, y : i32, cx : i32, cy : i32, uflags : u32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn SetWindowsHookExW(idhook : i32, lpfn : HOOKPROC, hmod : HINSTANCE, dwthreadid : u32) -> HHOOK);
 windows_core::link!("user32.dll" "system" fn ShowWindow(hwnd : HWND, ncmdshow : i32) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn SuspendThread(hthread : HANDLE) -> u32);
+windows_core::link!("dbghelp.dll" "system" fn SymFromAddrW(hprocess : HANDLE, address : u64, displacement : *mut u64, symbol : *mut SYMBOL_INFOW) -> windows_core::BOOL);
+windows_core::link!("dbghelp.dll" "system" fn SymInitializeW(hprocess : HANDLE, usersearchpath : windows_core::PCWSTR, finvadeprocess : windows_core::BOOL) -> windows_core::BOOL);
+windows_core::link!("dbghelp.dll" "system" fn SymRefreshModuleList(hprocess : HANDLE) -> windows_core::BOOL);
+windows_core::link!("dbghelp.dll" "system" fn SymSetOptions(symoptions : u32) -> u32);
+windows_core::link!("dbghelp.dll" "system" fn SymSetSearchPathW(hprocess : HANDLE, searchpatha : windows_core::PCWSTR) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn UnhookWindowsHookEx(hhk : HHOOK) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn WaitForSingleObject(hhandle : HANDLE, dwmilliseconds : u32) -> u32);
 windows_core::link!("user32.dll" "system" fn WindowFromPoint(point : POINT) -> HWND);
+#[repr(C, align(16))]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub struct ARM64_NT_CONTEXT {
+    pub ContextFlags: u32,
+    pub Cpsr: u32,
+    pub Anonymous: ARM64_NT_CONTEXT_0,
+    pub Sp: u64,
+    pub Pc: u64,
+    pub V: [ARM64_NT_NEON128; 32],
+    pub Fpcr: u32,
+    pub Fpsr: u32,
+    pub Bcr: [u32; 8],
+    pub Bvr: [u64; 8],
+    pub Wcr: [u32; 2],
+    pub Wvr: [u64; 2],
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+impl Default for ARM64_NT_CONTEXT {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub union ARM64_NT_CONTEXT_0 {
+    pub Anonymous: ARM64_NT_CONTEXT_0_0,
+    pub X: [u64; 31],
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+impl Default for ARM64_NT_CONTEXT_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ARM64_NT_CONTEXT_0_0 {
+    pub X0: u64,
+    pub X1: u64,
+    pub X2: u64,
+    pub X3: u64,
+    pub X4: u64,
+    pub X5: u64,
+    pub X6: u64,
+    pub X7: u64,
+    pub X8: u64,
+    pub X9: u64,
+    pub X10: u64,
+    pub X11: u64,
+    pub X12: u64,
+    pub X13: u64,
+    pub X14: u64,
+    pub X15: u64,
+    pub X16: u64,
+    pub X17: u64,
+    pub X18: u64,
+    pub X19: u64,
+    pub X20: u64,
+    pub X21: u64,
+    pub X22: u64,
+    pub X23: u64,
+    pub X24: u64,
+    pub X25: u64,
+    pub X26: u64,
+    pub X27: u64,
+    pub X28: u64,
+    pub Fp: u64,
+    pub Lr: u64,
+}
+#[repr(C, align(16))]
+#[cfg(target_arch = "aarch64")]
+#[derive(Clone, Copy)]
+pub struct ARM64_NT_CONTEXT {
+    pub ContextFlags: u32,
+    pub Cpsr: u32,
+    pub Anonymous: ARM64_NT_CONTEXT_0,
+    pub Sp: u64,
+    pub Pc: u64,
+    pub V: [NEON128; 32],
+    pub Fpcr: u32,
+    pub Fpsr: u32,
+    pub Bcr: [u32; 8],
+    pub Bvr: [u64; 8],
+    pub Wcr: [u32; 2],
+    pub Wvr: [u64; 2],
+}
+#[cfg(target_arch = "aarch64")]
+impl Default for ARM64_NT_CONTEXT {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(target_arch = "aarch64")]
+#[derive(Clone, Copy)]
+pub union ARM64_NT_CONTEXT_0 {
+    pub Anonymous: ARM64_NT_CONTEXT_0_0,
+    pub X: [u64; 31],
+}
+#[cfg(target_arch = "aarch64")]
+impl Default for ARM64_NT_CONTEXT_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(target_arch = "aarch64")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ARM64_NT_CONTEXT_0_0 {
+    pub X0: u64,
+    pub X1: u64,
+    pub X2: u64,
+    pub X3: u64,
+    pub X4: u64,
+    pub X5: u64,
+    pub X6: u64,
+    pub X7: u64,
+    pub X8: u64,
+    pub X9: u64,
+    pub X10: u64,
+    pub X11: u64,
+    pub X12: u64,
+    pub X13: u64,
+    pub X14: u64,
+    pub X15: u64,
+    pub X16: u64,
+    pub X17: u64,
+    pub X18: u64,
+    pub X19: u64,
+    pub X20: u64,
+    pub X21: u64,
+    pub X22: u64,
+    pub X23: u64,
+    pub X24: u64,
+    pub X25: u64,
+    pub X26: u64,
+    pub X27: u64,
+    pub X28: u64,
+    pub Fp: u64,
+    pub Lr: u64,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union ARM64_NT_NEON128 {
+    pub Anonymous: ARM64_NT_NEON128_0,
+    pub D: [f64; 2],
+    pub S: [f32; 4],
+    pub H: [u16; 8],
+    pub B: [u8; 16],
+}
+impl Default for ARM64_NT_NEON128 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ARM64_NT_NEON128_0 {
+    pub Low: u64,
+    pub High: i64,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ARM64_RUNTIME_FUNCTION {
+    pub BeginAddress: u32,
+    pub Anonymous: ARM64_RUNTIME_FUNCTION_0,
+}
+impl Default for ARM64_RUNTIME_FUNCTION {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union ARM64_RUNTIME_FUNCTION_0 {
+    pub UnwindData: u32,
+    pub Anonymous: ARM64_RUNTIME_FUNCTION_0_0,
+}
+impl Default for ARM64_RUNTIME_FUNCTION_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ARM64_RUNTIME_FUNCTION_0_0 {
+    pub _bitfield: u32,
+}
+impl ARM64_RUNTIME_FUNCTION_0_0 {
+    pub fn Flag(&self) -> u32 {
+        (self._bitfield << 30) >> 30
+    }
+    pub fn set_Flag(&mut self, value: u32) {
+        self._bitfield = (self._bitfield & !3) | (value & 3);
+    }
+    pub fn FunctionLength(&self) -> u32 {
+        (self._bitfield << 19) >> 21
+    }
+    pub fn set_FunctionLength(&mut self, value: u32) {
+        self._bitfield = (self._bitfield & !(2047 << 2)) | ((value & 2047) << 2);
+    }
+    pub fn RegF(&self) -> u32 {
+        (self._bitfield << 16) >> 29
+    }
+    pub fn set_RegF(&mut self, value: u32) {
+        self._bitfield = (self._bitfield & !(7 << 13)) | ((value & 7) << 13);
+    }
+    pub fn RegI(&self) -> u32 {
+        (self._bitfield << 12) >> 28
+    }
+    pub fn set_RegI(&mut self, value: u32) {
+        self._bitfield = (self._bitfield & !(15 << 16)) | ((value & 15) << 16);
+    }
+    pub fn H(&self) -> bool {
+        (self._bitfield >> 20) & 1 != 0
+    }
+    pub fn set_H(&mut self, value: bool) {
+        self._bitfield = (self._bitfield & !(1 << 20)) | ((value as u32) << 20);
+    }
+    pub fn CR(&self) -> u32 {
+        (self._bitfield << 9) >> 30
+    }
+    pub fn set_CR(&mut self, value: u32) {
+        self._bitfield = (self._bitfield & !(3 << 21)) | ((value & 3) << 21);
+    }
+    pub fn FrameSize(&self) -> u32 {
+        self._bitfield >> 23
+    }
+    pub fn set_FrameSize(&mut self, value: u32) {
+        self._bitfield = (self._bitfield & !(511 << 23)) | ((value & 511) << 23);
+    }
+}
 pub type ATOM = u16;
 #[repr(transparent)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -102,7 +357,145 @@ pub const CLSCTX_INPROC_SERVER: CLSCTX = 1;
 pub type COINIT = i32;
 pub const COINIT_MULTITHREADED: COINIT = 0;
 pub type COLORREF = u32;
+#[repr(C)]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CONTEXT {
+    pub ContextFlags: u32,
+    pub Dr0: u32,
+    pub Dr1: u32,
+    pub Dr2: u32,
+    pub Dr3: u32,
+    pub Dr6: u32,
+    pub Dr7: u32,
+    pub FloatSave: FLOATING_SAVE_AREA,
+    pub SegGs: u32,
+    pub SegFs: u32,
+    pub SegEs: u32,
+    pub SegDs: u32,
+    pub Edi: u32,
+    pub Esi: u32,
+    pub Ebx: u32,
+    pub Edx: u32,
+    pub Ecx: u32,
+    pub Eax: u32,
+    pub Ebp: u32,
+    pub Eip: u32,
+    pub SegCs: u32,
+    pub EFlags: u32,
+    pub Esp: u32,
+    pub SegSs: u32,
+    pub ExtendedRegisters: [u8; 512],
+}
+#[cfg(target_arch = "x86")]
+impl Default for CONTEXT {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub struct CONTEXT {
+    pub P1Home: u64,
+    pub P2Home: u64,
+    pub P3Home: u64,
+    pub P4Home: u64,
+    pub P5Home: u64,
+    pub P6Home: u64,
+    pub ContextFlags: u32,
+    pub MxCsr: u32,
+    pub SegCs: u16,
+    pub SegDs: u16,
+    pub SegEs: u16,
+    pub SegFs: u16,
+    pub SegGs: u16,
+    pub SegSs: u16,
+    pub EFlags: u32,
+    pub Dr0: u64,
+    pub Dr1: u64,
+    pub Dr2: u64,
+    pub Dr3: u64,
+    pub Dr6: u64,
+    pub Dr7: u64,
+    pub Rax: u64,
+    pub Rcx: u64,
+    pub Rdx: u64,
+    pub Rbx: u64,
+    pub Rsp: u64,
+    pub Rbp: u64,
+    pub Rsi: u64,
+    pub Rdi: u64,
+    pub R8: u64,
+    pub R9: u64,
+    pub R10: u64,
+    pub R11: u64,
+    pub R12: u64,
+    pub R13: u64,
+    pub R14: u64,
+    pub R15: u64,
+    pub Rip: u64,
+    pub Anonymous: CONTEXT_0,
+    pub VectorRegister: [M128A; 26],
+    pub VectorControl: u64,
+    pub DebugControl: u64,
+    pub LastBranchToRip: u64,
+    pub LastBranchFromRip: u64,
+    pub LastExceptionToRip: u64,
+    pub LastExceptionFromRip: u64,
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for CONTEXT {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub union CONTEXT_0 {
+    pub FltSave: XMM_SAVE_AREA32,
+    pub Anonymous: CONTEXT_0_0,
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for CONTEXT_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CONTEXT_0_0 {
+    pub Header: [M128A; 2],
+    pub Legacy: [M128A; 8],
+    pub Xmm0: M128A,
+    pub Xmm1: M128A,
+    pub Xmm2: M128A,
+    pub Xmm3: M128A,
+    pub Xmm4: M128A,
+    pub Xmm5: M128A,
+    pub Xmm6: M128A,
+    pub Xmm7: M128A,
+    pub Xmm8: M128A,
+    pub Xmm9: M128A,
+    pub Xmm10: M128A,
+    pub Xmm11: M128A,
+    pub Xmm12: M128A,
+    pub Xmm13: M128A,
+    pub Xmm14: M128A,
+    pub Xmm15: M128A,
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for CONTEXT_0_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[cfg(target_arch = "aarch64")]
+pub type CONTEXT = ARM64_NT_CONTEXT;
 pub type CONTROLTYPEID = i32;
+pub const CREATE_WAITABLE_TIMER_HIGH_RESOLUTION: i32 = 2;
 pub const CUIAutomation: windows_core::GUID =
     windows_core::GUID::from_u128(0xff48dba4_60ef_4201_aa87_54103eef594e);
 #[repr(C)]
@@ -197,8 +590,44 @@ impl windows_core::RuntimeName for DependencyObject {
 unsafe impl Send for DependencyObject {}
 unsafe impl Sync for DependencyObject {}
 pub type EVENTID = i32;
+pub type EXCEPTION_DISPOSITION = i32;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EXCEPTION_RECORD {
+    pub ExceptionCode: u32,
+    pub ExceptionFlags: u32,
+    pub ExceptionRecord: *mut Self,
+    pub ExceptionAddress: *mut core::ffi::c_void,
+    pub NumberParameters: u32,
+    pub ExceptionInformation: [usize; 15],
+}
+impl Default for EXCEPTION_RECORD {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
 pub const E_NOINTERFACE: windows_core::HRESULT = windows_core::HRESULT(0x80004002_u32 as _);
 pub type FARPROC = Option<unsafe extern "system" fn() -> isize>;
+#[repr(C)]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FLOATING_SAVE_AREA {
+    pub ControlWord: u32,
+    pub StatusWord: u32,
+    pub TagWord: u32,
+    pub ErrorOffset: u32,
+    pub ErrorSelector: u32,
+    pub DataOffset: u32,
+    pub DataSelector: u32,
+    pub RegisterArea: [u8; 80],
+    pub Spare0: u32,
+}
+#[cfg(target_arch = "x86")]
+impl Default for FLOATING_SAVE_AREA {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
 pub const GA_ROOT: i32 = 2;
 pub const GWL_EXSTYLE: i32 = -20;
 #[repr(transparent)]
@@ -484,6 +913,106 @@ pub struct IGeneralTransform_Vtbl {
         *mut Point,
     ) -> windows_core::HRESULT,
 }
+pub type IMAGE_ARM64_RUNTIME_FUNCTION_ENTRY = ARM64_RUNTIME_FUNCTION;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct IMAGE_DATA_DIRECTORY {
+    pub VirtualAddress: u32,
+    pub Size: u32,
+}
+pub const IMAGE_DIRECTORY_ENTRY_EXCEPTION: i32 = 3;
+#[repr(C, packed(2))]
+#[derive(Clone, Copy)]
+pub struct IMAGE_DOS_HEADER {
+    pub e_magic: u16,
+    pub e_cblp: u16,
+    pub e_cp: u16,
+    pub e_crlc: u16,
+    pub e_cparhdr: u16,
+    pub e_minalloc: u16,
+    pub e_maxalloc: u16,
+    pub e_ss: u16,
+    pub e_sp: u16,
+    pub e_csum: u16,
+    pub e_ip: u16,
+    pub e_cs: u16,
+    pub e_lfarlc: u16,
+    pub e_ovno: u16,
+    pub e_res: [u16; 4],
+    pub e_oemid: u16,
+    pub e_oeminfo: u16,
+    pub e_res2: [u16; 10],
+    pub e_lfanew: i32,
+}
+impl Default for IMAGE_DOS_HEADER {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+pub const IMAGE_DOS_SIGNATURE: i32 = 23117;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct IMAGE_FILE_HEADER {
+    pub Machine: u16,
+    pub NumberOfSections: u16,
+    pub TimeDateStamp: u32,
+    pub PointerToSymbolTable: u32,
+    pub NumberOfSymbols: u32,
+    pub SizeOfOptionalHeader: u16,
+    pub Characteristics: u16,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct IMAGE_NT_HEADERS64 {
+    pub Signature: u32,
+    pub FileHeader: IMAGE_FILE_HEADER,
+    pub OptionalHeader: IMAGE_OPTIONAL_HEADER64,
+}
+pub const IMAGE_NT_OPTIONAL_HDR64_MAGIC: i32 = 523;
+pub const IMAGE_NT_SIGNATURE: i32 = 17744;
+#[repr(C, packed(4))]
+#[derive(Clone, Copy)]
+pub struct IMAGE_OPTIONAL_HEADER64 {
+    pub Magic: u16,
+    pub MajorLinkerVersion: u8,
+    pub MinorLinkerVersion: u8,
+    pub SizeOfCode: u32,
+    pub SizeOfInitializedData: u32,
+    pub SizeOfUninitializedData: u32,
+    pub AddressOfEntryPoint: u32,
+    pub BaseOfCode: u32,
+    pub ImageBase: u64,
+    pub SectionAlignment: u32,
+    pub FileAlignment: u32,
+    pub MajorOperatingSystemVersion: u16,
+    pub MinorOperatingSystemVersion: u16,
+    pub MajorImageVersion: u16,
+    pub MinorImageVersion: u16,
+    pub MajorSubsystemVersion: u16,
+    pub MinorSubsystemVersion: u16,
+    pub Win32VersionValue: u32,
+    pub SizeOfImage: u32,
+    pub SizeOfHeaders: u32,
+    pub CheckSum: u32,
+    pub Subsystem: u16,
+    pub DllCharacteristics: u16,
+    pub SizeOfStackReserve: u64,
+    pub SizeOfStackCommit: u64,
+    pub SizeOfHeapReserve: u64,
+    pub SizeOfHeapCommit: u64,
+    pub LoaderFlags: u32,
+    pub NumberOfRvaAndSizes: u32,
+    pub DataDirectory: [IMAGE_DATA_DIRECTORY; 16],
+}
+impl Default for IMAGE_OPTIONAL_HEADER64 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+pub type IMAGE_RUNTIME_FUNCTION_ENTRY = _IMAGE_RUNTIME_FUNCTION_ENTRY;
+#[cfg(target_arch = "aarch64")]
+pub type IMAGE_RUNTIME_FUNCTION_ENTRY = IMAGE_ARM64_RUNTIME_FUNCTION_ENTRY;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct INPUT {
@@ -7306,9 +7835,129 @@ pub struct KEYBDINPUT {
 }
 pub const KEYEVENTF_KEYUP: i32 = 2;
 pub const KEYEVENTF_UNICODE: i32 = 4;
+#[repr(C)]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct KNONVOLATILE_CONTEXT_POINTERS {
+    pub Dummy: u32,
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub struct KNONVOLATILE_CONTEXT_POINTERS {
+    pub Anonymous: KNONVOLATILE_CONTEXT_POINTERS_0,
+    pub Anonymous2: KNONVOLATILE_CONTEXT_POINTERS_1,
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for KNONVOLATILE_CONTEXT_POINTERS {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub union KNONVOLATILE_CONTEXT_POINTERS_0 {
+    pub FloatingContext: [PM128A; 16],
+    pub Anonymous: KNONVOLATILE_CONTEXT_POINTERS_0_0,
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for KNONVOLATILE_CONTEXT_POINTERS_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct KNONVOLATILE_CONTEXT_POINTERS_0_0 {
+    pub Xmm0: PM128A,
+    pub Xmm1: PM128A,
+    pub Xmm2: PM128A,
+    pub Xmm3: PM128A,
+    pub Xmm4: PM128A,
+    pub Xmm5: PM128A,
+    pub Xmm6: PM128A,
+    pub Xmm7: PM128A,
+    pub Xmm8: PM128A,
+    pub Xmm9: PM128A,
+    pub Xmm10: PM128A,
+    pub Xmm11: PM128A,
+    pub Xmm12: PM128A,
+    pub Xmm13: PM128A,
+    pub Xmm14: PM128A,
+    pub Xmm15: PM128A,
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub union KNONVOLATILE_CONTEXT_POINTERS_1 {
+    pub IntegerContext: [PDWORD64; 16],
+    pub Anonymous: KNONVOLATILE_CONTEXT_POINTERS_1_0,
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for KNONVOLATILE_CONTEXT_POINTERS_1 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct KNONVOLATILE_CONTEXT_POINTERS_1_0 {
+    pub Rax: PDWORD64,
+    pub Rcx: PDWORD64,
+    pub Rdx: PDWORD64,
+    pub Rbx: PDWORD64,
+    pub Rsp: PDWORD64,
+    pub Rbp: PDWORD64,
+    pub Rsi: PDWORD64,
+    pub Rdi: PDWORD64,
+    pub R8: PDWORD64,
+    pub R9: PDWORD64,
+    pub R10: PDWORD64,
+    pub R11: PDWORD64,
+    pub R12: PDWORD64,
+    pub R13: PDWORD64,
+    pub R14: PDWORD64,
+    pub R15: PDWORD64,
+}
+#[cfg(target_arch = "aarch64")]
+pub type KNONVOLATILE_CONTEXT_POINTERS = KNONVOLATILE_CONTEXT_POINTERS_ARM64;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct KNONVOLATILE_CONTEXT_POINTERS_ARM64 {
+    pub X19: PDWORD64,
+    pub X20: PDWORD64,
+    pub X21: PDWORD64,
+    pub X22: PDWORD64,
+    pub X23: PDWORD64,
+    pub X24: PDWORD64,
+    pub X25: PDWORD64,
+    pub X26: PDWORD64,
+    pub X27: PDWORD64,
+    pub X28: PDWORD64,
+    pub Fp: PDWORD64,
+    pub Lr: PDWORD64,
+    pub D8: PDWORD64,
+    pub D9: PDWORD64,
+    pub D10: PDWORD64,
+    pub D11: PDWORD64,
+    pub D12: PDWORD64,
+    pub D13: PDWORD64,
+    pub D14: PDWORD64,
+    pub D15: PDWORD64,
+}
 pub type LPARAM = isize;
+pub type LPCONTEXT = PCONTEXT;
 pub type LRESULT = isize;
 pub const LWA_ALPHA: i32 = 2;
+#[repr(C, align(16))]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct M128A {
+    pub Low: u64,
+    pub High: i64,
+}
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MODULEENTRY32W {
@@ -7362,8 +8011,34 @@ pub struct MSLLHOOKSTRUCT {
     pub time: u32,
     pub dwExtraInfo: usize,
 }
+#[cfg(target_arch = "aarch64")]
+pub type NEON128 = ARM64_NT_NEON128;
 pub type OrientationType = i32;
 pub type PATTERNID = i32;
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+pub type PCONTEXT = *mut CONTEXT;
+#[cfg(target_arch = "aarch64")]
+pub type PCONTEXT = *mut ARM64_NT_CONTEXT;
+pub type PDWORD64 = *mut u64;
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86", target_arch = "x86_64"))]
+pub type PEXCEPTION_ROUTINE = Option<
+    unsafe extern "system" fn(
+        exceptionrecord: *mut EXCEPTION_RECORD,
+        establisherframe: *const core::ffi::c_void,
+        contextrecord: *mut CONTEXT,
+        dispatchercontext: *const core::ffi::c_void,
+    ) -> EXCEPTION_DISPOSITION,
+>;
+#[cfg(target_arch = "aarch64")]
+pub type PEXCEPTION_ROUTINE = Option<
+    unsafe extern "system" fn(
+        exceptionrecord: *mut EXCEPTION_RECORD,
+        establisherframe: *const core::ffi::c_void,
+        contextrecord: *mut ARM64_NT_CONTEXT,
+        dispatchercontext: *const core::ffi::c_void,
+    ) -> EXCEPTION_DISPOSITION,
+>;
+pub type PM128A = *mut M128A;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct POINT {
@@ -7371,6 +8046,13 @@ pub struct POINT {
     pub y: i32,
 }
 pub type PROPERTYID = i32;
+pub type PTIMERAPCROUTINE = Option<
+    unsafe extern "system" fn(
+        lpargtocompletionroutine: *const core::ffi::c_void,
+        dwtimerlowvalue: u32,
+        dwtimerhighvalue: u32,
+    ),
+>;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point {
@@ -7394,6 +8076,35 @@ pub struct RECT {
     pub bottom: i32,
 }
 #[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub struct RUNTIME_FUNCTION {
+    pub BeginAddress: u32,
+    pub EndAddress: u32,
+    pub Anonymous: RUNTIME_FUNCTION_0,
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for RUNTIME_FUNCTION {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+#[derive(Clone, Copy)]
+pub union RUNTIME_FUNCTION_0 {
+    pub UnwindInfoAddress: u32,
+    pub UnwindData: u32,
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+impl Default for RUNTIME_FUNCTION_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[cfg(target_arch = "aarch64")]
+pub type RUNTIME_FUNCTION = ARM64_RUNTIME_FUNCTION;
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SAFEARRAY {
     pub cDims: u16,
@@ -7415,6 +8126,13 @@ pub struct SAFEARRAYBOUND {
     pub lLbound: i32,
 }
 pub type SCODE = i32;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SECURITY_ATTRIBUTES {
+    pub nLength: u32,
+    pub lpSecurityDescriptor: *mut core::ffi::c_void,
+    pub bInheritHandle: windows_core::BOOL,
+}
 pub const SM_CXVIRTUALSCREEN: i32 = 78;
 pub const SM_CYVIRTUALSCREEN: i32 = 79;
 pub const SM_XVIRTUALSCREEN: i32 = 76;
@@ -7422,7 +8140,40 @@ pub const SM_YVIRTUALSCREEN: i32 = 77;
 pub const SWP_NOACTIVATE: i32 = 16;
 pub const SWP_SHOWWINDOW: i32 = 64;
 pub const SW_HIDE: i32 = 0;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SYMBOL_INFOW {
+    pub SizeOfStruct: u32,
+    pub TypeIndex: u32,
+    pub Reserved: [u64; 2],
+    pub Index: u32,
+    pub Size: u32,
+    pub ModBase: u64,
+    pub Flags: u32,
+    pub Value: u64,
+    pub Address: u64,
+    pub Register: u32,
+    pub Scope: u32,
+    pub Tag: u32,
+    pub NameLen: u32,
+    pub MaxNameLen: u32,
+    pub Name: [u16; 1],
+}
+impl Default for SYMBOL_INFOW {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+pub const SYMFLAG_EXPORT: i32 = 512;
+pub const SYMOPT_DEFERRED_LOADS: i32 = 4;
+pub const SYMOPT_FAIL_CRITICAL_ERRORS: i32 = 512;
+pub const SYMOPT_UNDNAME: i32 = 2;
 pub const TH32CS_SNAPMODULE: i32 = 8;
+pub const THREAD_GET_CONTEXT: i32 = 8;
+pub const THREAD_PRIORITY_TIME_CRITICAL: i32 = 15;
+pub const THREAD_QUERY_INFORMATION: i32 = 64;
+pub const THREAD_SUSPEND_RESUME: i32 = 2;
+pub const TIMER_ALL_ACCESS: i32 = 2031619;
 pub type ToggleState = i32;
 pub type TreeScope = i32;
 pub type UIA_HWND = *mut core::ffi::c_void;
@@ -7454,6 +8205,7 @@ impl windows_core::RuntimeName for UIElement {
 }
 unsafe impl Send for UIElement {}
 unsafe impl Sync for UIElement {}
+pub const UNW_FLAG_NHANDLER: i32 = 0;
 #[repr(C)]
 pub struct VARIANT {
     pub Anonymous: VARIANT_0,
@@ -7600,3 +8352,96 @@ pub const WS_EX_TOOLWINDOW: i32 = 128;
 pub const WS_EX_TOPMOST: i32 = 8;
 pub const WS_EX_TRANSPARENT: i32 = 32;
 pub const WS_POPUP: u32 = 2147483648;
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+pub type XMM_SAVE_AREA32 = XSAVE_FORMAT;
+#[repr(C)]
+#[cfg(target_arch = "x86")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct XSAVE_FORMAT {
+    pub ControlWord: u16,
+    pub StatusWord: u16,
+    pub TagWord: u8,
+    pub Reserved1: u8,
+    pub ErrorOpcode: u16,
+    pub ErrorOffset: u32,
+    pub ErrorSelector: u16,
+    pub Reserved2: u16,
+    pub DataOffset: u32,
+    pub DataSelector: u16,
+    pub Reserved3: u16,
+    pub MxCsr: u32,
+    pub MxCsr_Mask: u32,
+    pub FloatRegisters: [M128A; 8],
+    pub XmmRegisters: [M128A; 8],
+    pub Reserved4: [u8; 224],
+}
+#[cfg(target_arch = "x86")]
+impl Default for XSAVE_FORMAT {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_arch = "x86_64"
+))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct XSAVE_FORMAT {
+    pub ControlWord: u16,
+    pub StatusWord: u16,
+    pub TagWord: u8,
+    pub Reserved1: u8,
+    pub ErrorOpcode: u16,
+    pub ErrorOffset: u32,
+    pub ErrorSelector: u16,
+    pub Reserved2: u16,
+    pub DataOffset: u32,
+    pub DataSelector: u16,
+    pub Reserved3: u16,
+    pub MxCsr: u32,
+    pub MxCsr_Mask: u32,
+    pub FloatRegisters: [M128A; 8],
+    pub XmmRegisters: [M128A; 16],
+    pub Reserved4: [u8; 96],
+}
+#[cfg(any(
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_arch = "x86_64"
+))]
+impl Default for XSAVE_FORMAT {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
+pub type _IMAGE_RUNTIME_FUNCTION_ENTRY = RUNTIME_FUNCTION;
+#[repr(C)]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[derive(Clone, Copy)]
+pub struct _IMAGE_RUNTIME_FUNCTION_ENTRY {
+    pub BeginAddress: u32,
+    pub EndAddress: u32,
+    pub Anonymous: _IMAGE_RUNTIME_FUNCTION_ENTRY_0,
+}
+#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+impl Default for _IMAGE_RUNTIME_FUNCTION_ENTRY {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}
+#[repr(C)]
+#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+#[derive(Clone, Copy)]
+pub union _IMAGE_RUNTIME_FUNCTION_ENTRY_0 {
+    pub UnwindInfoAddress: u32,
+    pub UnwindData: u32,
+}
+#[cfg(any(target_arch = "aarch64", target_arch = "x86"))]
+impl Default for _IMAGE_RUNTIME_FUNCTION_ENTRY_0 {
+    fn default() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+}

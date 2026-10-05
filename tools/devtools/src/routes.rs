@@ -4,8 +4,8 @@ use crate::layouts::app::App;
 use crate::layouts::shell::Shell;
 use crate::pages::application::Application;
 use crate::pages::elements::Elements;
-use crate::pages::graph::Graphs;
 use crate::pages::home::Home;
+use crate::pages::profiler::Profiler;
 use crate::pages::trace::Traces;
 
 routes! {
@@ -15,8 +15,8 @@ routes! {
             page(Home)
             layout(App) {
                 page(Elements) { app: u64 }
-                page(Graphs) { app: u64 }
                 page(Traces) { app: u64 }
+                page(Profiler) { app: u64 }
                 page(Application) { app: u64 }
             }
         }

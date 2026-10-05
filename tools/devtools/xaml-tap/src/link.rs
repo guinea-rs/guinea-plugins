@@ -13,7 +13,7 @@ use guinea_devtools_protocol::native::Change;
 use guinea_devtools_protocol::{Answer, AppInfo, Capability, Command, Report, key, wire};
 use ogurpchik::rpc::connect_session;
 
-use crate::{highlight, input, inspect, perf, tree, ui};
+use crate::{highlight, input, inspect, perf, sample, tree, ui};
 
 const RETRY: Duration = Duration::from_secs(1);
 const FLUSH: Duration = Duration::from_millis(50);
@@ -21,11 +21,18 @@ const FLUSH: Duration = Duration::from_millis(50);
 static OUTBOX: Mutex<Vec<Report>> = Mutex::new(Vec::new());
 
 fn post(report: Report) {
-    OUTBOX.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(report);
+    OUTBOX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .push(report);
 }
 
 fn take_posted() -> Vec<Report> {
-    std::mem::take(&mut *OUTBOX.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
+    std::mem::take(
+        &mut *OUTBOX
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+    )
 }
 
 pub fn spawn() {
@@ -44,7 +51,10 @@ pub fn spawn() {
 fn hello() -> AppInfo {
     let name = std::env::current_exe()
         .ok()
-        .and_then(|path| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()))
+        .and_then(|path| {
+            path.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        })
         .unwrap_or_default();
 
     AppInfo {
@@ -60,6 +70,7 @@ fn hello() -> AppInfo {
             Capability::NativeHitTest,
             Capability::NativeHighlight,
             Capability::NativePerf,
+            Capability::NativeSamples,
             Capability::NativeInput,
         ],
         ..AppInfo::default()
@@ -118,7 +129,9 @@ async fn run() {
             let changes = tree::take_changes();
             if !changes.is_empty() {
                 let changes = marked(changes);
-                open &= wire::send(remote, &Report::NativeTree { changes }).await.is_ok();
+                open &= wire::send(remote, &Report::NativeTree { changes })
+                    .await
+                    .is_ok();
             }
 
             for report in take_posted() {
@@ -127,6 +140,8 @@ async fn run() {
         }
 
         perf::stop();
+        sample::stop();
+        sample::take();
         ui::on_ui(highlight::hide);
     }
 }
@@ -143,7 +158,10 @@ fn marked(mut changes: Vec<Change>) -> Vec<Change> {
         })
         .collect();
     let Ok(marks) = inspect::with(|inspector| {
-        Ok(added.iter().map(|&handle| inspector.mark(handle)).collect::<Vec<_>>())
+        Ok(added
+            .iter()
+            .map(|&handle| inspector.mark(handle))
+            .collect::<Vec<_>>())
     }) else {
         return changes;
     };
@@ -174,7 +192,10 @@ impl peer::Server for Inbound {
         match answer(command) {
             Ok(Some(report)) => post(report),
             Ok(None) => {}
-            Err(reason) => post(Report::Refused { command: name, reason }),
+            Err(reason) => post(Report::Refused {
+                command: name,
+                reason,
+            }),
         }
         Ok(())
     }
@@ -184,7 +205,10 @@ fn answer(command: Command) -> Result<Option<Report>, String> {
     match command {
         Command::NativeProperties { element } => {
             let properties = inspect::with(|inspector| inspector.properties(element))?;
-            Ok(Some(Report::NativeProperties { element, properties }))
+            Ok(Some(Report::NativeProperties {
+                element,
+                properties,
+            }))
         }
         Command::NativeSetProperty {
             element,
@@ -196,7 +220,10 @@ fn answer(command: Command) -> Result<Option<Report>, String> {
                 inspector.set_property(element, property, &type_name, &value)?;
                 inspector.properties(element)
             })?;
-            Ok(Some(Report::NativeProperties { element, properties }))
+            Ok(Some(Report::NativeProperties {
+                element,
+                properties,
+            }))
         }
         Command::NativeHitTest { x, y } => {
             let (chain, bounds) = inspect::with(|inspector| inspector.hit_test(x, y))?;
@@ -212,7 +239,18 @@ fn answer(command: Command) -> Result<Option<Report>, String> {
             })?;
             Ok(None)
         }
-        Command::NativePerfCapture => Ok(Some(Report::NativePerf { frames: perf::capture()? })),
+        Command::NativePerfCapture => Ok(Some(Report::NativePerf {
+            frames: perf::capture()?,
+            stacks: sample::take(),
+        })),
+        Command::NativeSampling { on: true } => {
+            sample::start(ui::thread().ok_or("the tap has not met the UI thread yet")?)?;
+            Ok(None)
+        }
+        Command::NativeSampling { on: false } => {
+            sample::stop();
+            Ok(None)
+        }
         // The tap reads someone else's XAML tree; it draws no frames of its
         // own, so there is nothing here to profile.
         Command::Profiler { .. } => Err("the XAML tap has no profiler".to_string()),
@@ -223,7 +261,11 @@ fn answer(command: Command) -> Result<Option<Report>, String> {
             });
             Ok(Some(answered(request, found)))
         }
-        Command::NativeClick { request, target, input: how } => {
+        Command::NativeClick {
+            request,
+            target,
+            input: how,
+        } => {
             let clicked = input::click(&target, how).map(|()| Answer::Done);
             Ok(Some(answered(request, clicked)))
         }
@@ -238,7 +280,9 @@ fn answer(command: Command) -> Result<Option<Report>, String> {
         }
         Command::Act { request, .. } | Command::Publish { request, .. } => Ok(Some(answered(
             request,
-            Err("the XAML tap sends no actions: the application's devtools plugin does".to_string()),
+            Err(
+                "the XAML tap sends no actions: the application's devtools plugin does".to_string(),
+            ),
         ))),
     }
 }

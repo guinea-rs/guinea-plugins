@@ -116,6 +116,16 @@ mod tests {
                     qpc: 81_234_567_890,
                     thread: 18_044,
                 }],
+                stacks: crate::native::Stacks {
+                    functions: vec!["main".into(), "app::draw".into()],
+                    stacks: vec![vec![1, 0]],
+                    samples: vec![crate::native::Sample {
+                        qpc: 81_234_568_000,
+                        stack: 0,
+                    }],
+                    modules: vec![r"C:\app\app.exe".into()],
+                    origins: vec![Some(0), None],
+                },
             },
             Report::Refused {
                 command: "NativeEdit".into(),
@@ -126,6 +136,35 @@ mod tests {
         for report in &sent {
             assert_eq!(&decode::<Report>(&encode(report)).unwrap(), report);
         }
+    }
+
+    #[test]
+    fn frames_from_a_tap_that_samples_no_stacks_come_with_none() {
+        let json = r#"{"kind":"native_perf","frames":[]}"#;
+
+        assert_eq!(
+            decode::<Report>(json).map_err(|error| error.to_string()),
+            Ok(Report::NativePerf {
+                frames: Vec::new(),
+                stacks: crate::native::Stacks::default(),
+            })
+        );
+    }
+
+    #[test]
+    fn stacks_from_a_tap_that_names_no_modules_come_with_none() {
+        let json = r#"{"functions":["main"],"stacks":[[0]],"samples":[{"qpc":1,"stack":0}]}"#;
+
+        assert_eq!(
+            serde_json::from_str::<crate::native::Stacks>(json).map_err(|error| error.to_string()),
+            Ok(crate::native::Stacks {
+                functions: vec!["main".into()],
+                stacks: vec![vec![0]],
+                samples: vec![crate::native::Sample { qpc: 1, stack: 0 }],
+                modules: Vec::new(),
+                origins: Vec::new(),
+            })
+        );
     }
 
     #[test]

@@ -6,10 +6,11 @@
 //! that led to it.
 
 use guinea_devtools_protocol::native::{Frame as Captured, Pass};
-use guinea_devtools_protocol::{ClockAnchor, Span};
+use guinea_devtools_protocol::{ClockAnchor, Span, TracePoint};
 use serde::Serialize;
 
 use crate::clock::Clock;
+use crate::samples::{Origin, Sampled};
 use crate::trace_log::TraceLog;
 
 /// A frame longer than this missed a 60 Hz vsync.
@@ -56,7 +57,8 @@ impl Frame {
         self.took_us > BUDGET_US
     }
 
-    fn end_us(&self) -> i64 {
+    /// Where the frame ended on the trace.
+    pub fn end_us(&self) -> i64 {
         self.at_us + self.took_us as i64
     }
 }
@@ -75,15 +77,63 @@ pub struct Second {
     pub worst_frame: i64,
 }
 
-/// The frames of one capture, placed on the trace's timeline.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Profile {
+/// The frames of one capture, placed on the trace's timeline, and the
+/// stacks sampled meanwhile.
+#[derive(Clone, Debug, Default)]
+pub struct Profile<'a> {
     /// Oldest first.
     pub frames: Vec<Frame>,
     clock: Clock,
+    timeline: Option<Timeline>,
+    sampled: Option<&'a Sampled>,
 }
 
-impl Profile {
+impl<'a> Profile<'a> {
+    /// With the stacks `sampled` holds.
+    pub fn with_samples(self, sampled: &'a Sampled) -> Self {
+        Self {
+            sampled: Some(sampled),
+            ..self
+        }
+    }
+
+    /// The samples taken from `from_us` up to `to_us`, oldest first: when
+    /// each was taken, and its stack by function, the innermost call first.
+    pub fn samples_between(&self, from_us: i64, to_us: i64) -> Vec<(i64, &'a [u32])> {
+        let (Some(sampled), Some(timeline)) = (self.sampled, self.timeline) else {
+            return Vec::new();
+        };
+        let at = |sample: &guinea_devtools_protocol::native::Sample| timeline.trace_us(sample.qpc);
+        let first = sampled
+            .samples
+            .partition_point(|sample| at(sample) < from_us);
+
+        sampled.samples[first..]
+            .iter()
+            .take_while(|sample| at(sample) < to_us)
+            .filter_map(|sample| {
+                let stack = sampled.stacks.get(sample.stack as usize)?;
+                Some((at(sample), stack.as_slice()))
+            })
+            .collect()
+    }
+
+    /// The name of function `id` of a sampled stack.
+    pub fn function(&self, id: u32) -> &'a str {
+        self.sampled.map_or("", |sampled| sampled.function(id))
+    }
+
+    /// Whose code the sampled function `id` is.
+    pub fn origin(&self, id: u32) -> Origin {
+        self.sampled
+            .map_or(Origin::Unknown, |sampled| sampled.origin(id))
+    }
+
+    /// The path of the module the sampled function `id` is in.
+    pub fn module(&self, id: u32) -> Option<&'a str> {
+        self.sampled.and_then(|sampled| sampled.module(id))
+    }
+
     /// Frames the tap stamped with no QPC are left out: nothing places them.
     pub fn new(timeline: Timeline, clock: Clock, captured: &[Captured]) -> Self {
         let mut frames: Vec<Frame> = captured
@@ -100,13 +150,23 @@ impl Profile {
             .collect();
         frames.sort_by_key(|frame| frame.at_us);
 
-        Self { frames, clock }
+        Self {
+            frames,
+            clock,
+            timeline: Some(timeline),
+            sampled: None,
+        }
     }
 
     /// The second `at_us` falls in.
     pub fn second_of(&self, at_us: i64) -> i64 {
         let wall_us = self.clock.epoch_ms as i64 * 1_000 + at_us;
         wall_us.div_euclid(1_000_000)
+    }
+
+    /// Where second `t` begins on the trace, in microseconds.
+    pub fn second_starts(&self, t: i64) -> i64 {
+        t * 1_000_000 - self.clock.epoch_ms as i64 * 1_000
     }
 
     /// Every second with a frame in it, oldest first; idle ones are not
@@ -141,7 +201,9 @@ impl Profile {
 
     /// The frames that began in second `t`.
     pub fn frames_in(&self, t: i64) -> impl Iterator<Item = &Frame> {
-        self.frames.iter().filter(move |frame| self.second_of(frame.at_us) == t)
+        self.frames
+            .iter()
+            .filter(move |frame| self.second_of(frame.at_us) == t)
     }
 
     /// Second `t` as a person reads it: `14:03:27`, or `27 s` into the trace.
@@ -149,7 +211,7 @@ impl Profile {
         if self.clock.epoch_ms == 0 {
             return format!("{t} s");
         }
-        self.local(t * 1_000_000 - self.clock.epoch_ms as i64 * 1_000, "%H:%M:%S")
+        self.local(self.second_starts(t), "%H:%M:%S")
     }
 
     /// When `at_us` was, to the millisecond.
@@ -162,7 +224,11 @@ impl Profile {
 
     fn local(&self, at_us: i64, format: &str) -> String {
         chrono::DateTime::from_timestamp_micros(self.clock.epoch_ms as i64 * 1_000 + at_us)
-            .map(|when| when.with_timezone(&chrono::Local).format(format).to_string())
+            .map(|when| {
+                when.with_timezone(&chrono::Local)
+                    .format(format)
+                    .to_string()
+            })
             .unwrap_or_default()
     }
 
@@ -173,7 +239,9 @@ impl Profile {
     /// What the application recorded towards `frame`: from where the frame
     /// before it ended to where it ends, oldest first. The first frame of a
     /// capture has nothing before it, and gets what happened during it.
-    pub fn work<'a>(&self, frame: &Frame, log: &'a TraceLog) -> Vec<&'a Span> {
+    /// A source waiting for its next item is left out: the wait is not work,
+    /// though what the source does under it is.
+    pub fn work<'log>(&self, frame: &Frame, log: &'log TraceLog) -> Vec<&'log Span> {
         let since = self
             .frames
             .iter()
@@ -181,19 +249,19 @@ impl Profile {
             .last()
             .map_or(frame.at_us, Frame::end_us);
         let until = frame.end_us();
+        if until < 0 {
+            return Vec::new();
+        }
 
-        log.iter()
-            .filter(|span| {
-                let at = span.at as i64;
-                at > since && at <= until
-            })
+        log.during(since.saturating_add(1).max(0) as u64, until as u64)
+            .filter(|span| !matches!(span.point, TracePoint::Pull { .. }))
             .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use guinea_devtools_protocol::{TraceBatch, TracePoint};
+    use guinea_devtools_protocol::TraceBatch;
 
     use super::*;
 
@@ -260,6 +328,8 @@ mod tests {
         );
 
         assert_eq!(profile.frames.len(), 5, "a frame with no QPC is left out");
+        assert_eq!(profile.second_starts(start + 1), 500_000);
+        assert_eq!(profile.second_of(profile.second_starts(start + 4)), start + 4);
         assert_eq!(
             profile.seconds(),
             [
@@ -287,7 +357,10 @@ mod tests {
             ]
         );
         assert_eq!(
-            profile.frames_in(start + 1).map(|frame| frame.at_us).collect::<Vec<_>>(),
+            profile
+                .frames_in(start + 1)
+                .map(|frame| frame.at_us)
+                .collect::<Vec<_>>(),
             [600_000, 700_000]
         );
     }
@@ -297,6 +370,7 @@ mod tests {
         let profile = Profile::new(timeline(), Clock::default(), &[captured(2_500_000, 1_000)]);
 
         assert_eq!(profile.seconds()[0].t, 2);
+        assert_eq!(profile.second_starts(2), 2_000_000);
         assert_eq!(profile.second_named(2), "2 s");
         assert_eq!(profile.when(2_500_000), "2.500 s");
     }
@@ -313,7 +387,10 @@ mod tests {
                 .to_string()
         };
 
-        assert_eq!(profile.second_named(1_700_000_003), local(3_000_000, "%H:%M:%S"));
+        assert_eq!(
+            profile.second_named(1_700_000_003),
+            local(3_000_000, "%H:%M:%S")
+        );
         assert_eq!(profile.when(3_250_000), local(3_250_000, "%H:%M:%S%.3f"));
     }
 
@@ -330,7 +407,9 @@ mod tests {
             parent: None,
             at,
             took: None,
-            point: TracePoint::Note { text: format!("{id}") },
+            point: TracePoint::Note {
+                text: format!("{id}"),
+            },
         };
         log.absorb(TraceBatch {
             spans: vec![
@@ -344,9 +423,96 @@ mod tests {
             dropped: 0,
         });
 
-        let ids = |frame: &Frame| profile.work(frame, &log).iter().map(|span| span.id).collect::<Vec<_>>();
+        let ids = |frame: &Frame| {
+            profile
+                .work(frame, &log)
+                .iter()
+                .map(|span| span.id)
+                .collect::<Vec<_>>()
+        };
 
-        assert_eq!(ids(&profile.frames[0]), [2], "the first frame: only what happened during it");
+        assert_eq!(
+            ids(&profile.frames[0]),
+            [2],
+            "the first frame: only what happened during it"
+        );
         assert_eq!(ids(&profile.frames[1]), [3, 4]);
+    }
+
+    #[test]
+    fn samples_are_placed_on_the_trace_and_picked_by_when_they_were_taken() {
+        use guinea_devtools_protocol::native::{Sample, Stacks};
+
+        let mut sampled = Sampled::default();
+        sampled.absorb(Stacks {
+            functions: vec!["main".into(), "draw".into()],
+            stacks: vec![vec![0], vec![1, 0]],
+            samples: [(100_000, 0), (101_000, 1), (102_000, 1), (103_000, 0)]
+                .into_iter()
+                .map(|(at, stack)| Sample {
+                    qpc: qpc_at(at),
+                    stack,
+                })
+                .collect(),
+            ..Stacks::default()
+        });
+        let profile = Profile::new(timeline(), Clock::default(), &[]).with_samples(&sampled);
+
+        let picked: Vec<(i64, Vec<&str>)> = profile
+            .samples_between(101_000, 103_000)
+            .into_iter()
+            .map(|(at, stack)| {
+                (
+                    at,
+                    stack.iter().map(|id| profile.function(*id)).collect(),
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            picked,
+            [(101_000, vec!["draw", "main"]), (102_000, vec!["draw", "main"])]
+        );
+    }
+
+    #[test]
+    fn a_source_waiting_for_its_next_item_is_not_work_but_what_it_does_under_the_wait_is() {
+        let profile = Profile::new(timeline(), Clock::default(), &[captured(500_000, 10_000)]);
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![
+                Span {
+                    id: 1,
+                    parent: None,
+                    at: 501_000,
+                    took: Some(800_000),
+                    point: TracePoint::Pull {
+                        actor: "Agent".into(),
+                        actor_id: 1,
+                        output: "Streamed".into(),
+                        source: 9,
+                    },
+                },
+                Span {
+                    id: 2,
+                    parent: Some(1),
+                    at: 502_000,
+                    took: Some(3_000),
+                    point: TracePoint::Note {
+                        text: "scan".into(),
+                    },
+                },
+            ],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+
+        let ids: Vec<u64> = profile
+            .work(&profile.frames[0], &log)
+            .iter()
+            .map(|span| span.id)
+            .collect();
+
+        assert_eq!(ids, [2]);
     }
 }

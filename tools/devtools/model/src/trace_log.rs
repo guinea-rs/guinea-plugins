@@ -1,11 +1,12 @@
 //! Every trace record a session sent, indexed both ways.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use guinea_devtools_protocol::{Span, TraceBatch, TracePoint};
 
-/// How many records a session keeps before forgetting the oldest.
-pub const KEPT: usize = 50_000;
+/// How many records a session keeps before forgetting the oldest: enough
+/// that the profiler's last minutes still have what ran in them.
+pub const KEPT: usize = 500_000;
 
 /// Ids grow in the order an application creates its points, but a point
 /// made off the UI thread is recorded when it gets there, after points made
@@ -17,6 +18,8 @@ pub struct TraceLog {
     children: HashMap<u64, Vec<u64>>,
     /// By id.
     order: VecDeque<u64>,
+    /// By when they happened, then id.
+    by_time: BTreeSet<(u64, u64)>,
     /// As they arrived; the last [`KEPT`] of them.
     arrived: VecDeque<u64>,
     /// How many ever arrived.
@@ -45,7 +48,12 @@ impl TraceLog {
             }
             self.arrived.push_back(span.id);
             self.arrivals += 1;
-            self.spans.insert(span.id, span);
+            self.by_time.insert((span.at, span.id));
+            if let Some(old) = self.spans.insert(span.id, span)
+                && self.spans.get(&old.id).is_none_or(|new| new.at != old.at)
+            {
+                self.by_time.remove(&(old.at, old.id));
+            }
         }
 
         for end in batch.ends {
@@ -58,7 +66,9 @@ impl TraceLog {
 
         while self.order.len() > KEPT {
             if let Some(old) = self.order.pop_front() {
-                self.spans.remove(&old);
+                if let Some(span) = self.spans.remove(&old) {
+                    self.by_time.remove(&(span.at, span.id));
+                }
                 self.children.remove(&old);
             }
         }
@@ -193,6 +203,16 @@ impl TraceLog {
             .filter_map(|id| self.spans.get(id))
     }
 
+    /// What was recorded from the trace's `from` microsecond to its `to`,
+    /// both included, in the order it happened.
+    pub fn during(&self, from: u64, to: u64) -> impl Iterator<Item = &Span> {
+        let range = (from <= to).then_some((from, 0)..=(to, u64::MAX));
+        range
+            .into_iter()
+            .flat_map(|range| self.by_time.range(range))
+            .filter_map(|(_, id)| self.spans.get(id))
+    }
+
     /// From the first known cause down to `id`, inclusive, but no more than
     /// `limit` records; and whether older causes were left out.
     ///
@@ -244,7 +264,12 @@ mod tests {
     fn log() -> TraceLog {
         let mut log = TraceLog::default();
         log.absorb(TraceBatch {
-            spans: vec![span(1, None), span(2, Some(1)), span(3, Some(2)), span(4, Some(1))],
+            spans: vec![
+                span(1, None),
+                span(2, Some(1)),
+                span(3, Some(2)),
+                span(4, Some(1)),
+            ],
             ends: Vec::new(),
             dropped: 0,
         });
@@ -314,7 +339,11 @@ mod tests {
         let cursor = log.endings();
         log.absorb(TraceBatch {
             spans: Vec::new(),
-            ends: vec![End { id: 3, took: 5 }, End { id: 1, took: 9 }, End { id: 42, took: 1 }],
+            ends: vec![
+                End { id: 3, took: 5 },
+                End { id: 1, took: 9 },
+                End { id: 42, took: 1 },
+            ],
             dropped: 0,
         });
 
@@ -358,5 +387,23 @@ mod tests {
         assert_eq!(log.len(), KEPT);
         assert!(log.get(1).is_none());
         assert!(log.get(KEPT as u64 + 2).is_some());
+        assert_eq!(log.during(0, u64::MAX).count(), KEPT);
+        assert_eq!(log.during(0, 29).count(), 0, "1 and 2 are forgotten");
+    }
+
+    #[test]
+    fn records_are_found_by_when_they_happened_whatever_order_they_came_in() {
+        let mut log = log();
+        log.absorb(TraceBatch {
+            spans: vec![Span { at: 15, ..span(9, Some(1)) }, span(5, None)],
+            ends: Vec::new(),
+            dropped: 0,
+        });
+
+        let during: Vec<u64> = log.during(11, 40).map(|s| s.id).collect();
+        assert_eq!(during, [9, 2, 3, 4], "from 11 to 40, by time");
+        let at: Vec<u64> = log.during(50, 50).map(|s| s.id).collect();
+        assert_eq!(at, [5]);
+        assert_eq!(log.during(40, 10).count(), 0);
     }
 }

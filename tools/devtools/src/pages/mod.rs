@@ -1,7 +1,7 @@
 pub mod application;
 pub mod elements;
-pub mod graph;
 pub mod home;
+pub mod profiler;
 pub mod trace;
 
 use crate::features::focus::contracts::Focus;

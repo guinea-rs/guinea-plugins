@@ -25,7 +25,10 @@ pub fn router() -> OpenApiRouter<crate::State> {
 
 /// The application whose trace the frames go on, its profile, and the tree
 /// its inspector holds.
-fn profiled<'a>(sessions: &'a Sessions, app: &str) -> Result<(&'a Session, Profile, &'a NativeTree), Failure> {
+fn profiled<'a>(
+    sessions: &'a Sessions,
+    app: &str,
+) -> Result<(&'a Session, Profile<'a>, &'a NativeTree), Failure> {
     let asked = session(sessions, app)?;
     let profile = sessions.profile(asked.id).map_err(Failure::refused)?;
     let traced = sessions.clocked(asked.id).unwrap_or(asked);
@@ -66,7 +69,10 @@ struct SecondView {
         (status = 409, description = "No inspector, no frames captured on a clock, or no clock")
     )
 )]
-async fn seconds(State(state): State<crate::State>, Path(app): Path<String>) -> Result<Json<Seconds>, Failure> {
+async fn seconds(
+    State(state): State<crate::State>,
+    Path(app): Path<String>,
+) -> Result<Json<Seconds>, Failure> {
     state.read(|sessions| {
         let (_, profile, _) = profiled(sessions, &app)?;
         let seconds = profile
@@ -244,7 +250,11 @@ async fn frame(
             measure_us: frame.measure_us,
             arrange_us: frame.arrange_us,
             thread: frame.thread,
-            passes: frame.passes.iter().map(|pass| PassView::of(pass, tree)).collect(),
+            passes: frame
+                .passes
+                .iter()
+                .map(|pass| PassView::of(pass, tree))
+                .collect(),
             work,
         }))
     })

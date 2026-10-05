@@ -6,7 +6,7 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use guinea_devtools_api::Devtools;
-use guinea_devtools_model::protocol::native::{Frame, Pass};
+use guinea_devtools_model::protocol::native::{Frame, Pass, Stacks};
 use guinea_devtools_model::protocol::{
     AppInfo, Capability, ClockAnchor, Report, Span, TraceBatch, TracePoint,
 };
@@ -92,6 +92,7 @@ fn sessions(inspected: bool) -> Sessions {
                         ..Frame::default()
                     },
                 ],
+                stacks: Stacks::default(),
             },
         ));
     }
@@ -114,7 +115,12 @@ async fn ask(inspected: bool, url: &str) -> (StatusCode, Value) {
         .expect("a request");
     let response = router.oneshot(request).await.expect("an answer");
     let status = response.status();
-    let body = response.into_body().collect().await.expect("a body").to_bytes();
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("a body")
+        .to_bytes();
 
     (status, serde_json::from_slice(&body).unwrap_or(Value::Null))
 }
@@ -155,7 +161,9 @@ async fn a_frame_says_what_the_application_recorded_towards_it() {
     let work = body["work"].as_array().expect("work");
     assert_eq!(work[0]["record"], 7);
     assert!(
-        work[0]["says"].as_str().is_some_and(|says| says.contains("rows arrived")),
+        work[0]["says"]
+            .as_str()
+            .is_some_and(|says| says.contains("rows arrived")),
         "{body}"
     );
 

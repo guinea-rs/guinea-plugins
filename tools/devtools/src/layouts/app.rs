@@ -7,19 +7,19 @@ use crate::features::editor::contracts::{Editor, EditorChoice, PickEditor};
 use crate::features::editor::detect;
 use crate::features::focus::FocusFeature;
 use crate::features::focus::contracts::Focus;
+use crate::features::sessions::contracts::Live;
 use crate::features::tab::contracts::{LastTab, Opened};
 use crate::pages::application::Application;
 use crate::pages::elements::Elements;
-use crate::pages::graph::Graphs;
+use crate::pages::profiler::Profiler;
 use crate::pages::trace::Traces;
 use crate::routes::Route;
-use crate::features::sessions::contracts::Live;
 use crate::theme;
 
 #[derive(Default)]
 pub struct App;
 
-const TABS: [&str; 4] = ["Elements", "Graph", "Trace", "Application"];
+const TABS: [&str; 4] = ["Elements", "Trace", "Profiler", "Application"];
 
 /// The tab titled `title` for `app`, or the first one for a title no tab has.
 pub fn tab_named(title: &str, app: u64) -> Route {
@@ -30,8 +30,8 @@ pub fn tab_named(title: &str, app: u64) -> Route {
 fn tab(index: usize, app: u64) -> Route {
     match index {
         0 => Route::Elements { app },
-        1 => Route::Graphs { app },
-        2 => Route::Traces { app },
+        1 => Route::Traces { app },
+        2 => Route::Profiler { app },
         _ => Route::Application { app },
     }
 }
@@ -53,8 +53,8 @@ impl Layout for App {
 
         let current = [
             cx.child_is::<Elements>(),
-            cx.child_is::<Graphs>(),
             cx.child_is::<Traces>(),
+            cx.child_is::<Profiler>(),
             cx.child_is::<Application>(),
         ];
         let open = current.iter().position(|on| *on).unwrap_or(0);
@@ -87,9 +87,7 @@ impl Layout for App {
         egui::Panel::bottom("status")
             .resizable(false)
             .exact_size(24.0)
-            .frame(
-                components::side().inner_margin(egui::Margin::symmetric(components::PADDING, 0)),
-            )
+            .frame(components::side().inner_margin(egui::Margin::symmetric(components::PADDING, 0)))
             .show(ui, |ui| {
                 let (app, picked) = status(ui, &live.read(), focus.app, editor.0);
                 if let Some(id) = app {
@@ -106,7 +104,9 @@ impl Layout for App {
             if known {
                 page.draw(ui);
             } else {
-                components::block(ui, |ui| ui.label(components::dim("this connection is gone")));
+                components::block(ui, |ui| {
+                    ui.label(components::dim("this connection is gone"))
+                });
             }
         });
 
@@ -115,7 +115,6 @@ impl Layout for App {
         }
     }
 }
-
 
 /// Which application is shown and how it is connected, and the editor source
 /// links open in; the application and the editor picked instead, if any.

@@ -21,7 +21,12 @@ const RUN: u32 = WM_APP as u32 + 1;
 static DOOR: AtomicIsize = AtomicIsize::new(0);
 static THREAD: AtomicU32 = AtomicU32::new(0);
 
-unsafe extern "system" fn door(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn door(
+    window: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
     if message == RUN {
         let job = unsafe { &mut *(lparam as *mut &mut dyn FnMut()) };
         job();
@@ -65,6 +70,11 @@ pub fn install() {
     if !window.is_null() {
         DOOR.store(window as isize, Ordering::SeqCst);
     }
+}
+
+/// The UI thread's id; `None` before [`install`].
+pub fn thread() -> Option<u32> {
+    Some(THREAD.load(Ordering::SeqCst)).filter(|thread| *thread != 0)
 }
 
 /// Runs `job` on the UI thread and waits for it; `None` before [`install`].

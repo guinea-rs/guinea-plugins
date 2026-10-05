@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::chains::Chains;
 use crate::clock::Clock;
-use crate::tasks::Tasks;
 use crate::native::{Inspection, Picked};
 use crate::profile::{Profile, Timeline};
+use crate::tasks::Tasks;
 use crate::timers::Timers;
 use crate::trace::{Classes, Reading};
 use crate::trace_log::TraceLog;
@@ -171,8 +171,12 @@ impl Sessions {
     /// What `latest` names: the newest connected application, or else the
     /// newest one at all.
     pub fn latest(&self) -> Option<&Session> {
-        self.newest()
-            .or_else(|| self.by_id.values().rev().find(|session| !session.inspects_only()))
+        self.newest().or_else(|| {
+            self.by_id
+                .values()
+                .rev()
+                .find(|session| !session.inspects_only())
+        })
     }
 
     /// The connected native inspector in the same process as session `id`:
@@ -180,7 +184,8 @@ impl Sessions {
     pub fn native_for(&self, id: u64) -> Option<&Session> {
         let app = self.get(id)?;
 
-        let inspects = |session: &&Session| session.connected && session.info.can(Capability::NativeTree);
+        let inspects =
+            |session: &&Session| session.connected && session.info.can(Capability::NativeTree);
         if inspects(&app) {
             return Some(app);
         }
@@ -195,17 +200,19 @@ impl Sessions {
     /// The frames of session `id`'s last capture on its trace's timeline:
     /// the clock comes from the application, the frames from its inspector.
     /// Why there is none, when there is none.
-    pub fn profile(&self, id: u64) -> Result<Profile, String> {
-        let app = self
-            .clocked(id)
-            .ok_or("the application sent no clock: its devtools plugin speaks a protocol older than 3.3")?;
+    pub fn profile(&self, id: u64) -> Result<Profile<'_>, String> {
+        let app = self.clocked(id).ok_or(
+            "the application sent no clock: its devtools plugin speaks a protocol older than 3.3",
+        )?;
         let anchor = app.info.clock.unwrap_or_default();
-        let timeline = Timeline::new(anchor).ok_or("the application read no QPC: frames are placed on Windows only")?;
+        let timeline = Timeline::new(anchor)
+            .ok_or("the application read no QPC: frames are placed on Windows only")?;
         let inspector = self
             .native_for(app.id)
             .ok_or("no native inspector: attach one first")?;
 
-        Ok(Profile::new(timeline, app.clock(), &inspector.inspection.frames))
+        Ok(Profile::new(timeline, app.clock(), &inspector.inspection.kept)
+            .with_samples(&inspector.inspection.sampled))
     }
 
     /// The session of the application `id` belongs to that sent a clock:
@@ -232,7 +239,9 @@ impl Sessions {
             .values()
             .rev()
             .find(|other| {
-                other.connected && other.id != gone.id && other.info.identifier == gone.info.identifier
+                other.connected
+                    && other.id != gone.id
+                    && other.info.identifier == gone.info.identifier
             })
             .map(|other| other.id)
     }
@@ -306,16 +315,24 @@ impl Sessions {
                         session.tasks.absorb(&session.trace);
                     }
                     Report::NativeTree { changes } => session.inspection.tree.apply(changes),
-                    Report::NativeProperties { element, properties } => {
+                    Report::NativeProperties {
+                        element,
+                        properties,
+                    } => {
                         session.inspection.properties = Some((element, properties));
                     }
                     Report::NativePicked { chain, bounds } => {
                         session.inspection.picked = Some(Picked { chain, bounds });
                     }
-                    Report::NativePerf { frames } => session.inspection.frames = frames,
+                    Report::NativePerf { frames, stacks } => {
+                        session.inspection.captured(frames);
+                        session.inspection.sampled.absorb(stacks);
+                    }
                     Report::NativeEnums { enums } => {
-                        session.inspection.enums =
-                            enums.into_iter().map(|kind| (kind.name, kind.values)).collect();
+                        session.inspection.enums = enums
+                            .into_iter()
+                            .map(|kind| (kind.name, kind.values))
+                            .collect();
                     }
                     Report::Changed(changes) => {
                         if let Some(timers) = &changes.timers {
@@ -368,7 +385,7 @@ mod tests {
     #[test]
     fn a_profile_takes_the_clock_from_the_application_and_the_frames_from_its_inspector() {
         use guinea_devtools_protocol::ClockAnchor;
-        use guinea_devtools_protocol::native::Frame;
+        use guinea_devtools_protocol::native::{Frame, Stacks};
 
         let anchor = ClockAnchor {
             qpc: 1_000_000,
@@ -412,15 +429,49 @@ mod tests {
                     thread: 9,
                     ..Frame::default()
                 }],
+                stacks: Stacks::default(),
             },
         ));
 
         let profile = sessions.profile(1).expect("a profile");
         assert_eq!(profile.frames.len(), 1);
         assert_eq!(profile.frames[0].at_us, 250_000);
+
+        let frame = |qpc: u64| Frame {
+            took_us: 4_000,
+            qpc,
+            thread: 9,
+            ..Frame::default()
+        };
+        sessions.apply(report(
+            2,
+            Report::NativePerf {
+                frames: vec![frame(1_250_000), frame(1_400_000)],
+                stacks: Stacks::default(),
+            },
+        ));
+        sessions.apply(report(
+            2,
+            Report::NativePerf {
+                frames: vec![frame(1_600_000)],
+                stacks: Stacks::default(),
+            },
+        ));
+        let at: Vec<i64> = sessions
+            .profile(1)
+            .expect("a profile")
+            .frames
+            .iter()
+            .map(|frame| frame.at_us)
+            .collect();
+        assert_eq!(
+            at,
+            [250_000, 400_000, 600_000],
+            "captures add up, a frame in two of them counted once"
+        );
         assert_eq!(
             sessions.profile(2).map(|profile| profile.frames.len()),
-            Ok(1),
+            Ok(3),
             "asked through the inspector's own session, the same profile"
         );
     }
@@ -615,7 +666,9 @@ mod tests {
 
         sessions.apply(Incoming::Report(
             1,
-            Box::new(Report::Trace(guinea_devtools_protocol::TraceBatch::default())),
+            Box::new(Report::Trace(
+                guinea_devtools_protocol::TraceBatch::default(),
+            )),
         ));
         let traced = sessions.revision();
         assert!(traced > opened);

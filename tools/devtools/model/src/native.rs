@@ -91,7 +91,11 @@ impl NativeTree {
         let mut unseen: Vec<u64> = self.roots.iter().rev().copied().collect();
 
         while let Some(handle) = unseen.pop() {
-            if self.elements.get(&handle).is_some_and(|element| element.mark == mark) {
+            if self
+                .elements
+                .get(&handle)
+                .is_some_and(|element| element.mark == mark)
+            {
                 found.push(handle);
             }
             unseen.extend(self.children(handle).iter().rev());
@@ -130,8 +134,33 @@ pub struct Inspection {
     pub refused: Option<(String, String)>,
     /// The frames of the last capture, oldest first.
     pub frames: Vec<guinea_devtools_protocol::native::Frame>,
+    /// Every frame captured since the inspector came, oldest first: the
+    /// newest [`KEPT_FRAMES`] of them. A capture restarts the inspector's
+    /// ring, so the ring alone only ever holds what came since the last one.
+    pub kept: Vec<guinea_devtools_protocol::native::Frame>,
+    /// The UI thread's stacks, sampled while sampling was on.
+    pub sampled: crate::samples::Sampled,
     /// Each enumeration's value names, by the type's full name.
     pub enums: HashMap<String, Vec<(i32, String)>>,
+}
+
+/// How many captured frames an inspection keeps: at 60 frames a second,
+/// about ten minutes of steady drawing.
+pub const KEPT_FRAMES: usize = 36_000;
+
+impl Inspection {
+    /// Takes in a capture: it becomes the last one, and its frames join the
+    /// kept ones - once each, however many captures a frame was in.
+    pub fn captured(&mut self, frames: Vec<guinea_devtools_protocol::native::Frame>) {
+        for frame in frames.iter().filter(|frame| frame.qpc != 0) {
+            if let Err(at) = self.kept.binary_search_by_key(&frame.qpc, |kept| kept.qpc) {
+                self.kept.insert(at, frame.clone());
+            }
+        }
+        let over = self.kept.len().saturating_sub(KEPT_FRAMES);
+        self.kept.drain(..over);
+        self.frames = frames;
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -193,7 +222,10 @@ mod tests {
         let mut tree = NativeTree::default();
         tree.apply(vec![element(1, 0, 0), element(2, 1, 0), element(3, 2, 0)]);
 
-        tree.apply(vec![Change::Removed { handle: 2, parent: 1 }]);
+        tree.apply(vec![Change::Removed {
+            handle: 2,
+            parent: 1,
+        }]);
 
         assert_eq!(tree.len(), 1);
         assert!(tree.children(1).is_empty());

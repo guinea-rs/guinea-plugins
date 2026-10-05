@@ -5,6 +5,7 @@
 //! serialises it.
 
 pub mod access;
+pub mod chains;
 pub mod clock;
 pub mod elements;
 pub mod graph;
@@ -13,7 +14,7 @@ pub mod native;
 pub mod panels;
 pub mod profile;
 pub mod properties;
-pub mod chains;
+pub mod samples;
 pub mod sessions;
 pub mod tasks;
 pub mod timers;

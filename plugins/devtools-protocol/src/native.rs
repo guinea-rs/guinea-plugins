@@ -92,6 +92,35 @@ pub struct Frame {
     pub thread: u32,
 }
 
+/// The UI thread's stack, sampled while sampling is on: each name once,
+/// each distinct stack once, and every sample naming its stack.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Stacks {
+    /// Every function a stack names: its symbol, or the module and offset
+    /// when there is none.
+    pub functions: Vec<String>,
+    /// Indices into `functions`, the innermost call first.
+    pub stacks: Vec<Vec<u32>>,
+    /// Oldest first.
+    pub samples: Vec<Sample>,
+    /// The path of every module a function is in.
+    #[serde(default)]
+    pub modules: Vec<String>,
+    /// For each of `functions`, an index into `modules`; `None` when the
+    /// address was in no module.
+    #[serde(default)]
+    pub origins: Vec<Option<u32>>,
+}
+
+/// One look at the UI thread's stack.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sample {
+    /// `QueryPerformanceCounter` when it was taken.
+    pub qpc: u64,
+    /// An index into [`Stacks::stacks`].
+    pub stack: u32,
+}
+
 /// One element's measure or arrange, as long as it took including its
 /// children.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

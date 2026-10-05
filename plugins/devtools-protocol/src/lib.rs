@@ -30,7 +30,7 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 3, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 4, 0);
 
 /// The first version whose devtools take [`Report::Changed`] in place of
 /// one snapshot after another.
@@ -89,8 +89,13 @@ pub enum Report {
         bounds: Option<native::Bounds>,
     },
     /// The frames of the last few seconds, oldest first, as
-    /// [`Command::NativePerfCapture`] asked for.
-    NativePerf { frames: Vec<native::Frame> },
+    /// [`Command::NativePerfCapture`] asked for, and the stacks sampled since
+    /// the capture before, while [`Command::NativeSampling`] has it on.
+    NativePerf {
+        frames: Vec<native::Frame>,
+        #[serde(default)]
+        stacks: native::Stacks,
+    },
     /// Where the puffin profiler is listening, and `None` once it stops.
     /// Frames travel over that connection, not this one.
     Profiler { at: Option<String> },
@@ -151,6 +156,10 @@ pub enum Command {
     /// Needs [`Capability::Profiler`]. Switches the puffin profiler on or
     /// off; the application answers with [`Report::Profiler`].
     Profiler { on: bool },
+    /// Needs [`Capability::NativeSamples`]. Starts or stops sampling the UI
+    /// thread's stack; what was sampled comes with the next
+    /// [`Report::NativePerf`].
+    NativeSampling { on: bool },
     /// Needs [`Capability::Act`]. The action the application registered as
     /// `action`, decoded from `payload`, to the scope that answers it - under
     /// window `root`, or the newest. Answered with [`Answer::Acted`].
@@ -199,6 +208,7 @@ impl Command {
             Command::NativeHighlight { .. } => Capability::NativeHighlight,
             Command::NativePerfCapture => Capability::NativePerf,
             Command::Profiler { .. } => Capability::Profiler,
+            Command::NativeSampling { .. } => Capability::NativeSamples,
             Command::Act { .. } | Command::Publish { .. } => Capability::Act,
             Command::NativeFind { .. }
             | Command::NativeClick { .. }
@@ -239,6 +249,8 @@ pub enum Capability {
     NativeHighlight,
     /// [`Report::NativePerf`], on request.
     NativePerf,
+    /// [`Command::NativeSampling`]: the UI thread's stacks, with the frames.
+    NativeSamples,
     /// [`Report::Profiler`]: the puffin profiler, switched on from here and
     /// read over its own connection.
     Profiler,

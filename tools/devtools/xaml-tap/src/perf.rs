@@ -3,9 +3,10 @@
 //! WinUI 3 writes frames, measure and arrange to the `Microsoft-Windows-XAML`
 //! ETW provider. An ordinary session needs an administrator; a private one
 //! does not, but only sees its own process - which is why this lives in the
-//! tap. While devtools are connected the session writes into a ring file of
-//! a few megabytes, so it always holds the last seconds. A capture stops it,
-//! reads the ring into frames, and starts it again.
+//! tap. While devtools are connected the session writes into a ring file,
+//! so it always holds the last seconds. A capture starts the next session
+//! before it stops the one it reads, so no frame falls between the two; a
+//! frame both saw comes twice, and devtools keep it once.
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -15,58 +16,85 @@ use uniproc_etw::{Enable, Options, Session, Timestamps};
 
 const XAML: u128 = 0x531a35ab_63ce_4bcf_aa98_f88c7a89e455;
 const VERBOSE: u8 = 5;
-const RING_MB: u32 = 32;
-const KEPT_FRAMES: usize = 600;
+/// The provider's `Detailed` keyword, which measure and arrange carry.
+const DETAILED: u64 = 0x1;
+/// The provider's `Layout` keyword, which frames carry.
+const LAYOUT: u64 = 0x40;
+/// Room for the seconds between two captures of heavy frames - thousands of
+/// passes each - before the ring overwrites the oldest.
+const RING_MB: u32 = 256;
 
-static SESSION: Mutex<Option<Session>> = Mutex::new(None);
+/// The session recording now, and its generation: each names its own ring.
+static SESSION: Mutex<Option<(Session, u32)>> = Mutex::new(None);
 
-fn name() -> String {
-    format!("guinea-xaml-perf-{}", std::process::id())
+fn name(generation: u32) -> String {
+    format!("guinea-xaml-perf-{}-{generation}", std::process::id())
 }
 
-fn ring() -> PathBuf {
-    std::env::temp_dir().join(format!("{}.etl", name()))
+fn ring(generation: u32) -> PathBuf {
+    std::env::temp_dir().join(format!("{}.etl", name(generation)))
 }
 
-/// Starts recording, unless it already is.
-pub fn start() -> Result<(), String> {
-    let mut session = SESSION.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if session.is_some() {
-        return Ok(());
-    }
+fn lock() -> std::sync::MutexGuard<'static, Option<(Session, u32)>> {
+    SESSION
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
-    let started = Session::start(&name(), &Options::private_in_proc(ring(), RING_MB))
-        .map_err(|error| format!("the ETW session did not start: {error}"))?;
+fn begin(generation: u32) -> Result<Session, String> {
+    let _ = std::fs::remove_file(ring(generation));
+    let started = Session::start(
+        &name(generation),
+        &Options::private_in_proc(ring(generation), RING_MB),
+    )
+    .map_err(|error| format!("the ETW session did not start: {error}"))?;
     started
         .enable(
             XAML,
             Enable {
-                keywords: u64::MAX,
+                keywords: DETAILED | LAYOUT,
                 level: VERBOSE,
             },
         )
         .map_err(|error| format!("the XAML provider was not enabled: {error}"))?;
+    Ok(started)
+}
 
-    *session = Some(started);
+/// Starts recording, unless it already is.
+pub fn start() -> Result<(), String> {
+    let mut session = lock();
+    if session.is_none() {
+        *session = Some((begin(0)?, 0));
+    }
     Ok(())
 }
 
-/// Stops recording, when devtools go away, and removes the ring - up to 32
-/// MB that nobody will read.
+/// Stops recording, when devtools go away, and removes the ring that nobody
+/// will read.
 pub fn stop() {
-    halt();
-    let _ = std::fs::remove_file(ring());
+    if let Some((session, generation)) = lock().take() {
+        drop(session);
+        let _ = std::fs::remove_file(ring(generation));
+    }
 }
 
-fn halt() {
-    drop(SESSION.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take());
-}
-
-/// What the ring holds now, as frames; recording goes on afterwards.
+/// What the ring holds now, as frames; recording goes on in a new session,
+/// started before the old one stops.
 pub fn capture() -> Result<Vec<Frame>, String> {
-    halt();
-    let frames = read(&ring());
-    start()?;
+    let (old, generation) = {
+        let mut session = lock();
+        let generation = session.as_ref().map_or(0, |(_, generation)| *generation);
+        let next = generation.wrapping_add(1);
+        let started = begin(next)?;
+        match session.replace((started, next)) {
+            Some((old, _)) => (old, generation),
+            None => return Ok(Vec::new()),
+        }
+    };
+
+    drop(old);
+    let frames = read(&ring(generation));
+    let _ = std::fs::remove_file(ring(generation));
     frames
 }
 
@@ -158,24 +186,34 @@ impl Frames {
                 }
             }
             ("MeasureElement" | "ArrangeElement", "Start") => {
-                let Some(open) = self.open.as_mut() else { return };
-                open.open_passes.push((seen.element.unwrap_or(0), kind, seen.at));
+                let Some(open) = self.open.as_mut() else {
+                    return;
+                };
+                open.open_passes
+                    .push((seen.element.unwrap_or(0), kind, seen.at));
             }
             ("MeasureElement" | "ArrangeElement", "Stop") => {
-                let Some(open) = self.open.as_mut() else { return };
+                let Some(open) = self.open.as_mut() else {
+                    return;
+                };
                 let element = seen.element.unwrap_or(0);
 
                 let Some(at) = open
                     .open_passes
                     .iter()
-                    .rposition(|(open_element, open_kind, _)| *open_element == element && *open_kind == kind)
+                    .rposition(|(open_element, open_kind, _)| {
+                        *open_element == element && *open_kind == kind
+                    })
                 else {
                     return;
                 };
                 let (_, _, started) = open.open_passes.remove(at);
                 let took = seen.at - started;
 
-                let outermost = !open.open_passes.iter().any(|(_, open_kind, _)| *open_kind == kind);
+                let outermost = !open
+                    .open_passes
+                    .iter()
+                    .any(|(_, open_kind, _)| *open_kind == kind);
                 if outermost {
                     if kind == "measure" {
                         open.measure += took;
@@ -190,17 +228,15 @@ impl Frames {
         }
     }
 
-    /// The frames seen, the last [`KEPT_FRAMES`] of them, with QPC ticks of
-    /// `frequency` a second turned into microseconds.
+    /// Every frame seen, with QPC ticks of `frequency` a second turned into
+    /// microseconds.
     fn finish(self, frequency: i64) -> Vec<Frame> {
         let frequency = frequency.max(1) as i128;
         let micros = |ticks: i64| (ticks.max(0) as i128 * 1_000_000 / frequency) as u64;
         let first = self.done.first().map_or(0, |frame| frame.at);
-        let kept = self.done.len().saturating_sub(KEPT_FRAMES);
 
         self.done
             .into_iter()
-            .skip(kept)
             .map(|drawn| {
                 let mut passes: Vec<Pass> = drawn
                     .passes
@@ -252,7 +288,13 @@ mod tests {
         for element in 0..20u64 {
             let began = start + 300 + element as i64 * 30;
             seen(&mut frames, began, "MeasureElement", "Start", Some(element));
-            seen(&mut frames, began + 15, "MeasureElement", "Stop", Some(element));
+            seen(
+                &mut frames,
+                began + 15,
+                "MeasureElement",
+                "Stop",
+                Some(element),
+            );
         }
         seen(&mut frames, start + 30_000, "Frame", "Stop", None);
 
@@ -265,9 +307,45 @@ mod tests {
         assert_eq!(frame.measure_us, 100, "twenty passes of 5 µs");
         assert_eq!(frame.passes.len(), 20, "every pass, not the costliest few");
 
-        let last = frame.passes.iter().find(|pass| pass.element == 19).expect("the last pass");
+        let last = frame
+            .passes
+            .iter()
+            .find(|pass| pass.element == 19)
+            .expect("the last pass");
         assert_eq!(last.kind, "measure");
         assert_eq!(last.took_us, 5);
-        assert_eq!(last.at_us, 290, "(300 + 19 × 30) ticks after the frame began");
+        assert_eq!(
+            last.at_us, 290,
+            "(300 + 19 × 30) ticks after the frame began"
+        );
+    }
+
+    #[test]
+    fn the_next_session_starts_while_the_last_still_records() {
+        let last = begin(u32::MAX - 1).map(|_| ());
+        let both = begin(u32::MAX - 1).and_then(|recording| {
+            let next = begin(u32::MAX).map(|_| ());
+            drop(recording);
+            next
+        });
+        let _ = std::fs::remove_file(ring(u32::MAX - 1));
+        let _ = std::fs::remove_file(ring(u32::MAX));
+
+        assert_eq!(last, Ok(()));
+        assert_eq!(both, Ok(()));
+    }
+
+    #[test]
+    fn every_frame_the_ring_held_is_kept_however_many() {
+        let mut frames = Frames::default();
+        for frame in 0..5_000i64 {
+            seen(&mut frames, frame * 100, "Frame", "Start", None);
+            seen(&mut frames, frame * 100 + 50, "Frame", "Stop", None);
+        }
+
+        let frames = frames.finish(1_000_000);
+
+        assert_eq!(frames.len(), 5_000);
+        assert_eq!(frames.first().map(|frame| frame.qpc), Some(0));
     }
 }
