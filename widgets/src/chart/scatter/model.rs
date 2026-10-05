@@ -53,6 +53,24 @@ pub trait ScatterData<K> {
 
     /// Hands `each` every point of series `index`, in any order.
     fn points(&self, index: usize, each: &mut dyn FnMut(&ScatterPoint<K>));
+
+    /// Hands `each` the points of series `index` from `from` to `to`, both
+    /// included: what the chart asks for when it only needs the points near
+    /// the pointer or on screen. Walks [`points`](Self::points) unless data
+    /// that knows its points' order answers faster.
+    fn points_between(
+        &self,
+        index: usize,
+        from: u64,
+        to: u64,
+        each: &mut dyn FnMut(&ScatterPoint<K>),
+    ) {
+        self.points(index, &mut |point| {
+            if (from..=to).contains(&point.at) {
+                each(point);
+            }
+        });
+    }
 }
 
 impl<K> ScatterData<K> for Vec<ScatterSeries<K>> {

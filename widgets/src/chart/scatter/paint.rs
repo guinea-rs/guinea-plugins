@@ -180,7 +180,11 @@ fn draw_points<K: Key>(
             continue;
         };
         let half = style.size / 2.0;
-        series.points(index, &mut |point| {
+        let (from, to) = plot.times_within(
+            (plot.left + plot.right) / 2.0,
+            (plot.right - plot.left) / 2.0 + half,
+        );
+        series.points_between(index, from, to, &mut |point| {
             let x = plot.x(point.at);
             if x < plot.left - half || x > plot.right + half {
                 return;

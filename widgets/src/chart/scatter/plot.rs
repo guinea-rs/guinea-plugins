@@ -156,7 +156,19 @@ impl Plot {
         }
     }
 
-    /// The point drawn nearest `(x, y)`, if it is within `reach`.
+    /// The times drawn from `x - reach` to `x + reach`, wherever that is,
+    /// widened to whole units: past either end of the span as well.
+    pub fn times_within(&self, x: f32, reach: f32) -> (u64, u64) {
+        let per_dip = self.span() / f64::from((self.right - self.left).max(f32::EPSILON));
+        let at = |x: f32| self.x.0 as f64 + f64::from(x - self.left) * per_dip;
+        (
+            at(x - reach).floor().max(0.0) as u64,
+            at(x + reach).ceil().max(0.0) as u64,
+        )
+    }
+
+    /// The point drawn nearest `(x, y)`, if it is within `reach`. Only the
+    /// points within `reach` of `x` are asked for.
     pub fn nearest<K: Key>(
         &self,
         data: &dyn ScatterData<K>,
@@ -164,9 +176,10 @@ impl Plot {
         y: f32,
         reach: f32,
     ) -> Option<Hit<K>> {
+        let (from, to) = self.times_within(x, reach);
         let mut nearest: Option<(f32, Hit<K>)> = None;
         for index in 0..data.series() {
-            data.points(index, &mut |point| {
+            data.points_between(index, from, to, &mut |point| {
                 let (px, py) = (self.x(point.at), self.y(point.value));
                 let far = (px - x).powi(2) + (py - y).powi(2);
                 if far > reach * reach || nearest.as_ref().is_some_and(|(best, _)| *best <= far) {
@@ -435,6 +448,71 @@ mod tests {
                 });
             }
         }
+    }
+
+    /// Data that says which stretches of time it was asked for, and has no
+    /// points.
+    #[derive(Default)]
+    struct Asked(std::cell::RefCell<Vec<(u64, u64)>>);
+
+    impl ScatterData<usize> for Asked {
+        fn series(&self) -> usize {
+            2
+        }
+
+        fn style(&self, _: usize) -> SeriesStyle {
+            Columns::style(
+                &Columns {
+                    at: Vec::new(),
+                    value: Vec::new(),
+                },
+                0,
+            )
+        }
+
+        fn points(&self, _: usize, _: &mut dyn FnMut(&ScatterPoint<usize>)) {
+            self.0.borrow_mut().push((0, u64::MAX));
+        }
+
+        fn points_between(
+            &self,
+            _: usize,
+            from: u64,
+            to: u64,
+            _: &mut dyn FnMut(&ScatterPoint<usize>),
+        ) {
+            self.0.borrow_mut().push((from, to));
+        }
+    }
+
+    #[test]
+    fn the_nearest_point_is_looked_for_only_within_reach_of_the_pointer() {
+        let plot = plot();
+        let asked = Asked::default();
+        let per_dip = plot.at(L + 100.0) - plot.at(L);
+
+        plot.nearest(&asked, L + 150.0, 140.0, 8.0);
+
+        let asked = asked.0.into_inner();
+        let reach = |(from, to): (u64, u64)| {
+            from <= 2_500 - 8 * per_dip / 100 && to >= 2_500 + 8 * per_dip / 100
+                && to - from <= 2 * 9 * per_dip / 100
+        };
+        assert_eq!(asked.len(), 2, "each series once: {asked:?}");
+        assert!(asked.iter().all(|window| reach(*window)), "{asked:?}");
+    }
+
+    #[test]
+    fn data_that_cannot_find_a_stretch_faster_is_walked_and_sorted_out() {
+        let columns = Columns {
+            at: vec![1_000, 2_000, 3_000, 4_000],
+            value: vec![0.0; 4],
+        };
+
+        let mut seen = Vec::new();
+        columns.points_between(0, 2_000, 3_000, &mut |point| seen.push(point.at));
+
+        assert_eq!(seen, [2_000, 3_000]);
     }
 
     #[test]
