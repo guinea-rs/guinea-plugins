@@ -13,9 +13,8 @@ dependencies = [
 
 [[package]]
 name = "amethystate"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58c64b0f10780e270e989719226464118fba92c48586b9ffc03ea277df20c400"
+version = "0.24.0"
+source = "git+https://github.com/guinea-rs/amethystate?rev=9744911908081855cc5d296b29f5f6446891df70#9744911908081855cc5d296b29f5f6446891df70"
 dependencies = [
  "amethystate-core",
  "amethystate-macros",
@@ -45,9 +44,8 @@ dependencies = [
 
 [[package]]
 name = "amethystate-core"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adcfdf4140967a89727144e7be05b635dc816776aa4fe8c3373bc0b5144165f5"
+version = "0.24.0"
+source = "git+https://github.com/guinea-rs/amethystate?rev=9744911908081855cc5d296b29f5f6446891df70#9744911908081855cc5d296b29f5f6446891df70"
 dependencies = [
  "arc-swap",
  "dashmap",
@@ -65,9 +63,8 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a71a5ca994d64f23e2bb0ce4b197d753ce9cbb40769629b83c96c2a00e170546"
+version = "0.24.0"
+source = "git+https://github.com/guinea-rs/amethystate?rev=9744911908081855cc5d296b29f5f6446891df70#9744911908081855cc5d296b29f5f6446891df70"
 dependencies = [
  "amethystate-macros-core",
  "darling",
@@ -79,9 +76,8 @@ dependencies = [
 
 [[package]]
 name = "amethystate-macros-core"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adafd2f32dcd88ad22f8b295f859019172e832eee224304cf1ed581162547e11"
+version = "0.24.0"
+source = "git+https://github.com/guinea-rs/amethystate?rev=9744911908081855cc5d296b29f5f6446891df70#9744911908081855cc5d296b29f5f6446891df70"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -1230,7 +1226,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-plugin-store"
-version = "0.23.10"
+version = "0.24.0"
 dependencies = [
  "amethystate",
  "anyhow",

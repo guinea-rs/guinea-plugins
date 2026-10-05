@@ -16,10 +16,10 @@ fn settings_open_over_the_store_the_plugin_installed() -> anyhow::Result<()> {
     h.plugin(StorePlugin::in_memory())?;
 
     let segment = h.segment();
-    let written: General = segment.settings()?;
-    written.port().set(9000)?;
+    let written: General = segment.settings();
+    written.port().set(9000);
 
-    let read: General = segment.context().settings()?;
+    let read: General = segment.context().try_settings()?;
     assert_eq!(
         read.port().get(),
         9000,
@@ -27,7 +27,7 @@ fn settings_open_over_the_store_the_plugin_installed() -> anyhow::Result<()> {
     );
 
     let store = segment.store().expect("the plugin provides it");
-    let opened = General::new_with(&store)?;
+    let opened = General::try_new_with(&store)?;
     assert_eq!(opened.port().get(), 9000);
     Ok(())
 }

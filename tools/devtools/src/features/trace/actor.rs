@@ -24,13 +24,13 @@ actor! {
 
 #[handler]
 fn open_stream(this: &mut TraceActor, OpenStream(stream): OpenStream) {
-    let _ = this.settings.stream().set(stream.to_string());
+    this.settings.stream().set(stream.to_string());
     this.push.send(Change::Stream(stream));
 }
 
 #[handler]
 fn filter(this: &mut TraceActor, Filter(query): Filter) {
-    let _ = this.settings.query().set(query.clone());
+    this.settings.query().set(query.clone());
     this.push.send(Change::Query(query));
 }
 

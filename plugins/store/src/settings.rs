@@ -20,14 +20,32 @@ pub trait StoreAccess {
     ///
     /// When [`StorePlugin`](crate::StorePlugin) was not installed: that is
     /// how the application was put together, not something to recover from.
-    fn settings<S: Open>(&self) -> Result<S, OpenStruct> {
-        let Some(store) = self.store() else {
+    /// And where `S` will not open, with what it said - [`Self::try_settings`]
+    /// returns that instead.
+    #[track_caller]
+    fn settings<S: Open>(&self) -> S {
+        S::new_with(&self.installed::<S>())
+    }
+
+    /// `S` opened over the store, or what stopped it opening.
+    ///
+    /// # Panics
+    ///
+    /// When [`StorePlugin`](crate::StorePlugin) was not installed.
+    #[track_caller]
+    fn try_settings<S: Open>(&self) -> Result<S, OpenStruct> {
+        S::try_new_with(&self.installed::<S>())
+    }
+
+    /// The store `S` is kept in.
+    #[track_caller]
+    fn installed<S>(&self) -> Arc<Store> {
+        self.store().unwrap_or_else(|| {
             panic!(
                 "{} is kept in the store, and no store was installed - install StorePlugin",
                 std::any::type_name::<S>()
-            );
-        };
-        S::new_with(&store)
+            )
+        })
     }
 }
 

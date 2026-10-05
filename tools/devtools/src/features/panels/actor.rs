@@ -24,14 +24,14 @@ actor! {
 
 #[handler]
 fn open(this: &mut PanelsActor, Open(id): Open) {
-    let _ = this.settings.panel().set(id.clone());
+    this.settings.panel().set(id.clone());
     this.push.send(Picked::Panel(id));
 }
 
 #[handler]
 fn select(this: &mut PanelsActor, Select(path): Select) {
     if let Some(section) = path.first() {
-        let _ = this.settings.section().set(*section);
+        this.settings.section().set(*section);
     }
     this.push.send(Picked::Node(path));
 }

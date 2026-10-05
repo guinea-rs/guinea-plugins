@@ -14,7 +14,7 @@ feature! {
 
 #[installs]
 fn last_tab(cx: &FeatureInitContext) -> anyhow::Result<LastTabFeature> {
-    let settings = cx.settings::<TabSettings>()?;
+    let settings = cx.try_settings::<TabSettings>()?;
     let seed = LastTab(settings.tab().get());
 
     let (tab, _) = cx

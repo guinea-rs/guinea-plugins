@@ -34,11 +34,13 @@ require a service - a feature's, a plugin's, a harness segment's with the
 ```rust
 use guinea_plugin_store::StoreAccess;
 
-let general = cx.settings::<GeneralSettings>()?;
+let general = cx.settings::<GeneralSettings>();
+let general = cx.try_settings::<GeneralSettings>()?;
 ```
 
-An open that fails comes back as amethystate's `OpenStruct`. Without
-`StorePlugin` it panics: that is how the application was put together.
+`settings` panics where the struct will not open, with what stopped it;
+`try_settings` returns that as amethystate's `OpenStruct`. Without
+`StorePlugin` both panic: that is how the application was put together.
 
 ## Configuration
 

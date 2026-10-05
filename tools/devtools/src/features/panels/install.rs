@@ -14,7 +14,7 @@ feature! {
 
 #[installs]
 fn panels(cx: &FeatureInitContext) -> anyhow::Result<PanelsFeature> {
-    let settings = cx.settings::<PanelsSettings>()?;
+    let settings = cx.try_settings::<PanelsSettings>()?;
     let panel = settings.panel().get();
 
     let seed = PanelsState {

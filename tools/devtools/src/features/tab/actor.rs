@@ -25,6 +25,6 @@ actor! {
 #[handler]
 fn opened(this: &mut LastTabActor, Opened(title): Opened) {
     let title = title.to_string();
-    let _ = this.settings.tab().set(title.clone());
+    this.settings.tab().set(title.clone());
     this.push.send(title);
 }

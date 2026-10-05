@@ -15,7 +15,7 @@ feature! {
 
 #[installs]
 fn trace(cx: &FeatureInitContext) -> anyhow::Result<TraceFeature> {
-    let settings = cx.settings::<TraceSettings>()?;
+    let settings = cx.try_settings::<TraceSettings>()?;
 
     let seed = TraceState {
         stream: settings.stream().get().parse().unwrap_or(Stream::All),

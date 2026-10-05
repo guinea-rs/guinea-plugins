@@ -24,6 +24,6 @@ actor! {
 
 #[handler]
 fn pick_editor(this: &mut EditorActor, PickEditor(picked): PickEditor) {
-    let _ = this.settings.editor().set(picked.key().to_string());
+    this.settings.editor().set(picked.key().to_string());
     this.push.send(picked);
 }

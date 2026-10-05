@@ -15,7 +15,7 @@ feature! {
 
 #[installs]
 fn editor(cx: &FeatureInitContext) -> anyhow::Result<EditorFeature> {
-    let settings = cx.settings::<EditorSettings>()?;
+    let settings = cx.try_settings::<EditorSettings>()?;
     let seed = EditorChoice(detect::remembered(&settings.editor().get()));
 
     let (choice, _) = cx
