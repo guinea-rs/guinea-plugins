@@ -14,7 +14,7 @@ repository.workspace = true
 [dependencies]
 guinea.workspace = true
 guinea-core.workspace = true
-amethystate = { git = "https://github.com/guinea-rs/amethystate", rev = "9744911908081855cc5d296b29f5f6446891df70", features = ["redb", "json", "memory"] }
+amethystate = { version = "0.24.0", features = ["redb", "json", "memory"] }
 anyhow.workspace = true
 tracing.workspace = true
 
