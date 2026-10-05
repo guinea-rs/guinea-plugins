@@ -26,6 +26,11 @@ use guinea::app::{Plugin, PluginBuilder};
 pub use amethystate;
 pub use settings::StoreAccess;
 
+/// Where the store keeps what it is given: in its file, or in memory for this
+/// run because the file would not open. Provided when the store was asked to
+/// fall back with [`StorePlugin::or_in_memory`].
+pub use amethystate::store::Persistence;
+
 /// The store this plugin provides.
 pub type Store = amethystate::Store;
 
@@ -54,6 +59,7 @@ pub struct StorePlugin {
     backend: Option<Backend>,
     configure: Option<Configure>,
     steps: Vec<Steps>,
+    or_in_memory: bool,
 }
 
 impl StorePlugin {
@@ -123,12 +129,26 @@ impl StorePlugin {
         self
     }
 
+    /// Where the store will not open - a file that will not read, one
+    /// another process holds, a directory it cannot write, a migration that
+    /// fails - the application starts anyway on an empty store in memory,
+    /// which writes nothing and leaves the file as it was. amethystate logs
+    /// why, and it is provided as [`Persistence`] so the application can tell
+    /// the user. A configuration directory [`for_app`](Self::for_app) cannot
+    /// find, or an error from [`with`](Self::with)'s closure, still fails the
+    /// install: there is no file yet to fall back from.
+    pub fn or_in_memory(mut self) -> Self {
+        self.or_in_memory = true;
+        self
+    }
+
     fn with_open(open: Open) -> Self {
         Self {
             open,
             backend: None,
             configure: None,
             steps: Vec::new(),
+            or_in_memory: false,
         }
     }
 }
@@ -166,17 +186,25 @@ impl Plugin for StorePlugin {
                 step(migrations);
             }
         });
-        let (store, report) = migrating.migrate().map_err(|refused| match refused {
-            amethystate::store::OpenStore::Migrating { why, report } => {
-                let failed = report
-                    .as_ref()
-                    .map(|report| report.failures().count())
-                    .unwrap_or_default();
+        let (store, report, persistence) = if self.or_in_memory {
+            let (store, report, persistence) = migrating.or_in_memory().migrate();
+            (store, report, Some(persistence))
+        } else {
+            let (store, report) = migrating.migrate().map_err(|refused| match refused {
+                amethystate::store::OpenStore::Migrating { why, report } => {
+                    let failed = report
+                        .as_ref()
+                        .map(|report| report.failures().count())
+                        .unwrap_or_default();
 
-                anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
-            }
-            other => anyhow::anyhow!("opening the store: {other:?}"),
-        })?;
+                    anyhow::anyhow!(
+                        "the store's migration did not finish ({failed} failed): {why}"
+                    )
+                }
+                other => anyhow::anyhow!("opening the store: {other:?}"),
+            })?;
+            (store, report, None)
+        };
 
         let watching = devtools::Watching::start(&store, &report);
         let closing = store.clone();
@@ -189,6 +217,9 @@ impl Plugin for StorePlugin {
         });
 
         app.provide(store);
+        if let Some(persistence) = persistence {
+            app.provide(persistence);
+        }
         Ok(())
     }
 }

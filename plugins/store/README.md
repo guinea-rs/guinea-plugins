@@ -55,3 +55,8 @@ let general = cx.try_settings::<GeneralSettings>()?;
 `#[migrate]` ones when the store opens; a step that fails refuses the open.
 `configure(|builder| ..)` takes any other `StoreBuilder` setting, `backend(..)`
 picks the engine. The store is closed, and so written out, on shutdown.
+
+`or_in_memory()` starts the application anyway where the file will not open -
+it will not read, another process holds it, a migration fails: on an empty
+store in memory that writes nothing and leaves the file as it was. Why is
+logged, and `Persistence` is provided so the application can tell the user.
