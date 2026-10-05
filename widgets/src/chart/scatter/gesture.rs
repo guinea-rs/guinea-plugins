@@ -1,7 +1,7 @@
 //! What the pointer means on a scatter chart: a point hovered, a rectangle
 //! dragged out, a click.
 
-use super::model::{Hit, Key, ScatterEvent, ScatterSeries};
+use super::model::{Hit, Key, ScatterData, ScatterEvent};
 use super::plot::Plot;
 use crate::painted::Pointer;
 
@@ -42,7 +42,7 @@ impl<K: Key> Gesture<K> {
         &mut self,
         pointer: &Pointer,
         plot: &Plot,
-        series: &[ScatterSeries<K>],
+        series: &dyn ScatterData<K>,
         reach: f32,
     ) -> Took<K> {
         let mut took = Took {
@@ -103,7 +103,7 @@ impl<K: Key> Gesture<K> {
         &mut self,
         at: (f32, f32),
         plot: &Plot,
-        series: &[ScatterSeries<K>],
+        series: &dyn ScatterData<K>,
         reach: f32,
         took: &mut Took<K>,
     ) {
@@ -141,7 +141,9 @@ fn far(from: (f32, f32), to: (f32, f32)) -> bool {
 mod tests {
     use windows_reactor::PointerEventInfo;
 
-    use super::super::model::{Area, Level, Marker, Scale, ScatterOptions, ScatterPoint};
+    use super::super::model::{
+        Area, Level, Marker, Scale, ScatterOptions, ScatterPoint, ScatterSeries,
+    };
     use super::*;
 
     fn plot() -> Plot {

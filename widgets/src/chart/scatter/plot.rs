@@ -1,7 +1,7 @@
 //! Where things fall on a scatter chart, and back: times and levels to DIPs,
 //! a pointer to the point under it, a dragged rectangle to an area.
 
-use super::model::{Area, Hit, Key, Level, Scale, ScatterOptions, ScatterSeries};
+use super::model::{Area, Hit, Key, Level, Scale, ScatterData, ScatterOptions};
 
 /// How wide the labels at the left are given, when there are any.
 pub(super) const LABELS_WIDE: f32 = 56.0;
@@ -159,18 +159,18 @@ impl Plot {
     /// The point drawn nearest `(x, y)`, if it is within `reach`.
     pub fn nearest<K: Key>(
         &self,
-        series: &[ScatterSeries<K>],
+        data: &dyn ScatterData<K>,
         x: f32,
         y: f32,
         reach: f32,
     ) -> Option<Hit<K>> {
         let mut nearest: Option<(f32, Hit<K>)> = None;
-        for (index, line) in series.iter().enumerate() {
-            for point in &line.points {
+        for index in 0..data.series() {
+            data.points(index, &mut |point| {
                 let (px, py) = (self.x(point.at), self.y(point.value));
                 let far = (px - x).powi(2) + (py - y).powi(2);
                 if far > reach * reach || nearest.as_ref().is_some_and(|(best, _)| *best <= far) {
-                    continue;
+                    return;
                 }
                 nearest = Some((
                     far,
@@ -181,7 +181,7 @@ impl Plot {
                         y: py,
                     },
                 ));
-            }
+            });
         }
 
         nearest.map(|(_, hit)| hit)
@@ -200,7 +200,7 @@ impl Plot {
 
 #[cfg(test)]
 mod tests {
-    use super::super::model::{Marker, ScatterPoint};
+    use super::super::model::{Marker, ScatterPoint, ScatterSeries, SeriesStyle};
     use super::*;
 
     fn close(a: f32, b: f32) -> bool {
@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn the_nearest_point_in_both_directions_is_hovered_within_reach() {
         let plot = plot();
-        let series = [
+        let series = vec![
             dots(&[(1, 2_500, Level::Value(1.0)), (2, 2_520, Level::Value(1.0))]),
             dots(&[(3, 2_500, Level::Above(0))]),
         ];
@@ -389,7 +389,7 @@ mod tests {
     fn a_point_is_handed_back_by_the_pages_own_key() {
         let plot = plot();
         let blank = dots(&[]);
-        let series = [ScatterSeries {
+        let series = vec![ScatterSeries {
             color: blank.color,
             marker: blank.marker,
             size: blank.size,
@@ -404,6 +404,50 @@ mod tests {
             .nearest(&series, L + 150.0, 142.0, 8.0)
             .expect("under it");
         assert_eq!(hit.key, (4242, "second run".to_string()));
+    }
+
+    /// A page's own data, kept the way it keeps it: one column of times and
+    /// one of values, the row its key.
+    struct Columns {
+        at: Vec<u64>,
+        value: Vec<f32>,
+    }
+
+    impl ScatterData<usize> for Columns {
+        fn series(&self) -> usize {
+            1
+        }
+
+        fn style(&self, _: usize) -> SeriesStyle {
+            SeriesStyle {
+                color: dots(&[]).color,
+                marker: Marker::Dot,
+                size: 4.0,
+            }
+        }
+
+        fn points(&self, _: usize, each: &mut dyn FnMut(&ScatterPoint<usize>)) {
+            for (row, (at, value)) in self.at.iter().zip(&self.value).enumerate() {
+                each(&ScatterPoint {
+                    key: row,
+                    at: *at,
+                    value: Level::Value(*value),
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn the_nearest_point_is_found_in_data_the_page_keeps_its_own_way() {
+        let plot = plot();
+        let columns = Columns {
+            at: vec![1_000, 2_500, 4_000],
+            value: vec![0.0, 1.0, 2.0],
+        };
+
+        let hit = plot.nearest(&columns, L + 150.0, 142.0, 8.0);
+
+        assert_eq!(hit.map(|hit| (hit.series, hit.key)), Some((0, 1)));
     }
 
     #[test]

@@ -6,7 +6,7 @@ use windows_canvas::{
 };
 
 use super::super::paint::{Pixel, clipped, draw_backdrop, draw_border};
-use super::model::{Area, Hit, Key, Level, Marker, ScatterOptions, ScatterSeries};
+use super::model::{Area, Hit, Key, Level, Marker, ScatterData, ScatterOptions};
 use super::plot::{LABELS_WIDE, Plot};
 use crate::painted::Metrics;
 
@@ -59,7 +59,7 @@ pub(super) fn render<K: Key>(
     draw: &DrawingSession<'_>,
     metrics: Metrics,
     plot: &Plot,
-    series: &[ScatterSeries<K>],
+    series: &dyn ScatterData<K>,
     options: &ScatterOptions,
     pointing: &Pointing<'_, K>,
     labels: Option<&Labels>,
@@ -169,24 +169,25 @@ fn draw_area(draw: &DrawingSession<'_>, plot: &Plot, area: Area, accent: ColorF,
 fn draw_points<K: Key>(
     draw: &DrawingSession<'_>,
     plot: &Plot,
-    series: &[ScatterSeries<K>],
+    series: &dyn ScatterData<K>,
     hovered: Option<&Hit<K>>,
     ink: ColorF,
 ) {
     let mut ring = None;
-    for (index, line) in series.iter().enumerate() {
-        let Some(paint) = brush(draw, line.color) else {
+    for index in 0..series.series() {
+        let style = series.style(index);
+        let Some(paint) = brush(draw, style.color) else {
             continue;
         };
-        let half = line.size / 2.0;
-        for point in &line.points {
+        let half = style.size / 2.0;
+        series.points(index, &mut |point| {
             let x = plot.x(point.at);
             if x < plot.left - half || x > plot.right + half {
-                continue;
+                return;
             }
             let y = plot.y(point.value);
             let center = Vector2 { x, y };
-            match line.marker {
+            match style.marker {
                 Marker::Dot => draw.fill_ellipse(&Ellipse::new(center, half, half), &paint),
                 Marker::Ring => draw.draw_ellipse(
                     &Ellipse::new(center, half - RING_WIDTH / 2.0, half - RING_WIDTH / 2.0),
@@ -203,7 +204,7 @@ fn draw_points<K: Key>(
             if hovered.is_some_and(|hit| hit.series == index && hit.key == point.key) {
                 ring = Some((center, half + HOVER_GAP));
             }
-        }
+        });
     }
 
     if let (Some((center, radius)), Some(ink)) = (ring, brush(draw, ink)) {

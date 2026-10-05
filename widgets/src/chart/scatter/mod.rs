@@ -9,6 +9,7 @@ mod plot;
 mod ui;
 
 pub use model::{
-    Area, Hit, Key, Level, Marker, Scale, ScatterEvent, ScatterOptions, ScatterPoint, ScatterSeries,
+    Area, Hit, IntoScatterData, Key, Level, Marker, Scale, ScatterData, ScatterEvent,
+    ScatterOptions, ScatterPoint, ScatterSeries, SeriesStyle,
 };
 pub use ui::Scatter;

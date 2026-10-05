@@ -32,6 +32,67 @@ pub struct ScatterSeries<K = u64> {
     pub points: Vec<ScatterPoint<K>>,
 }
 
+/// How one series' points are drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SeriesStyle {
+    pub color: ColorF,
+    pub marker: Marker,
+    /// Across, in DIPs.
+    pub size: f32,
+}
+
+/// The points a scatter chart draws, kept where the page keeps them: the
+/// chart holds the page's `Rc` and reads through it whenever it draws or the
+/// pointer moves, and keeps no copy.
+pub trait ScatterData<K> {
+    /// How many series there are.
+    fn series(&self) -> usize;
+
+    /// How series `index` is drawn.
+    fn style(&self, index: usize) -> SeriesStyle;
+
+    /// Hands `each` every point of series `index`, in any order.
+    fn points(&self, index: usize, each: &mut dyn FnMut(&ScatterPoint<K>));
+}
+
+impl<K> ScatterData<K> for Vec<ScatterSeries<K>> {
+    fn series(&self) -> usize {
+        self.len()
+    }
+
+    fn style(&self, index: usize) -> SeriesStyle {
+        let series = &self[index];
+        SeriesStyle {
+            color: series.color,
+            marker: series.marker,
+            size: series.size,
+        }
+    }
+
+    fn points(&self, index: usize, each: &mut dyn FnMut(&ScatterPoint<K>)) {
+        self[index].points.iter().for_each(each);
+    }
+}
+
+/// What [`Scatter::publish`](super::Scatter::publish) takes: the page's own
+/// data behind an `Rc`, which is new data only when it is another `Rc`, or
+/// series handed over whole, which always are.
+pub trait IntoScatterData<K> {
+    fn into_scatter_data(self) -> std::rc::Rc<dyn ScatterData<K>>;
+}
+
+impl<K: Key> IntoScatterData<K> for Vec<ScatterSeries<K>> {
+    fn into_scatter_data(self) -> std::rc::Rc<dyn ScatterData<K>> {
+        std::rc::Rc::new(self)
+    }
+}
+
+impl<K: Key, D: ScatterData<K> + 'static> IntoScatterData<K> for std::rc::Rc<D> {
+    fn into_scatter_data(self) -> std::rc::Rc<dyn ScatterData<K>> {
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScatterPoint<K = u64> {
     /// What the page knows the point by; handed back when it is hovered.

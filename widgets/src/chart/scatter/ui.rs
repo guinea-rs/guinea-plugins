@@ -9,7 +9,9 @@ use windows_reactor::{IntoPayloadCallback, View};
 
 use super::super::live;
 use super::gesture::Gesture;
-use super::model::{Hit, Key, ScatterEvent, ScatterOptions, ScatterSeries};
+use super::model::{
+    Hit, IntoScatterData, Key, ScatterData, ScatterEvent, ScatterOptions, ScatterSeries,
+};
 use super::paint::{self, Labels, Pointing};
 use super::plot::Plot;
 use crate::painted::{Metrics, Paint, Painted, Pointer};
@@ -26,7 +28,8 @@ fn moved(x: (u64, u64), per_second: Option<f64>, since: Duration) -> (u64, u64) 
 
 /// What a scatter chart draws with, and what the pointer is doing over it.
 struct Plotting<K> {
-    series: RefCell<Vec<ScatterSeries<K>>>,
+    /// The page's own data, read where it is kept.
+    series: RefCell<Rc<dyn ScatterData<K>>>,
     options: RefCell<ScatterOptions>,
     gesture: RefCell<Gesture<K>>,
     /// When the span shown was last handed over.
@@ -34,10 +37,10 @@ struct Plotting<K> {
     labels: RefCell<Option<Option<Labels>>>,
 }
 
-impl<K> Plotting<K> {
+impl<K: Key> Plotting<K> {
     fn new() -> Self {
         Self {
-            series: RefCell::new(Vec::new()),
+            series: RefCell::new(Rc::new(Vec::<ScatterSeries<K>>::new())),
             options: RefCell::new(ScatterOptions::default()),
             gesture: RefCell::new(Gesture::default()),
             anchored: Cell::new(None),
@@ -77,7 +80,7 @@ impl<K: Key> Paint for Plotting<K> {
             session,
             metrics,
             &plot,
-            &self.series.borrow(),
+            &**self.series.borrow(),
             &self.options.borrow(),
             &pointing,
             labels,
@@ -123,27 +126,38 @@ impl<K: Key> Scatter<K> {
         self.painted.painter()
     }
 
-    /// Hands the chart new points and options; redraws only when either
+    /// Hands the chart the page's data and options; redraws only when either
     /// changed.
+    ///
+    /// The chart keeps the page's `Rc` and no copy of what is behind it, so
+    /// handing the same `Rc` again is no change, and new data is a new `Rc`.
+    /// Series handed over as a `Vec` are always new.
     ///
     /// A live chart's span moves on from where this puts it, so a page
     /// hands over `(now - length, now)` and need not publish again for the
     /// chart to keep up with the clock. Handed the same span again, the
     /// chart keeps moving from where it was.
-    pub fn publish(&self, series: Vec<ScatterSeries<K>>, options: ScatterOptions) {
+    pub fn publish(&self, data: impl IntoScatterData<K>, options: ScatterOptions) {
+        let data = data.into_scatter_data();
         let plotting = self.plotting();
-        let moved = *plotting.series.borrow() != series;
-        let restyled = *plotting.options.borrow() != options;
+        let changed = self.changed(&data, &options);
 
         if plotting.anchored.get().is_none() || plotting.options.borrow().x != options.x {
             plotting.anchored.set(Some(Instant::now()));
         }
-        *plotting.series.borrow_mut() = series;
+        *plotting.series.borrow_mut() = data;
         *plotting.options.borrow_mut() = options;
 
-        if moved || restyled {
+        if changed {
             self.painted.redraw();
         }
+    }
+
+    /// Whether `data` and `options` draw anything other than what the chart
+    /// holds.
+    fn changed(&self, data: &Rc<dyn ScatterData<K>>, options: &ScatterOptions) -> bool {
+        let plotting = self.plotting();
+        !Rc::ptr_eq(&plotting.series.borrow(), data) || *plotting.options.borrow() != *options
     }
 
     /// The point under the pointer, where it is drawn now: the chart moves
@@ -155,15 +169,20 @@ impl<K: Key> Scatter<K> {
         let plot = self
             .plotting()
             .plot(metrics.width, metrics.height, Instant::now());
-        let series = self.plotting().series.borrow();
-        let point = series
-            .get(hit.series)?
-            .points
-            .iter()
-            .find(|point| point.key == hit.key)?;
+        let series = self.plotting().series.borrow().clone();
+        if hit.series >= series.series() {
+            return None;
+        }
+        let mut found = None;
+        series.points(hit.series, &mut |point| {
+            if found.is_none() && point.key == hit.key {
+                found = Some((point.at, point.value));
+            }
+        });
+        let (at, value) = found?;
         Some(Hit {
-            x: plot.x(point.at),
-            y: plot.y(point.value),
+            x: plot.x(at),
+            y: plot.y(value),
             ..hit
         })
     }
@@ -180,12 +199,11 @@ impl<K: Key> Scatter<K> {
             let plotting = painted.painter();
             let plot = plotting.plot(metrics.width, metrics.height, Instant::now());
             let reach = plotting.options.borrow().reach;
-            let took = plotting.gesture.borrow_mut().take(
-                &pointer,
-                &plot,
-                &plotting.series.borrow(),
-                reach,
-            );
+            let series = plotting.series.borrow().clone();
+            let took = plotting
+                .gesture
+                .borrow_mut()
+                .take(&pointer, &plot, &*series, reach);
             if took.redraw {
                 painted.redraw();
             }
@@ -208,6 +226,31 @@ mod tests {
             (2_500, 5_500)
         );
         assert_eq!(moved(x, None, Duration::from_secs(9)), x, "not live");
+    }
+
+    #[test]
+    fn the_same_data_handed_again_is_no_change_and_another_rc_is() {
+        let scatter = Scatter::<u64>::new();
+        let options = ScatterOptions::default();
+        let data: Rc<Vec<ScatterSeries>> = Rc::new(Vec::new());
+        scatter.publish(data.clone(), options.clone());
+
+        let again: Rc<dyn ScatterData<u64>> = data.clone();
+        let other: Rc<dyn ScatterData<u64>> = Rc::new(Vec::<ScatterSeries>::new());
+        let restyled = ScatterOptions {
+            reach: 20.0,
+            ..options.clone()
+        };
+
+        assert_eq!(
+            (
+                scatter.changed(&again, &options),
+                scatter.changed(&other, &options),
+                scatter.changed(&again, &restyled),
+            ),
+            (false, true, true)
+        );
+        assert_eq!(Rc::strong_count(&data), 3, "the page's, the chart's, again");
     }
 
     #[test]
