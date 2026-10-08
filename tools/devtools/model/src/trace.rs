@@ -709,6 +709,7 @@ mod tests {
             at: id * 10,
             took: None,
             point,
+            thread: 0,
         };
 
         let mut log = TraceLog::default();
@@ -784,6 +785,7 @@ mod tests {
             at: id * 10,
             took: None,
             point,
+            thread: 0,
         };
         let send = |to: &str, what: &str| TracePoint::Send {
             actor: to.into(),
@@ -876,6 +878,7 @@ mod tests {
                         actor: "a::Worker".into(),
                         message: "a::Sweep".into(),
                     },
+                    thread: 0,
                 })
                 .collect(),
             ends: Vec::new(),
@@ -936,6 +939,7 @@ mod tests {
                 point: TracePoint::Note {
                     text: "later".into(),
                 },
+                thread: 0,
             }],
             ends: Vec::new(),
             dropped: 0,
@@ -975,6 +979,7 @@ mod tests {
             point: TracePoint::Note {
                 text: "later".into(),
             },
+            thread: 0,
         };
         let ids = |shown: &Shown, log: &TraceLog| -> Vec<u64> {
             shown
@@ -1015,6 +1020,7 @@ mod tests {
             at,
             took,
             point,
+            thread: 0,
         }
     }
 

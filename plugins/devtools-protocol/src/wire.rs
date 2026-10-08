@@ -242,6 +242,19 @@ mod tests {
     }
 
     #[test]
+    fn a_record_from_before_threads_were_named_was_made_on_the_ui_thread() {
+        let older = r#"{"kind":"trace","spans":[{"id":1,"parent":null,"at":0,"took":null,
+            "point":{"kind":"note","text":"before"}}],"ends":[],"dropped":0}"#;
+
+        let threads = match decode::<Report>(older) {
+            Ok(Report::Trace(batch)) => batch.spans.iter().map(|span| span.thread).collect(),
+            other => vec![u32::MAX; usize::from(other.is_ok())],
+        };
+
+        assert_eq!(threads, [0]);
+    }
+
+    #[test]
     fn a_hello_from_before_capabilities_lists_none() {
         let json = r#"{"kind":"hello","name":"","identifier":"","version":"","backend":"","pid":1,"plugins":[]}"#;
 
@@ -279,6 +292,7 @@ mod tests {
                         bus: BusKind::Global,
                         subscribers: 2,
                     },
+                    thread: 18_044,
                 }],
                 ends: vec![End { id: 3, took: 20 }],
                 dropped: 0,

@@ -788,6 +788,7 @@ mod tests {
             at: id,
             took: Some(id * 10),
             point,
+            thread: 0,
         }
     }
 
@@ -999,6 +1000,7 @@ mod tests {
                 output: "a::ConnectResult".into(),
                 took_us,
             },
+            thread: 0,
         };
 
         let log = log_of(vec![

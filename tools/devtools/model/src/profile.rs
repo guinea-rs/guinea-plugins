@@ -465,6 +465,7 @@ mod tests {
             point: TracePoint::Note {
                 text: format!("{id}"),
             },
+            thread: 0,
         };
         log.absorb(TraceBatch {
             spans: vec![
@@ -603,6 +604,7 @@ mod tests {
                         output: "Streamed".into(),
                         source: 9,
                     },
+                    thread: 0,
                 },
                 Span {
                     id: 2,
@@ -612,6 +614,7 @@ mod tests {
                     point: TracePoint::Note {
                         text: "scan".into(),
                     },
+                    thread: 0,
                 },
             ],
             ends: Vec::new(),

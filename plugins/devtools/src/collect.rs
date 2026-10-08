@@ -27,7 +27,26 @@ pub struct Traces {
 }
 
 impl Traces {
+    /// A record made on the UI thread.
     pub fn push(&mut self, record: &Trace) {
+        self.push_on(0, record);
+    }
+
+    /// Takes in what the threads that nobody observes recorded meanwhile.
+    pub fn take_elsewhere(&mut self) {
+        let elsewhere = trace::take_elsewhere();
+        self.dropped += elsewhere.dropped;
+        for (thread, record) in &elsewhere.records {
+            self.push_on(*thread, record);
+        }
+    }
+
+    /// Whether there is nothing to send.
+    pub fn is_empty(&self) -> bool {
+        self.spans.is_empty() && self.ends.is_empty() && self.dropped == 0
+    }
+
+    fn push_on(&mut self, thread: u32, record: &Trace) {
         match record {
             Trace::Begin(record) | Trace::Mark(record) => {
                 if self.spans.len() >= PENDING {
@@ -40,6 +59,7 @@ impl Traces {
                     at: record.at.as_micros() as u64,
                     took: None,
                     point: point(&record.point),
+                    thread,
                 });
             }
             Trace::End { id, took } => {
@@ -663,6 +683,31 @@ mod tests {
                 source: 9,
             }
         );
+    }
+
+    #[test]
+    fn what_another_thread_records_comes_with_that_thread() {
+        let traces = collected();
+        let worker = std::thread::spawn(|| {
+            trace::mark(|| Point::Note("on a worker".into()));
+            trace::thread_id()
+        })
+        .join()
+        .map_err(|_| "the worker panicked");
+
+        traces.borrow_mut().take_elsewhere();
+        trace::stop_observing();
+        let batch = traces.borrow_mut().take();
+
+        let notes: Vec<u32> = batch
+            .spans
+            .iter()
+            .filter(
+                |span| matches!(&span.point, TracePoint::Note { text } if text == "on a worker"),
+            )
+            .map(|span| span.thread)
+            .collect();
+        assert_eq!(worker.map(|worker| vec![worker]), Ok(notes));
     }
 
     #[test]

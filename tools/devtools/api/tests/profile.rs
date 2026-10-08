@@ -52,6 +52,7 @@ fn sessions(inspected: bool) -> Sessions {
                 point: TracePoint::Note {
                     text: "rows arrived".into(),
                 },
+                thread: 0,
             }],
             ends: Vec::new(),
             dropped: 0,

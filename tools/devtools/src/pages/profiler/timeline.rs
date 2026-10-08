@@ -6,7 +6,7 @@
 //! zoom, a right or middle drag and shift with the wheel pan, a double click
 //! fits the second again.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use egui::{Align2, Color32, FontId, Rect, Sense, Stroke, pos2, vec2};
 use guinea_devtools_model::native::NativeTree;
@@ -203,8 +203,18 @@ pub fn timeline(
         .filter(|(t, _)| *t == second)
         .map(|(_, selected)| selected);
 
-    let record_row = flame::rows(&records);
-    let record_rows = record_row.iter().max().map_or(1, |row| row + 1);
+    let ui_thread = profile.ui_thread();
+    let (on_ui, elsewhere) = by_thread(work, ui_thread);
+    let rows_of = |indices: &[usize]| {
+        let intervals: Vec<(i64, i64)> = indices.iter().map(|index| records[*index]).collect();
+        flame::rows(&intervals)
+    };
+    let mut record_lane: Vec<Option<usize>> = vec![None; work.len()];
+    let ui_rows = rows_of(&on_ui);
+    for (index, row) in on_ui.iter().zip(&ui_rows) {
+        record_lane[*index] = Some(*row);
+    }
+    let record_rows = ui_rows.iter().max().map_or(1, |row| row + 1);
     let depth = flame::nesting(&passes);
     let pass_rows = depth
         .iter()
@@ -212,13 +222,21 @@ pub fn timeline(
         .map_or(0, |deepest| (deepest + 1).min(DEPTHS));
     let frame_lane = record_rows;
     let shows = lens.shown;
-    let ui_thread = profile.ui_thread();
+    let mut threads = profile.threads();
+    for thread in elsewhere.keys() {
+        if !threads.iter().any(|(id, _)| id == thread) {
+            threads.push((*thread, ""));
+        }
+    }
     let mut stacked: Vec<Stacked> = Vec::new();
     let mut lanes = frame_lane + 1 + pass_rows;
-    for (thread, name) in profile.threads() {
+    for (thread, name) in threads {
         if lens.hidden.contains(&thread) {
             continue;
         }
+        let own = elsewhere.get(&thread).map_or(&[][..], Vec::as_slice);
+        let own_rows = rows_of(own);
+        let own_lanes = own_rows.iter().max().map_or(0, |row| row + 1);
         let shown = flame::shown(
             &profile.samples_between(thread, within.from, within.to),
             |function| shows.shows(profile.origin(function)),
@@ -235,18 +253,22 @@ pub fn timeline(
             .max()
             .unwrap_or(0)
             .min(STACK_DEPTHS);
-        if rows == 0 {
+        if own_lanes + rows == 0 {
             continue;
+        }
+        for (index, row) in own.iter().zip(&own_rows) {
+            record_lane[*index] = Some(lanes + row);
         }
         stacked.push(Stacked {
             thread,
             label: thread_label(thread, name, ui_thread),
             first: lanes,
-            past: lanes + rows,
+            stacks_at: lanes + own_lanes,
+            past: lanes + own_lanes + rows,
             shown,
             runs,
         });
-        lanes += rows;
+        lanes += own_lanes + rows;
     }
     let gaps = 2 + stacked.len();
 
@@ -446,7 +468,10 @@ pub fn timeline(
         hits.push((shape, about, frame));
     };
 
-    for ((span, interval), row) in work.iter().zip(&records).zip(&record_row) {
+    for ((span, interval), lane) in work.iter().zip(&records).zip(&record_lane) {
+        let Some(row) = lane else {
+            continue;
+        };
         let said = words::text(&words::sentence(&span.point, timers));
         let took = span
             .took
@@ -527,7 +552,7 @@ pub fn timeline(
                 .map(|path| format!("\n{path}"))
                 .unwrap_or_default();
             bar(
-                stacked.first + run.depth,
+                stacked.stacks_at + run.depth,
                 (run.from, run.to),
                 tint(run.function),
                 last_segment(name),
@@ -626,6 +651,9 @@ pub fn timeline(
 
         for stacked in &stacked {
             let cpu = profile.cpu(stacked.thread, selected.from, selected.to);
+            if cpu.samples == 0 {
+                continue;
+            }
             let ran = cpu.ran_us.map_or_else(
                 || "ran ? ms".to_string(),
                 |ran_us| {
@@ -662,11 +690,13 @@ pub fn timeline(
     clicked
 }
 
-/// One thread's stacks on the timeline, and the lanes they take.
+/// One thread's records and stacks on the timeline, and the lanes they
+/// take: the records from `first`, the stacks from `stacks_at`.
 struct Stacked {
     thread: u32,
     label: String,
     first: usize,
+    stacks_at: usize,
     past: usize,
     shown: Vec<(i64, Vec<u32>)>,
     runs: Vec<flame::Run>,
@@ -701,6 +731,22 @@ fn around(frame: &Frame, frames: &[&Frame], records: &[(i64, i64)], within: View
         to: frame.end_us() + margin,
     }
     .panned(0, within)
+}
+
+/// The records each thread made, by their indices in `work`: the UI
+/// thread's - and those that name no thread - apart, every other thread's
+/// under its id.
+fn by_thread(work: &[&Span], ui: u32) -> (Vec<usize>, BTreeMap<u32, Vec<usize>>) {
+    let mut on_ui = Vec::new();
+    let mut elsewhere: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for (index, span) in work.iter().enumerate() {
+        if span.thread == 0 || span.thread == ui {
+            on_ui.push(index);
+        } else {
+            elsewhere.entry(span.thread).or_default().push(index);
+        }
+    }
+    (on_ui, elsewhere)
 }
 
 /// What a sampled thread is called: the UI thread as such, another by its
@@ -739,6 +785,32 @@ mod tests {
                 thread_label(9, "", 7),
             ],
             ["UI", "UI", "tokio-runtime-worker", "thread 9"]
+        );
+    }
+
+    #[test]
+    fn a_record_goes_to_the_thread_that_made_it_and_one_naming_none_to_the_ui() {
+        use guinea_devtools_model::protocol::TracePoint;
+
+        let made_on = |thread: u32| Span {
+            id: 1,
+            parent: None,
+            at: 0,
+            took: None,
+            point: TracePoint::Note {
+                text: String::new(),
+            },
+            thread,
+        };
+        let spans: Vec<Span> = [0, 9, 7, 9, 3].into_iter().map(made_on).collect();
+        let work: Vec<&Span> = spans.iter().collect();
+
+        let (ui, others) = by_thread(&work, 7);
+
+        assert_eq!(ui, [0, 2]);
+        assert_eq!(
+            others.into_iter().collect::<Vec<_>>(),
+            [(3, vec![4]), (9, vec![1, 3])]
         );
     }
 }

@@ -258,6 +258,7 @@ mod tests {
             at: id * 10,
             took: None,
             point: TracePoint::Tick { timer: None },
+            thread: 0,
         }
     }
 

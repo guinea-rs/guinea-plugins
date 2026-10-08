@@ -30,7 +30,7 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 5, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 6, 0);
 
 /// The first version whose devtools take [`Report::Changed`] in place of
 /// one snapshot after another.
@@ -285,6 +285,11 @@ pub struct Span {
     /// Microseconds, for points with an extent that already ended.
     pub took: Option<u64>,
     pub point: TracePoint,
+    /// The operating system's id of the thread it was recorded on; zero for
+    /// the UI thread, and from an application that sends the UI thread's
+    /// records alone.
+    #[serde(default)]
+    pub thread: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

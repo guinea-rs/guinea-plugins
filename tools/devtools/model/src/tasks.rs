@@ -107,6 +107,7 @@ mod tests {
             at: id * 10,
             took: None,
             point,
+            thread: 0,
         }
     }
 

@@ -111,6 +111,33 @@ pub fn connected(generation: u64, takes_changes: bool) {
     });
 
     flush();
+    take_elsewhere_in(generation);
+}
+
+/// How often what the other threads recorded is taken in.
+const ELSEWHERE_EVERY: Duration = Duration::from_millis(50);
+
+/// Takes in what the other threads recorded, every [`ELSEWHERE_EVERY`] while
+/// the connection `generation` lasts: nothing on the UI thread says when
+/// they did.
+fn take_elsewhere_in(generation: u64) {
+    guinea::timers::after(ELSEWHERE_EVERY, move || {
+        let inbox = LINK.with_borrow(|link| {
+            let connection = link.as_ref()?.connection.as_ref()?;
+            (connection.generation == generation).then(|| connection.inbox.clone())
+        });
+        let Some(inbox) = inbox else {
+            return;
+        };
+        {
+            let mut inbox = inbox.borrow_mut();
+            inbox.traces.take_elsewhere();
+            if !inbox.traces.is_empty() {
+                soon(&mut inbox);
+            }
+        }
+        take_elsewhere_in(generation);
+    });
 }
 
 /// Devtools went: nothing is read for nobody.
@@ -471,6 +498,7 @@ mod tests {
                 at: 0,
                 took: None,
                 point: TracePoint::Note { text: "hi".into() },
+                thread: 0,
             }],
             ..TraceBatch::default()
         }

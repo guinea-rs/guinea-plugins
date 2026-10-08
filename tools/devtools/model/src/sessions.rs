@@ -550,6 +550,7 @@ mod tests {
                         text: "failed".into(),
                         written: None,
                     },
+                    thread: 0,
                 }],
                 ends: Vec::new(),
                 dropped: 0,

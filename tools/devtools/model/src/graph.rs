@@ -735,6 +735,7 @@ mod tests {
             at: 1_000 + id,
             took: None,
             point,
+            thread: 0,
         };
         trace.absorb(TraceBatch {
             spans: vec![
