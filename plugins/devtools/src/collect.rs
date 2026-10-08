@@ -562,19 +562,8 @@ pub fn root(router: RouterView) -> Root {
         forward: router.forward,
         pending: router.pending,
         panels: router.panels.into_iter().map(panel).collect(),
-        bus: subscriptions(&router.bus),
+        bus: heard(&router.bus),
     }
-}
-
-fn subscriptions(listed: &[(&'static str, usize)]) -> Vec<BusSubscription> {
-    listed
-        .iter()
-        .map(|(event, subscribers)| BusSubscription {
-            event: event.to_string(),
-            subscribers: *subscribers,
-            listeners: Vec::new(),
-        })
-        .collect()
 }
 
 /// Every event on a bus with who hears it, as [`EventBus::listeners`] lists
