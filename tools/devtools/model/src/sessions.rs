@@ -211,8 +211,10 @@ impl Sessions {
             .native_for(app.id)
             .ok_or("no native inspector: attach one first")?;
 
-        Ok(Profile::new(timeline, app.clock(), &inspector.inspection.kept)
-            .with_samples(&inspector.inspection.sampled))
+        Ok(
+            Profile::new(timeline, app.clock(), &inspector.inspection.kept)
+                .with_samples(&inspector.inspection.sampled),
+        )
     }
 
     /// The session of the application `id` belongs to that sent a clock:

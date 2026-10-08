@@ -12,11 +12,7 @@ fn a_file_that_will_not_read_leaves_the_application_a_store_in_memory() {
     let mut app = TestApp::new();
 
     let installed = app
-        .install(
-            StorePlugin::at(&path)
-                .backend(Backend::Json)
-                .or_in_memory(),
-        )
+        .install(StorePlugin::at(&path).backend(Backend::Json).or_in_memory())
         .map(|_| ())
         .map_err(|error| format!("{error:#}"));
 
@@ -29,7 +25,9 @@ fn a_file_that_will_not_read_leaves_the_application_a_store_in_memory() {
     );
     let persistence: Option<Arc<Persistence>> = app.require::<Persistence>().ok();
     assert!(
-        persistence.as_deref().is_some_and(Persistence::is_in_memory),
+        persistence
+            .as_deref()
+            .is_some_and(Persistence::is_in_memory),
         "the application can tell it is in memory"
     );
 
@@ -49,12 +47,8 @@ fn a_file_that_opens_is_used_and_said_to_be_on_disk() {
     let path = dir.path().join("settings.json");
     let mut app = TestApp::new();
 
-    app.install(
-        StorePlugin::at(&path)
-            .backend(Backend::Json)
-            .or_in_memory(),
-    )
-    .expect("install");
+    app.install(StorePlugin::at(&path).backend(Backend::Json).or_in_memory())
+        .expect("install");
 
     let in_memory = app
         .require::<Persistence>()

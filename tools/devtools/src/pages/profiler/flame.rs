@@ -295,8 +295,7 @@ mod tests {
 
     #[test]
     fn samples_that_agree_from_the_outermost_call_make_one_run() {
-        let samples: [(i64, &[u32]); 4] =
-            [(0, &[B, A]), (1, &[C, A]), (2, &[C, A]), (10, &[C, A])];
+        let samples: [(i64, &[u32]); 4] = [(0, &[B, A]), (1, &[C, A]), (2, &[C, A]), (10, &[C, A])];
 
         let run = |depth, function, from, to, samples| Run {
             depth,
@@ -387,9 +386,14 @@ mod tests {
     fn zooming_out_stops_at_everything_and_in_at_the_narrowest() {
         let within = View { from: 0, to: 1000 };
 
-        assert_eq!(View { from: 400, to: 600 }.zoomed(500, 0.01, within), within);
         assert_eq!(
-            View { from: 400, to: 600 }.zoomed(500, 1000.0, within).length(),
+            View { from: 400, to: 600 }.zoomed(500, 0.01, within),
+            within
+        );
+        assert_eq!(
+            View { from: 400, to: 600 }
+                .zoomed(500, 1000.0, within)
+                .length(),
             NARROWEST_US
         );
     }
@@ -401,6 +405,12 @@ mod tests {
 
         assert_eq!(view.panned(50, within), View { from: 150, to: 350 });
         assert_eq!(view.panned(-500, within), View { from: 0, to: 200 });
-        assert_eq!(view.panned(5000, within), View { from: 800, to: 1000 });
+        assert_eq!(
+            view.panned(5000, within),
+            View {
+                from: 800,
+                to: 1000
+            }
+        );
     }
 }

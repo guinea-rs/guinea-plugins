@@ -395,7 +395,13 @@ mod tests {
     fn records_are_found_by_when_they_happened_whatever_order_they_came_in() {
         let mut log = log();
         log.absorb(TraceBatch {
-            spans: vec![Span { at: 15, ..span(9, Some(1)) }, span(5, None)],
+            spans: vec![
+                Span {
+                    at: 15,
+                    ..span(9, Some(1))
+                },
+                span(5, None),
+            ],
             ends: Vec::new(),
             dropped: 0,
         });

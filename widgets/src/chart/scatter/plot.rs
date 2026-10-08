@@ -495,7 +495,8 @@ mod tests {
 
         let asked = asked.0.into_inner();
         let reach = |(from, to): (u64, u64)| {
-            from <= 2_500 - 8 * per_dip / 100 && to >= 2_500 + 8 * per_dip / 100
+            from <= 2_500 - 8 * per_dip / 100
+                && to >= 2_500 + 8 * per_dip / 100
                 && to - from <= 2 * 9 * per_dip / 100
         };
         assert_eq!(asked.len(), 2, "each series once: {asked:?}");

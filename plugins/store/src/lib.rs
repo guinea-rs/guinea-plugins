@@ -197,9 +197,7 @@ impl Plugin for StorePlugin {
                         .map(|report| report.failures().count())
                         .unwrap_or_default();
 
-                    anyhow::anyhow!(
-                        "the store's migration did not finish ({failed} failed): {why}"
-                    )
+                    anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
                 }
                 other => anyhow::anyhow!("opening the store: {other:?}"),
             })?;
