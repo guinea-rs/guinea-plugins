@@ -7,6 +7,7 @@
 //! records all along, so nothing has to be started before the stutter.
 
 mod flame;
+mod memory;
 mod timeline;
 
 use std::time::{Duration, Instant};
@@ -246,6 +247,14 @@ impl Profiler {
                         "whose calls the stacks show, besides the application's, and on which threads",
                     );
             }
+            if let Some(now) = sessions
+                .memory(app.info.pid)
+                .and_then(|memory| memory.samples().back())
+            {
+                ui.separator();
+                ui.label(components::mono(memory::said(*now)))
+                    .on_hover_text("what the process holds now, read by devtools ten times a second");
+            }
             ui.separator();
             ui.label(components::dim(format!(
                 "{} frames kept · {} in the last read · {} stack samples · {}",
@@ -293,6 +302,15 @@ fn seconds_track(
     let span = (last.t - first.t + 1).max(1) as usize;
     let width = ui.available_width();
     let cell = (width / span as f32).clamp(4.0, 28.0);
+    let held_by = |t: i64| profile.memory_at(profile.second_starts(t + 1) - 1);
+    let held: Vec<(usize, u64)> = (0..span)
+        .filter_map(|offset| Some((offset, held_by(first.t + offset as i64)?.private)))
+        .collect();
+    let memory_tall = if held.is_empty() {
+        0.0
+    } else {
+        memory::TALL + 4.0
+    };
 
     let mut clicked = None;
     egui::ScrollArea::horizontal()
@@ -300,11 +318,24 @@ fn seconds_track(
         .stick_to_right(true)
         .show(ui, |ui| {
             let (rect, response) = ui.allocate_exact_size(
-                vec2(cell * span as f32, SECONDS_TALL + 14.0),
+                vec2(cell * span as f32, SECONDS_TALL + memory_tall + 14.0),
                 Sense::click(),
             );
             let painter = ui.painter_at(rect);
             let font = FontId::proportional(10.0);
+            if !held.is_empty() {
+                let strip = Rect::from_min_size(
+                    pos2(rect.left(), rect.top() + SECONDS_TALL + 4.0),
+                    vec2(rect.width(), memory::TALL),
+                );
+                let points: Vec<(f32, u64)> = held
+                    .iter()
+                    .map(|(offset, private)| {
+                        (rect.left() + (*offset as f32 + 0.5) * cell, *private)
+                    })
+                    .collect();
+                memory::line(&painter, strip, &points);
+            }
 
             for offset in 0..span {
                 let left = rect.left() + offset as f32 * cell;
@@ -364,14 +395,26 @@ fn seconds_track(
 
             if let Some(pointer) = response.hover_pos() {
                 let t = first.t + ((pointer.x - rect.left()) / cell) as i64;
-                if let Some(second) = seconds.iter().find(|second| second.t == t) {
-                    response.clone().on_hover_text(format!(
-                        "{} · {} frames · {} over 16.7 ms · the worst {:.1} ms",
-                        profile.second_named(t),
-                        second.frames,
-                        second.over,
-                        ms(second.worst_us)
-                    ));
+                let memory = held_by(t)
+                    .map(|sample| format!("\n{}", memory::said(sample)))
+                    .unwrap_or_default();
+                match seconds.iter().find(|second| second.t == t) {
+                    Some(second) => {
+                        response.clone().on_hover_text(format!(
+                            "{} · {} frames · {} over 16.7 ms · the worst {:.1} ms{memory}",
+                            profile.second_named(t),
+                            second.frames,
+                            second.over,
+                            ms(second.worst_us)
+                        ));
+                    }
+                    None if !memory.is_empty() => {
+                        response.clone().on_hover_text(format!(
+                            "{} · nothing drawn{memory}",
+                            profile.second_named(t)
+                        ));
+                    }
+                    None => {}
                 }
             }
             if response.clicked()

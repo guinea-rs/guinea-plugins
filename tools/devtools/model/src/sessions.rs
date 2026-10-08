@@ -1,12 +1,13 @@
 //! Every application that connected, and what it reported.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use guinea_devtools_protocol::{Answer, AppInfo, Capability, Report, Snapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::chains::Chains;
 use crate::clock::Clock;
+use crate::memory::{Memory, MemorySample};
 use crate::native::{Inspection, Picked};
 use crate::profile::{Profile, Timeline};
 use crate::tasks::Tasks;
@@ -134,6 +135,8 @@ pub enum Incoming {
     Opened(u64),
     Report(u64, Box<Report>),
     Closed(u64),
+    /// What process `pid` held, as devtools read it.
+    Memory(u32, MemorySample),
 }
 
 #[derive(Debug, Default)]
@@ -141,6 +144,8 @@ pub struct Sessions {
     pub listening: Listening,
     pub by_id: BTreeMap<u64, Session>,
     moved: u64,
+    /// By process id.
+    memory: HashMap<u32, Memory>,
 }
 
 impl Sessions {
@@ -211,10 +216,12 @@ impl Sessions {
             .native_for(app.id)
             .ok_or("no native inspector: attach one first")?;
 
-        Ok(
-            Profile::new(timeline, app.clock(), &inspector.inspection.kept)
-                .with_samples(&inspector.inspection.sampled),
-        )
+        let profile = Profile::new(timeline, app.clock(), &inspector.inspection.kept)
+            .with_samples(&inspector.inspection.sampled);
+        Ok(match self.memory(app.info.pid) {
+            Some(memory) => profile.with_memory(memory),
+            None => profile,
+        })
     }
 
     /// The session of the application `id` belongs to that sent a clock:
@@ -366,13 +373,64 @@ impl Sessions {
                 }
                 self.forget_the_long_gone();
             }
+            Incoming::Memory(pid, sample) => {
+                self.memory.entry(pid).or_default().push(sample);
+            }
         }
+    }
+
+    /// What process `pid` held, read by read.
+    pub fn memory(&self, pid: u32) -> Option<&Memory> {
+        self.memory.get(&pid)
+    }
+
+    /// The processes whose memory is worth reading: those of connected
+    /// sessions.
+    pub fn watched(&self) -> BTreeSet<u32> {
+        self.by_id
+            .values()
+            .filter(|session| session.connected && session.info.pid != 0)
+            .map(|session| session.info.pid)
+            .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_is_kept_by_process_and_moves_nothing_drawn() {
+        let mut sessions = Sessions::default();
+        let pid = 4_242;
+        sessions.apply(Incoming::Opened(1));
+        sessions.apply(Incoming::Report(
+            1,
+            Box::new(Report::Hello(AppInfo {
+                pid,
+                ..AppInfo::default()
+            })),
+        ));
+        let before = sessions.revision();
+
+        sessions.apply(Incoming::Memory(
+            pid,
+            MemorySample {
+                qpc: 10,
+                private: 300 << 20,
+                working_set: 200 << 20,
+            },
+        ));
+
+        assert_eq!(
+            sessions.memory(pid).map(|memory| memory.samples().len()),
+            Some(1)
+        );
+        assert_eq!(sessions.revision(), before, "a reading redraws nothing");
+        assert_eq!(sessions.watched().into_iter().collect::<Vec<_>>(), [pid]);
+        sessions.apply(Incoming::Closed(1));
+        assert!(sessions.watched().is_empty(), "nobody reads a gone process");
+    }
 
     fn hello(identifier: &str) -> Incoming {
         Incoming::Report(

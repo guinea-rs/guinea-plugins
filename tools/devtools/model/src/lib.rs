@@ -9,6 +9,7 @@ pub mod chains;
 pub mod clock;
 pub mod elements;
 pub mod graph;
+pub mod memory;
 pub mod names;
 pub mod native;
 pub mod panels;

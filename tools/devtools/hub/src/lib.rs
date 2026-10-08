@@ -5,6 +5,8 @@ mod http;
 #[cfg(windows)]
 mod integrity;
 mod listen;
+#[cfg(windows)]
+mod memory;
 
 use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
@@ -43,6 +45,8 @@ impl Hub {
     pub fn start() -> Arc<Hub> {
         let hub = Arc::new(Hub::default());
         let (out, inbox) = channel();
+        #[cfg(windows)]
+        memory::spawn(hub.clone(), out.clone());
         let _ = hub.commands.set(listen::spawn(out));
 
         let applying = hub.clone();

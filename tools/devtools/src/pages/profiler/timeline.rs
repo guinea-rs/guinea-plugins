@@ -18,6 +18,7 @@ use guinea_devtools_model::timers::Timers;
 use guinea_devtools_model::words;
 
 use super::flame::{self, NARROWEST_US, View, last_segment};
+use super::memory;
 use super::{ms, shade, short};
 use crate::components;
 use crate::theme;
@@ -35,6 +36,8 @@ const LEAD_US: i64 = 3_000;
 const SAMPLE_PERIOD_US: i64 = 1_000;
 /// How many levels of a sampled stack the timeline shows.
 const STACK_DEPTHS: usize = 80;
+/// How many lanes the line of what the process held takes.
+const MEMORY_ROWS: usize = 2;
 /// How many of the functions sampled in a selection are listed.
 const HEAVIEST: usize = 12;
 
@@ -228,8 +231,14 @@ pub fn timeline(
             threads.push((*thread, ""));
         }
     }
+    let memory_lane = frame_lane + 1 + pass_rows;
+    let memory_rows = if profile.memory_between(within.from, within.to).is_empty() {
+        0
+    } else {
+        MEMORY_ROWS
+    };
     let mut stacked: Vec<Stacked> = Vec::new();
-    let mut lanes = frame_lane + 1 + pass_rows;
+    let mut lanes = memory_lane + memory_rows;
     for (thread, name) in threads {
         if lens.hidden.contains(&thread) {
             continue;
@@ -270,7 +279,7 @@ pub fn timeline(
         });
         lanes += own_lanes + rows;
     }
-    let gaps = 2 + stacked.len();
+    let gaps = 2 + usize::from(memory_rows > 0) + stacked.len();
 
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(
@@ -335,6 +344,7 @@ pub fn timeline(
 
     let starts: Vec<usize> = [frame_lane, frame_lane + 1]
         .into_iter()
+        .chain((memory_rows > 0).then_some(memory_lane))
         .chain(stacked.iter().map(|stacked| stacked.first))
         .collect();
     let top_of = |index: usize| {
@@ -351,6 +361,7 @@ pub fn timeline(
         (0, record_rows, "guinea"),
         (frame_lane, frame_lane + 1, "frame"),
         (frame_lane + 1, frame_lane + 1 + pass_rows, "layout"),
+        (memory_lane, memory_lane + memory_rows, "memory"),
     ]
     .into_iter()
     .chain(
@@ -567,6 +578,21 @@ pub fn timeline(
         }
     }
 
+    let memory_band = (memory_rows > 0).then(|| {
+        Rect::from_x_y_ranges(
+            track.x_range(),
+            lane(memory_lane).top()..=lane(memory_lane + memory_rows - 1).bottom(),
+        )
+    });
+    if let Some(band) = memory_band {
+        let points: Vec<(f32, u64)> = profile
+            .memory_between(view.from, view.to)
+            .into_iter()
+            .map(|(at, sample)| (x(at), sample.private))
+            .collect();
+        memory::line(&painter.with_clip_rect(band), band, &points);
+    }
+
     for frame in frames.iter().filter(|frame| frame.over()) {
         let budget = x(frame.at_us + BUDGET_US as i64);
         if (track.left()..=track.right()).contains(&budget) {
@@ -612,8 +638,16 @@ pub fn timeline(
     if !response.dragged()
         && let Some(pointer) = response.hover_pos()
     {
+        let held = memory_band
+            .filter(|band| band.contains(pointer))
+            .and_then(|_| profile.memory_at(moment(pointer.x)));
         match hits.iter().rev().find(|(shape, _, _)| shape.contains(pointer)) {
             Some((_, about, _)) => response.on_hover_text(about.as_str()),
+            None if held.is_some() => response.on_hover_text(format!(
+                "{}\nat {}",
+                held.map(memory::said).unwrap_or_default(),
+                profile.when(moment(pointer.x))
+            )),
             None => response.on_hover_text(
                 "drag selects · ctrl+wheel zooms · right drag or shift+wheel pans · double click fits the second",
             ),
@@ -667,6 +701,27 @@ pub fn timeline(
             ui.label(components::mono(format!(
                 "{:<24} {ran} · {} samples",
                 stacked.label, cpu.samples
+            )));
+        }
+
+        if let (Some(before), Some(after)) = (
+            profile.memory_at(selected.from),
+            profile.memory_at(selected.to),
+        ) {
+            let change = |before: u64, after: u64| {
+                let sign = if after >= before { '+' } else { '-' };
+                format!(
+                    "{} → {} ({sign}{})",
+                    memory::bytes(before),
+                    memory::bytes(after),
+                    memory::bytes(after.abs_diff(before))
+                )
+            };
+            ui.label(components::mono(format!(
+                "{:<24} private {} · working set {}",
+                "memory",
+                change(before.private, after.private),
+                change(before.working_set, after.working_set)
             )));
         }
 

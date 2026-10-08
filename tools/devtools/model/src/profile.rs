@@ -10,6 +10,7 @@ use guinea_devtools_protocol::{ClockAnchor, Span, TracePoint};
 use serde::Serialize;
 
 use crate::clock::Clock;
+use crate::memory::{Memory, MemorySample};
 use crate::samples::{Origin, Sampled};
 use crate::trace_log::TraceLog;
 
@@ -96,6 +97,7 @@ pub struct Profile<'a> {
     clock: Clock,
     timeline: Option<Timeline>,
     sampled: Option<&'a Sampled>,
+    memory: Option<&'a Memory>,
 }
 
 impl<'a> Profile<'a> {
@@ -140,6 +142,38 @@ impl<'a> Profile<'a> {
         taken
             .iter()
             .filter(move |sample| sample.thread == thread || sample.thread == 0 && thread == ui)
+    }
+
+    /// With what the process held, as `memory` read it.
+    pub fn with_memory(self, memory: &'a Memory) -> Self {
+        Self {
+            memory: Some(memory),
+            ..self
+        }
+    }
+
+    /// What the process held from `from_us` up to `to_us`, oldest first,
+    /// and the reading before, which the stretch begins with.
+    pub fn memory_between(&self, from_us: i64, to_us: i64) -> Vec<(i64, MemorySample)> {
+        let (Some(memory), Some(timeline)) = (self.memory, self.timeline) else {
+            return Vec::new();
+        };
+        let samples = memory.samples();
+        let at = |sample: &MemorySample| timeline.trace_us(sample.qpc);
+        let first = samples.partition_point(|sample| at(sample) < from_us);
+        samples
+            .range(first.saturating_sub(1)..)
+            .map(|sample| (at(sample), *sample))
+            .take_while(|(at, _)| *at < to_us)
+            .collect()
+    }
+
+    /// The last reading at or before `at_us`.
+    pub fn memory_at(&self, at_us: i64) -> Option<MemorySample> {
+        let (memory, timeline) = (self.memory?, self.timeline?);
+        let samples = memory.samples();
+        let past = samples.partition_point(|sample| timeline.trace_us(sample.qpc) <= at_us);
+        samples.get(past.checked_sub(1)?).copied()
     }
 
     /// The thread the application runs its UI on, as its clock said.
@@ -207,6 +241,7 @@ impl<'a> Profile<'a> {
             clock,
             timeline: Some(timeline),
             sampled: None,
+            memory: None,
         }
     }
 
@@ -585,6 +620,36 @@ mod tests {
                 ran_us: Some(3_000)
             }
         );
+    }
+
+    #[test]
+    fn memory_is_placed_on_the_trace_and_a_stretch_begins_with_the_reading_before_it() {
+        let mut memory = Memory::default();
+        for (at, private) in [(100_000, 10), (200_000, 20), (300_000, 30), (400_000, 40)] {
+            memory.push(MemorySample {
+                qpc: qpc_at(at),
+                private,
+                working_set: private / 2,
+            });
+        }
+        let profile = Profile::new(timeline(), Clock::default(), &[]).with_memory(&memory);
+        let private = |picked: Vec<(i64, MemorySample)>| -> Vec<(i64, u64)> {
+            picked
+                .into_iter()
+                .map(|(at, sample)| (at, sample.private))
+                .collect()
+        };
+
+        assert_eq!(
+            private(profile.memory_between(250_000, 400_000)),
+            [(200_000, 20), (300_000, 30)]
+        );
+        assert_eq!(private(profile.memory_between(0, 150_000)), [(100_000, 10)]);
+        assert_eq!(
+            profile.memory_at(399_999).map(|sample| sample.private),
+            Some(30)
+        );
+        assert_eq!(profile.memory_at(99_999), None);
     }
 
     #[test]
