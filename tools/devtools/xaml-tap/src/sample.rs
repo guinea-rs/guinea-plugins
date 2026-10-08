@@ -1,38 +1,54 @@
-//! The UI thread's stack, looked at about a thousand times a second while
-//! devtools have sampling on.
+//! The process's threads, looked at about a thousand times a second while
+//! devtools have sampling on: the UI thread every time, every other thread
+//! when it ran since the last look.
 //!
-//! A thread of the tap's own suspends the UI thread, reads its registers,
-//! walks its stack and lets it go. While the UI thread is suspended the
-//! sampler waits on nothing the UI thread could be holding - the heap, the
-//! loader's lock - so in that window it allocates nothing and finds unwind
-//! data in a table of the process's modules read beforehand, never through
+//! A thread of the tap's own reads how many cycles each thread has run,
+//! then suspends the ones that ran, reads their registers, walks their
+//! stacks and lets them go. While a thread is suspended the sampler waits on
+//! nothing it could be holding - the heap, the loader's lock - so in that
+//! window it allocates nothing and finds unwind data in a table of the
+//! process's modules read beforehand, never through
 //! `RtlLookupFunctionEntry`, which takes the loader's lock. Addresses are
 //! named afterwards, when devtools take them, through dbghelp.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::JoinHandle;
+use std::time::Instant;
 
-use guinea_devtools_protocol::native::{Sample, Stacks};
+use guinea_devtools_protocol::native::{Sample, SampledThread, Stacks};
 
 use crate::bindings::{
     CloseHandle, CreateToolhelp32Snapshot, HANDLE, MODULEENTRY32W, Module32FirstW, Module32NextW,
     OpenThread, TH32CS_SNAPMODULE, THREAD_GET_CONTEXT, THREAD_QUERY_INFORMATION,
-    THREAD_SUSPEND_RESUME,
+    THREAD_QUERY_LIMITED_INFORMATION, THREAD_SUSPEND_RESUME,
 };
 
 /// The deepest stack walked; deeper calls are left out.
 const DEPTH: usize = 128;
 /// How many samples wait to be taken at most, the newest kept: a minute of
-/// them, for while nobody takes them.
-const KEPT: usize = 60_000;
-/// How many samples go by before the table of modules is read again.
+/// the UI thread and a busy worker, for while nobody takes them.
+const KEPT: usize = 120_000;
+/// How many looks go by before the tables of modules and threads are read
+/// again.
 const MODULES_EVERY: u32 = 1_000;
 
 static SAMPLER: Mutex<Option<Running>> = Mutex::new(None);
-static TAKEN: Mutex<VecDeque<(u64, Vec<u64>)>> = Mutex::new(VecDeque::new());
+static TAKEN: Mutex<VecDeque<Taken>> = Mutex::new(VecDeque::new());
 static NAMES: Mutex<Option<Names>> = Mutex::new(None);
+static THREAD_NAMES: Mutex<Option<HashMap<u32, String>>> = Mutex::new(None);
+/// The time stamp counter and the clock when sampling first started, to
+/// tell how fast cycles go by.
+static CLOCK: OnceLock<(u64, Instant)> = OnceLock::new();
+
+/// A stack as it was walked, not yet named.
+struct Taken {
+    qpc: u64,
+    thread: u32,
+    cycles: u64,
+    frames: Vec<u64>,
+}
 
 struct Running {
     thread: u32,
@@ -41,14 +57,18 @@ struct Running {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Starts sampling the stack of `thread`, unless it already is.
+/// Starts sampling the process's threads, `thread` - the UI thread - even
+/// while it waits, unless it already is.
 pub fn start(thread: u32) -> Result<(), String> {
     if !cfg!(target_arch = "x86_64") {
         return Err("stacks are sampled on x86-64 only".to_string());
     }
+    CLOCK.get_or_init(|| (tsc(), Instant::now()));
 
     let mut running = lock(&SAMPLER);
     if running
@@ -62,8 +82,7 @@ pub fn start(thread: u32) -> Result<(), String> {
         let _ = old.handle.join();
     }
 
-    let access = (THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION) as u32;
-    let target = unsafe { OpenThread(access, false.into(), thread) };
+    let target = open(thread, THREAD_QUERY_INFORMATION as u32);
     if target.is_null() {
         return Err(format!(
             "thread {thread} cannot be opened: {}",
@@ -77,7 +96,7 @@ pub fn start(thread: u32) -> Result<(), String> {
         .spawn({
             let stop = Arc::clone(&stop);
             let target = target as usize;
-            move || sampling(target as HANDLE, &stop)
+            move || sampling(Watched::new(thread, target as HANDLE, true), &stop)
         })
         .map_err(|error| {
             let _ = unsafe { CloseHandle(target) };
@@ -113,64 +132,254 @@ pub fn take() -> Stacks {
 
     let mut interned = Interned::default();
     let mut samples = Vec::with_capacity(taken.len());
+    let mut sampled = BTreeSet::new();
     let called_from = |depth: usize, address: u64| if depth == 0 { address } else { address - 1 };
-    for (qpc, frames) in &taken {
-        for (depth, address) in frames.iter().enumerate() {
+    for taken in &taken {
+        for (depth, address) in taken.frames.iter().enumerate() {
             names.learn(called_from(depth, *address));
         }
-        let named: Vec<(&str, Option<&str>)> = frames
+        let named: Vec<(&str, Option<&str>)> = taken
+            .frames
             .iter()
             .enumerate()
             .map(|(depth, address)| names.name(called_from(depth, *address)))
             .collect();
         samples.push(Sample {
-            qpc: *qpc,
+            qpc: taken.qpc,
             stack: interned.stack(&named),
+            thread: taken.thread,
+            cycles: taken.cycles,
         });
+        sampled.insert(taken.thread);
     }
 
-    interned.into_stacks(samples)
+    let mut stacks = interned.into_stacks(samples);
+    let thread_names = lock(&THREAD_NAMES);
+    stacks.threads = sampled
+        .into_iter()
+        .filter_map(|id| {
+            let name = thread_names.as_ref()?.get(&id)?;
+            Some(SampledThread {
+                id,
+                name: name.clone(),
+            })
+        })
+        .collect();
+    stacks.cycles_per_second = cycles_per_second();
+    stacks
 }
 
-fn sampling(target: HANDLE, stop: &AtomicBool) {
+/// How many cycles of the time stamp counter, which a thread's cycle time
+/// counts in, go by in a second; zero until sampling has run a while.
+fn cycles_per_second() -> u64 {
+    let Some((counted, at)) = CLOCK.get() else {
+        return 0;
+    };
+    let seconds = at.elapsed().as_secs_f64();
+    if seconds < 0.01 {
+        return 0;
+    }
+    (tsc().saturating_sub(*counted) as f64 / seconds) as u64
+}
+
+fn tsc() -> u64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        unsafe { core::arch::x86_64::_rdtsc() }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        0
+    }
+}
+
+fn sampling(ui: Watched, stop: &AtomicBool) {
     use crate::bindings::{GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL};
 
     let _ = unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) };
     let timer = Timer::new();
     let mut modules = Modules::read();
+    let mut threads = Threads(vec![ui]);
+    threads.refresh();
     let mut frames = [0u64; DEPTH];
     let mut since_modules = 0;
 
     while !stop.load(Ordering::SeqCst) {
         timer.wait();
 
-        let Some((qpc, depth)) = (unsafe { walk::look(target, &modules, &mut frames) }) else {
-            if gone(target) {
-                break;
+        let mut ui_gone = false;
+        for thread in &mut threads.0 {
+            let cycles = thread.ran();
+            if !thread.ui && cycles == 0 {
+                continue;
             }
-            continue;
-        };
-        if depth > 0 {
-            keep(qpc, &frames[..depth]);
+            match unsafe { walk::look(thread.handle, &modules, &mut frames) } {
+                Some((qpc, depth)) if depth > 0 => {
+                    keep(qpc, thread.id, cycles, &frames[..depth]);
+                }
+                Some(_) => {}
+                None => ui_gone |= thread.ui && gone(thread.handle),
+            }
+        }
+        if ui_gone {
+            break;
         }
 
         since_modules += 1;
         if since_modules >= MODULES_EVERY {
             modules = Modules::read();
+            threads.refresh();
             since_modules = 0;
         }
     }
-
-    let _ = unsafe { CloseHandle(target) };
 }
 
 /// Keeps a sample until it is taken.
-fn keep(qpc: u64, frames: &[u64]) {
+fn keep(qpc: u64, thread: u32, cycles: u64, frames: &[u64]) {
     let mut taken = lock(&TAKEN);
     if taken.len() >= KEPT {
         taken.pop_front();
     }
-    taken.push_back((qpc, frames.to_vec()));
+    taken.push_back(Taken {
+        qpc,
+        thread,
+        cycles,
+        frames: frames.to_vec(),
+    });
+}
+
+/// Opens `thread` to be sampled, with `more` access besides.
+fn open(thread: u32, more: u32) -> HANDLE {
+    let access = (THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_LIMITED_INFORMATION)
+        as u32
+        | more;
+    unsafe { OpenThread(access, false.into(), thread) }
+}
+
+/// A thread the sampler looks at, and how many cycles it had run when it
+/// last did.
+struct Watched {
+    id: u32,
+    handle: HANDLE,
+    cycles: u64,
+    /// Looked at even when it did not run.
+    ui: bool,
+}
+
+impl Watched {
+    fn new(id: u32, handle: HANDLE, ui: bool) -> Self {
+        let mut watched = Self {
+            id,
+            handle,
+            cycles: 0,
+            ui,
+        };
+        watched.ran();
+        watched
+    }
+
+    /// The cycles it ran since the last time this was asked.
+    fn ran(&mut self) -> u64 {
+        use crate::bindings::QueryThreadCycleTime;
+
+        let mut now = 0u64;
+        if !unsafe { QueryThreadCycleTime(self.handle, &mut now) }.as_bool() {
+            return 0;
+        }
+        let ran = now.saturating_sub(self.cycles);
+        self.cycles = now;
+        ran
+    }
+}
+
+/// Every thread of the process but the sampler's own.
+struct Threads(Vec<Watched>);
+
+impl Threads {
+    /// Lets go of the threads that exited, takes up the ones that started,
+    /// and reads what each is called.
+    fn refresh(&mut self) {
+        use crate::bindings::GetCurrentThreadId;
+
+        let Some(running) = running() else {
+            return;
+        };
+        let own = unsafe { GetCurrentThreadId() };
+        self.0.retain(|thread| {
+            let kept = thread.ui || running.contains(&thread.id);
+            if !kept {
+                let _ = unsafe { CloseHandle(thread.handle) };
+            }
+            kept
+        });
+        for id in running {
+            if id == own || self.0.iter().any(|thread| thread.id == id) {
+                continue;
+            }
+            let handle = open(id, 0);
+            if !handle.is_null() {
+                self.0.push(Watched::new(id, handle, false));
+            }
+        }
+
+        let mut names = lock(&THREAD_NAMES);
+        let names = names.get_or_insert_with(HashMap::new);
+        for thread in &self.0 {
+            if let Some(name) = description(thread.handle) {
+                names.insert(thread.id, name);
+            }
+        }
+    }
+}
+
+impl Drop for Threads {
+    fn drop(&mut self) {
+        for thread in &self.0 {
+            let _ = unsafe { CloseHandle(thread.handle) };
+        }
+    }
+}
+
+/// The ids of the process's threads, as of now.
+fn running() -> Option<BTreeSet<u32>> {
+    use crate::bindings::{
+        GetCurrentProcessId, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD as u32, 0) };
+    if snapshot.is_null() || snapshot as isize == -1 {
+        return None;
+    }
+
+    let process = unsafe { GetCurrentProcessId() };
+    let mut entry = THREADENTRY32 {
+        dwSize: size_of::<THREADENTRY32>() as u32,
+        ..Default::default()
+    };
+    let mut threads = BTreeSet::new();
+    let mut more = unsafe { Thread32First(snapshot, &mut entry) }.as_bool();
+    while more {
+        if entry.th32OwnerProcessID == process {
+            threads.insert(entry.th32ThreadID);
+        }
+        more = unsafe { Thread32Next(snapshot, &mut entry) }.as_bool();
+    }
+    let _ = unsafe { CloseHandle(snapshot) };
+    Some(threads)
+}
+
+/// The name a thread was given, if it was.
+fn description(thread: HANDLE) -> Option<String> {
+    use crate::bindings::{GetThreadDescription, LocalFree};
+
+    let mut text = windows_core::PWSTR::null();
+    let read = unsafe { GetThreadDescription(thread, &mut text) };
+    if read.is_err() || text.is_null() {
+        return None;
+    }
+    let name = unsafe { text.to_string() }.ok();
+    let _ = unsafe { LocalFree(text.0.cast()) };
+    name.filter(|name| !name.is_empty())
 }
 
 /// Whether the thread `target` names has exited.
@@ -327,7 +536,11 @@ impl Names {
             SymSetOptions(
                 (SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_FAIL_CRITICAL_ERRORS) as u32,
             );
-            let _ = SymInitializeW(GetCurrentProcess(), windows_core::PCWSTR::null(), true.into());
+            let _ = SymInitializeW(
+                GetCurrentProcess(),
+                windows_core::PCWSTR::null(),
+                true.into(),
+            );
         }
 
         Self {
@@ -486,11 +699,13 @@ impl Interned {
             samples,
             modules: self.modules,
             origins: self.origins,
+            threads: Vec::new(),
+            cycles_per_second: 0,
         }
     }
 }
 
-/// What runs while the UI thread is suspended, and what it reads: nothing
+/// What runs while a thread is suspended, and what it reads: nothing
 /// in here allocates or takes a lock.
 #[cfg(target_arch = "x86_64")]
 mod walk {
@@ -689,7 +904,8 @@ mod tests {
             std::thread::yield_now();
         }
 
-        let started = start(id.load(Ordering::SeqCst));
+        let thread = id.load(Ordering::SeqCst);
+        let started = start(thread);
         std::thread::sleep(Duration::from_millis(300));
         stop();
         done.store(true, Ordering::Relaxed);
@@ -697,13 +913,13 @@ mod tests {
         let stacks = take();
 
         assert_eq!(started, Ok(()));
-        assert!(
-            stacks.samples.len() > 50,
-            "{} samples in 300 ms",
-            stacks.samples.len()
-        );
-        let spinning = stacks
+        let on_it: Vec<&Sample> = stacks
             .samples
+            .iter()
+            .filter(|sample| sample.thread == thread)
+            .collect();
+        assert!(on_it.len() > 50, "{} samples in 300 ms", on_it.len());
+        let spinning = on_it
             .iter()
             .filter(|sample| {
                 stacks.stacks[sample.stack as usize].iter().any(|function| {
@@ -712,9 +928,9 @@ mod tests {
             })
             .count();
         assert!(
-            spinning * 2 > stacks.samples.len(),
+            spinning * 2 > on_it.len(),
             "{spinning} of {} samples in spin_in_a_known_place; functions seen: {:?}",
-            stacks.samples.len(),
+            on_it.len(),
             stacks.functions
         );
 
@@ -730,6 +946,102 @@ mod tests {
         assert!(
             module.is_some_and(|path| exe.as_ref().is_some_and(|exe| path.ends_with(exe.as_str()))),
             "spin_in_a_known_place is in {module:?}, not in {exe:?}"
+        );
+    }
+
+    /// A thread of its own name that spins until `done`, or when it is not
+    /// `busy` stays parked until it is unparked with `done` set; and its id,
+    /// once it has one.
+    fn named(name: &str, busy: bool, done: &Arc<AtomicBool>) -> (u32, std::thread::JoinHandle<()>) {
+        let id = Arc::new(AtomicU32::new(0));
+        let handle = std::thread::Builder::new()
+            .name(name.to_string())
+            .spawn({
+                let done = Arc::clone(done);
+                let id = Arc::clone(&id);
+                move || {
+                    id.store(
+                        unsafe { crate::bindings::GetCurrentThreadId() },
+                        Ordering::SeqCst,
+                    );
+                    if busy {
+                        spin_in_a_known_place(&done);
+                    } else {
+                        while !done.load(Ordering::SeqCst) {
+                            std::thread::park();
+                        }
+                    }
+                }
+            })
+            .expect("spawn");
+        while id.load(Ordering::SeqCst) == 0 {
+            std::thread::yield_now();
+        }
+        (id.load(Ordering::SeqCst), handle)
+    }
+
+    #[test]
+    fn every_thread_that_runs_is_sampled_under_its_name_and_one_that_waits_is_not() {
+        let _alone = lock(&ONE_AT_A_TIME);
+        take();
+        let done = Arc::new(AtomicBool::new(false));
+        let (ui, ui_thread) = named("waiting ui", false, &done);
+        let (busy, busy_thread) = named("busy worker", true, &done);
+        let (idle, idle_thread) = named("idle worker", false, &done);
+
+        let started = start(ui);
+        std::thread::sleep(Duration::from_millis(300));
+        stop();
+        done.store(true, Ordering::SeqCst);
+        for thread in [ui_thread, busy_thread, idle_thread] {
+            thread.thread().unpark();
+            let _ = thread.join();
+        }
+        let stacks = take();
+
+        let on = |thread: u32| {
+            stacks
+                .samples
+                .iter()
+                .filter(move |sample| sample.thread == thread)
+        };
+        let spinning = on(busy)
+            .filter(|sample| {
+                stacks.stacks[sample.stack as usize].iter().any(|function| {
+                    stacks.functions[*function as usize].contains("spin_in_a_known_place")
+                })
+            })
+            .count();
+        let name = |thread: u32| {
+            stacks
+                .threads
+                .iter()
+                .find(|named| named.id == thread)
+                .map(|named| named.name.as_str())
+        };
+        assert_eq!(started, Ok(()));
+        assert!(
+            spinning > 50,
+            "{spinning} samples spinning on the busy worker"
+        );
+        assert!(
+            on(busy).all(|sample| sample.cycles > 0),
+            "a thread sampled for running ran"
+        );
+        assert!(on(ui).count() > 50, "the UI thread is sampled waiting too");
+        assert_eq!(
+            on(idle).count(),
+            0,
+            "a worker that only waits is not looked at"
+        );
+        assert_eq!(
+            (name(busy), name(ui)),
+            (Some("busy worker"), Some("waiting ui"))
+        );
+        assert!(
+            stacks.cycles_per_second > 100_000_000,
+            "{}",
+            stacks.cycles_per_second
         );
     }
 
@@ -762,7 +1074,7 @@ mod tests {
         let _alone = lock(&ONE_AT_A_TIME);
         take();
         for qpc in 0..KEPT as u64 + 5 {
-            keep(qpc, &[0x1000]);
+            keep(qpc, 1, 0, &[0x1000]);
         }
 
         let stacks = take();

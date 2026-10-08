@@ -92,8 +92,8 @@ pub struct Frame {
     pub thread: u32,
 }
 
-/// The UI thread's stack, sampled while sampling is on: each name once,
-/// each distinct stack once, and every sample naming its stack.
+/// The threads' stacks, sampled while sampling is on: each name once, each
+/// distinct stack once, and every sample naming its stack and its thread.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Stacks {
     /// Every function a stack names: its symbol, or the module and offset
@@ -110,15 +110,36 @@ pub struct Stacks {
     /// address was in no module.
     #[serde(default)]
     pub origins: Vec<Option<u32>>,
+    /// The name of every thread a sample was taken on, where it has one.
+    #[serde(default)]
+    pub threads: Vec<SampledThread>,
+    /// How many of [`Sample::cycles`] go by in a second; zero from a tap that
+    /// counts none.
+    #[serde(default)]
+    pub cycles_per_second: u64,
 }
 
-/// One look at the UI thread's stack.
+/// A thread the sampler looked at, by its operating system id.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SampledThread {
+    pub id: u32,
+    pub name: String,
+}
+
+/// One look at a thread's stack.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sample {
     /// `QueryPerformanceCounter` when it was taken.
     pub qpc: u64,
     /// An index into [`Stacks::stacks`].
     pub stack: u32,
+    /// The operating system's id of the thread; zero from a tap that samples
+    /// the UI thread alone.
+    #[serde(default)]
+    pub thread: u32,
+    /// The processor cycles the thread ran since it was last looked at.
+    #[serde(default)]
+    pub cycles: u64,
 }
 
 /// One element's measure or arrange, as long as it took including its

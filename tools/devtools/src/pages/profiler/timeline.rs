@@ -6,12 +6,14 @@
 //! zoom, a right or middle drag and shift with the wheel pan, a double click
 //! fits the second again.
 
+use std::collections::BTreeSet;
+
 use egui::{Align2, Color32, FontId, Rect, Sense, Stroke, pos2, vec2};
 use guinea_devtools_model::native::NativeTree;
 use guinea_devtools_model::profile::{BUDGET_US, Frame, Profile};
-use guinea_devtools_model::samples::{self, Origin};
 use guinea_devtools_model::protocol::Span;
 use guinea_devtools_model::protocol::native::Pass;
+use guinea_devtools_model::samples::{self, Origin};
 use guinea_devtools_model::timers::Timers;
 use guinea_devtools_model::words;
 
@@ -49,6 +51,34 @@ pub struct Lens {
     pub zoom_to: Option<i64>,
     /// Whose calls the stacks show.
     pub shown: Shown,
+    /// The threads whose stacks are not shown.
+    pub hidden: BTreeSet<u32>,
+}
+
+impl Lens {
+    /// The checkboxes that set whose calls and which threads the stacks
+    /// show, `threads` the UI thread first.
+    pub fn edit(&mut self, ui: &mut egui::Ui, threads: &[(u32, &str)]) {
+        self.shown.edit(ui);
+        let Some((ui_thread, _)) = threads.first() else {
+            return;
+        };
+        ui.separator();
+        for (id, name) in threads {
+            let mut on = !self.hidden.contains(id);
+            if ui
+                .checkbox(&mut on, thread_label(*id, name, *ui_thread))
+                .on_hover_text(format!("thread {id}"))
+                .changed()
+            {
+                if on {
+                    self.hidden.remove(id);
+                } else {
+                    self.hidden.insert(*id);
+                }
+            }
+        }
+    }
 }
 
 /// Whose calls the sampled stacks show, besides the application's own.
@@ -90,8 +120,16 @@ impl Shown {
         for (on, name, about) in [
             (&mut self.rust, "Rust std", "std, core and alloc"),
             (&mut self.winui, "WinUI", "the Windows App SDK"),
-            (&mut self.windows, "Windows", "modules under the Windows folder"),
-            (&mut self.unknown, "no module", "addresses in no module the tap knew"),
+            (
+                &mut self.windows,
+                "Windows",
+                "modules under the Windows folder",
+            ),
+            (
+                &mut self.unknown,
+                "no module",
+                "addresses in no module the tap knew",
+            ),
             (
                 &mut self.waits,
                 "waiting",
@@ -144,7 +182,11 @@ pub fn timeline(
     };
     let margin = (fitted.length() / 100).max(NARROWEST_US);
     let within = View {
-        from: records.iter().map(|(at, _)| *at).fold(fitted.from, i64::min) - margin,
+        from: records
+            .iter()
+            .map(|(at, _)| *at)
+            .fold(fitted.from, i64::min)
+            - margin,
         to: records.iter().map(|(_, to)| *to).fold(fitted.to, i64::max) + margin,
     };
     let mut view = lens
@@ -170,25 +212,43 @@ pub fn timeline(
         .map_or(0, |deepest| (deepest + 1).min(DEPTHS));
     let frame_lane = record_rows;
     let shows = lens.shown;
-    let sampled = flame::shown(
-        &profile.samples_between(within.from, within.to),
-        |function| shows.shows(profile.origin(function)),
-        |function| !shows.waits && samples::waits(profile.function(function)),
-    );
-    let sampled: Vec<(i64, &[u32])> = sampled
-        .iter()
-        .map(|(at, stack)| (*at, stack.as_slice()))
-        .collect();
-    let runs = flame::runs(&sampled, SAMPLE_PERIOD_US);
-    let stack_rows = runs
-        .iter()
-        .map(|run| run.depth + 1)
-        .max()
-        .unwrap_or(0)
-        .min(STACK_DEPTHS);
-    let stack_lane = frame_lane + 1 + pass_rows;
-    let lanes = stack_lane + stack_rows;
-    let gaps = 2 + usize::from(stack_rows > 0);
+    let ui_thread = profile.ui_thread();
+    let mut stacked: Vec<Stacked> = Vec::new();
+    let mut lanes = frame_lane + 1 + pass_rows;
+    for (thread, name) in profile.threads() {
+        if lens.hidden.contains(&thread) {
+            continue;
+        }
+        let shown = flame::shown(
+            &profile.samples_between(thread, within.from, within.to),
+            |function| shows.shows(profile.origin(function)),
+            |function| !shows.waits && samples::waits(profile.function(function)),
+        );
+        let borrowed: Vec<(i64, &[u32])> = shown
+            .iter()
+            .map(|(at, stack)| (*at, stack.as_slice()))
+            .collect();
+        let runs = flame::runs(&borrowed, SAMPLE_PERIOD_US);
+        let rows = runs
+            .iter()
+            .map(|run| run.depth + 1)
+            .max()
+            .unwrap_or(0)
+            .min(STACK_DEPTHS);
+        if rows == 0 {
+            continue;
+        }
+        stacked.push(Stacked {
+            thread,
+            label: thread_label(thread, name, ui_thread),
+            first: lanes,
+            past: lanes + rows,
+            shown,
+            runs,
+        });
+        lanes += rows;
+    }
+    let gaps = 2 + stacked.len();
 
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(
@@ -205,9 +265,8 @@ pub fn timeline(
 
     let per_px = view.length() as f32 / track.width().max(1.0);
     let shown = view.from;
-    let moment = move |x: f32| {
-        (shown + ((x - track.left()) * per_px) as i64).clamp(within.from, within.to)
-    };
+    let moment =
+        move |x: f32| (shown + ((x - track.left()) * per_px) as i64).clamp(within.from, within.to);
     let selecting = response.dragged_by(egui::PointerButton::Primary);
     if response.double_clicked() {
         view = fitted;
@@ -237,11 +296,12 @@ pub fn timeline(
         if scroll.x != 0.0 {
             view = view.panned((-scroll.x * per_px) as i64, within);
         }
-        ui.ctx().set_cursor_icon(if response.dragged() && !selecting {
-            egui::CursorIcon::Grabbing
-        } else {
-            egui::CursorIcon::Crosshair
-        });
+        ui.ctx()
+            .set_cursor_icon(if response.dragged() && !selecting {
+                egui::CursorIcon::Grabbing
+            } else {
+                egui::CursorIcon::Crosshair
+            });
     }
     lens.view = Some((second, view));
     lens.selected = selected.map(|selected| (second, selected));
@@ -251,10 +311,12 @@ pub fn timeline(
     let length = view.length().max(1) as f32;
     let x = |at: i64| track.left() + (at - view.from) as f32 / length * track.width();
 
+    let starts: Vec<usize> = [frame_lane, frame_lane + 1]
+        .into_iter()
+        .chain(stacked.iter().map(|stacked| stacked.first))
+        .collect();
     let top_of = |index: usize| {
-        let gaps = usize::from(index >= frame_lane)
-            + usize::from(index > frame_lane)
-            + usize::from(stack_rows > 0 && index >= stack_lane);
+        let gaps = starts.iter().filter(|start| index >= **start).count();
         track.top() + index as f32 * LANE_TALL + gaps as f32 * GROUP_GAP
     };
     let lane = |index: usize| {
@@ -266,17 +328,24 @@ pub fn timeline(
     let groups = [
         (0, record_rows, "guinea"),
         (frame_lane, frame_lane + 1, "frame"),
-        (frame_lane + 1, stack_lane, "layout"),
-        (stack_lane, lanes, "stacks"),
-    ];
-    for (index, (first, past, name)) in groups.into_iter().enumerate() {
+        (frame_lane + 1, frame_lane + 1 + pass_rows, "layout"),
+    ]
+    .into_iter()
+    .chain(
+        stacked
+            .iter()
+            .map(|stacked| (stacked.first, stacked.past, stacked.label.as_str())),
+    );
+    let names = painter.with_clip_rect(Rect::from_min_max(
+        rect.left_top(),
+        pos2(rect.left() + NAMES_WIDE - 4.0, rect.bottom()),
+    ));
+    for (index, (first, past, name)) in groups.enumerate() {
         if first >= past {
             continue;
         }
-        let band = Rect::from_x_y_ranges(
-            rect.x_range(),
-            top_of(first)..=top_of(past - 1) + LANE_TALL,
-        );
+        let band =
+            Rect::from_x_y_ranges(rect.x_range(), top_of(first)..=top_of(past - 1) + LANE_TALL);
         if index % 2 == 0 {
             painter.rect_filled(band, 0.0, theme::FIELD.gamma_multiply(0.6));
         }
@@ -287,7 +356,7 @@ pub fn timeline(
                 Stroke::new(1.0, theme::DIVIDER),
             );
         }
-        painter.text(
+        names.text(
             pos2(rect.left() + 4.0, lane(first).center().y),
             Align2::LEFT_CENTER,
             name,
@@ -447,27 +516,30 @@ pub fn timeline(
         );
     }
 
-    for run in &runs {
-        if run.depth >= STACK_DEPTHS {
-            continue;
+    for stacked in &stacked {
+        for run in &stacked.runs {
+            if run.depth >= STACK_DEPTHS {
+                continue;
+            }
+            let name = profile.function(run.function);
+            let module = profile
+                .module(run.function)
+                .map(|path| format!("\n{path}"))
+                .unwrap_or_default();
+            bar(
+                stacked.first + run.depth,
+                (run.from, run.to),
+                tint(run.function),
+                last_segment(name),
+                format!(
+                    "{name}{module}\n{:.1} ms · {} samples on {}",
+                    ms((run.to - run.from) as u64),
+                    run.samples,
+                    stacked.label
+                ),
+                None,
+            );
         }
-        let name = profile.function(run.function);
-        let module = profile
-            .module(run.function)
-            .map(|path| format!("\n{path}"))
-            .unwrap_or_default();
-        bar(
-            stack_lane + run.depth,
-            (run.from, run.to),
-            tint(run.function),
-            last_segment(name),
-            format!(
-                "{name}{module}\n{:.1} ms · {} samples",
-                ms((run.to - run.from) as u64),
-                run.samples
-            ),
-            None,
-        );
     }
 
     for frame in frames.iter().filter(|frame| frame.over()) {
@@ -552,10 +624,29 @@ pub fn timeline(
             recorded.count
         )));
 
-        let inside: Vec<(i64, &[u32])> = sampled
+        for stacked in &stacked {
+            let cpu = profile.cpu(stacked.thread, selected.from, selected.to);
+            let ran = cpu.ran_us.map_or_else(
+                || "ran ? ms".to_string(),
+                |ran_us| {
+                    format!(
+                        "ran {:.2} ms, {:.0}%",
+                        ms(ran_us),
+                        ran_us as f64 * 100.0 / selected.length().max(1) as f64
+                    )
+                },
+            );
+            ui.label(components::mono(format!(
+                "{:<24} {ran} · {} samples",
+                stacked.label, cpu.samples
+            )));
+        }
+
+        let inside: Vec<(i64, &[u32])> = stacked
             .iter()
+            .flat_map(|stacked| &stacked.shown)
             .filter(|(at, _)| (selected.from..selected.to).contains(at))
-            .copied()
+            .map(|(at, stack)| (*at, stack.as_slice()))
             .collect();
         let sample_ms = |samples: usize| ms(samples as u64 * SAMPLE_PERIOD_US as u64);
         for weight in flame::heaviest(&inside).iter().take(HEAVIEST) {
@@ -569,6 +660,16 @@ pub fn timeline(
     }
 
     clicked
+}
+
+/// One thread's stacks on the timeline, and the lanes they take.
+struct Stacked {
+    thread: u32,
+    label: String,
+    first: usize,
+    past: usize,
+    shown: Vec<(i64, Vec<u32>)>,
+    runs: Vec<flame::Run>,
 }
 
 /// A sampled function's colour: the same function, the same colour.
@@ -602,6 +703,18 @@ fn around(frame: &Frame, frames: &[&Frame], records: &[(i64, i64)], within: View
     .panned(0, within)
 }
 
+/// What a sampled thread is called: the UI thread as such, another by its
+/// name, or by its id when it has none.
+pub fn thread_label(id: u32, name: &str, ui: u32) -> String {
+    if id == ui {
+        "UI".to_string()
+    } else if name.is_empty() {
+        format!("thread {id}")
+    } else {
+        name.to_string()
+    }
+}
+
 fn nice_step(length_ms: f32) -> f32 {
     [
         0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0,
@@ -610,4 +723,22 @@ fn nice_step(length_ms: f32) -> f32 {
     .into_iter()
     .find(|step| length_ms / step <= 10.0)
     .unwrap_or(2000.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_ui_thread_is_called_so_whatever_its_name_and_a_nameless_one_by_its_id() {
+        assert_eq!(
+            [
+                thread_label(7, "", 7),
+                thread_label(7, "main", 7),
+                thread_label(9, "tokio-runtime-worker", 7),
+                thread_label(9, "", 7),
+            ],
+            ["UI", "UI", "tokio-runtime-worker", "thread 9"]
+        );
+    }
 }

@@ -5,7 +5,7 @@
 //! ([`ClockAnchor`]), which is all it takes to put a frame among the records
 //! that led to it.
 
-use guinea_devtools_protocol::native::{Frame as Captured, Pass};
+use guinea_devtools_protocol::native::{Frame as Captured, Pass, Sample};
 use guinea_devtools_protocol::{ClockAnchor, Span, TracePoint};
 use serde::Serialize;
 
@@ -77,6 +77,16 @@ pub struct Second {
     pub worst_frame: i64,
 }
 
+/// What a thread ran in a stretch, as its samples tell it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Cpu {
+    /// The samples taken on it.
+    pub samples: usize,
+    /// How long it ran on a processor, in microseconds; `None` from a tap
+    /// that counts no cycles.
+    pub ran_us: Option<u64>,
+}
+
 /// The frames of one capture, placed on the trace's timeline, and the
 /// stacks sampled meanwhile.
 #[derive(Clone, Debug, Default)]
@@ -97,25 +107,67 @@ impl<'a> Profile<'a> {
         }
     }
 
-    /// The samples taken from `from_us` up to `to_us`, oldest first: when
-    /// each was taken, and its stack by function, the innermost call first.
-    pub fn samples_between(&self, from_us: i64, to_us: i64) -> Vec<(i64, &'a [u32])> {
+    /// The samples taken on `thread` from `from_us` up to `to_us`, oldest
+    /// first: when each was taken, and its stack by function, the innermost
+    /// call first.
+    pub fn samples_between(&self, thread: u32, from_us: i64, to_us: i64) -> Vec<(i64, &'a [u32])> {
         let (Some(sampled), Some(timeline)) = (self.sampled, self.timeline) else {
             return Vec::new();
         };
-        let at = |sample: &guinea_devtools_protocol::native::Sample| timeline.trace_us(sample.qpc);
-        let first = sampled
-            .samples
-            .partition_point(|sample| at(sample) < from_us);
-
-        sampled.samples[first..]
-            .iter()
-            .take_while(|sample| at(sample) < to_us)
+        self.taken_on(thread, from_us, to_us)
             .filter_map(|sample| {
                 let stack = sampled.stacks.get(sample.stack as usize)?;
-                Some((at(sample), stack.as_slice()))
+                Some((timeline.trace_us(sample.qpc), stack.as_slice()))
             })
             .collect()
+    }
+
+    /// The samples taken on `thread` from `from_us` up to `to_us`; one from
+    /// a tap that names no thread was taken on the UI thread.
+    fn taken_on(&self, thread: u32, from_us: i64, to_us: i64) -> impl Iterator<Item = &'a Sample> {
+        let ui = self.ui_thread();
+        let taken: &'a [Sample] = match (self.sampled, self.timeline) {
+            (Some(sampled), Some(timeline)) => {
+                let at = |sample: &Sample| timeline.trace_us(sample.qpc);
+                let first = sampled
+                    .samples
+                    .partition_point(|sample| at(sample) < from_us);
+                let past = sampled.samples.partition_point(|sample| at(sample) < to_us);
+                &sampled.samples[first..past.max(first)]
+            }
+            _ => &[],
+        };
+        taken
+            .iter()
+            .filter(move |sample| sample.thread == thread || sample.thread == 0 && thread == ui)
+    }
+
+    /// The thread the application runs its UI on, as its clock said.
+    pub fn ui_thread(&self) -> u32 {
+        self.timeline
+            .map_or(0, |timeline| timeline.anchor.ui_thread as u32)
+    }
+
+    /// Every thread sampled, the UI thread first, with its name or none.
+    pub fn threads(&self) -> Vec<(u32, &'a str)> {
+        self.sampled.map_or_else(Vec::new, |sampled| {
+            crate::samples::ui_first(sampled.threads(), self.ui_thread())
+        })
+    }
+
+    /// What `thread` ran from `from_us` up to `to_us`, by its samples.
+    pub fn cpu(&self, thread: u32, from_us: i64, to_us: i64) -> Cpu {
+        let (samples, cycles) = self
+            .taken_on(thread, from_us, to_us)
+            .fold((0, 0u64), |(samples, cycles), sample| {
+                (samples + 1, cycles + sample.cycles)
+            });
+        let per_second = self.sampled.map_or(0, Sampled::cycles_per_second);
+        Cpu {
+            samples,
+            ran_us: (per_second > 0)
+                .then(|| (u128::from(cycles) * 1_000_000 / u128::from(per_second)) as u64),
+        }
     }
 
     /// The name of function `id` of a sampled stack.
@@ -329,7 +381,10 @@ mod tests {
 
         assert_eq!(profile.frames.len(), 5, "a frame with no QPC is left out");
         assert_eq!(profile.second_starts(start + 1), 500_000);
-        assert_eq!(profile.second_of(profile.second_starts(start + 4)), start + 4);
+        assert_eq!(
+            profile.second_of(profile.second_starts(start + 4)),
+            start + 4
+        );
         assert_eq!(
             profile.seconds(),
             [
@@ -452,6 +507,7 @@ mod tests {
                 .map(|(at, stack)| Sample {
                     qpc: qpc_at(at),
                     stack,
+                    ..Sample::default()
                 })
                 .collect(),
             ..Stacks::default()
@@ -459,19 +515,74 @@ mod tests {
         let profile = Profile::new(timeline(), Clock::default(), &[]).with_samples(&sampled);
 
         let picked: Vec<(i64, Vec<&str>)> = profile
-            .samples_between(101_000, 103_000)
+            .samples_between(7, 101_000, 103_000)
             .into_iter()
-            .map(|(at, stack)| {
-                (
-                    at,
-                    stack.iter().map(|id| profile.function(*id)).collect(),
-                )
-            })
+            .map(|(at, stack)| (at, stack.iter().map(|id| profile.function(*id)).collect()))
             .collect();
 
         assert_eq!(
             picked,
-            [(101_000, vec!["draw", "main"]), (102_000, vec!["draw", "main"])]
+            [
+                (101_000, vec!["draw", "main"]),
+                (102_000, vec!["draw", "main"])
+            ]
+        );
+    }
+
+    #[test]
+    fn each_thread_has_its_own_samples_and_what_it_ran_and_a_tap_that_names_none_samples_the_ui() {
+        use guinea_devtools_protocol::native::{Sample, SampledThread, Stacks};
+
+        let mut sampled = Sampled::default();
+        sampled.absorb(Stacks {
+            functions: vec!["main".into()],
+            stacks: vec![vec![0]],
+            samples: [
+                (101_000, 7, 2_000),
+                (102_000, 9, 3_000),
+                (103_000, 9, 1_000),
+                (104_000, 0, 0),
+            ]
+            .into_iter()
+            .map(|(at, thread, cycles)| Sample {
+                qpc: qpc_at(at),
+                stack: 0,
+                thread,
+                cycles,
+            })
+            .collect(),
+            threads: vec![SampledThread {
+                id: 9,
+                name: "worker".into(),
+            }],
+            cycles_per_second: 1_000_000,
+            ..Stacks::default()
+        });
+        let profile = Profile::new(timeline(), Clock::default(), &[]).with_samples(&sampled);
+        let at = |thread: u32| -> Vec<i64> {
+            profile
+                .samples_between(thread, 100_000, 110_000)
+                .into_iter()
+                .map(|(at, _)| at)
+                .collect()
+        };
+
+        assert_eq!(at(9), [102_000, 103_000]);
+        assert_eq!(at(7), [101_000, 104_000]);
+        assert_eq!(profile.threads(), [(7, ""), (9, "worker")]);
+        assert_eq!(
+            profile.cpu(9, 100_000, 110_000),
+            Cpu {
+                samples: 2,
+                ran_us: Some(4_000)
+            }
+        );
+        assert_eq!(
+            profile.cpu(9, 100_000, 102_500),
+            Cpu {
+                samples: 1,
+                ran_us: Some(3_000)
+            }
         );
     }
 

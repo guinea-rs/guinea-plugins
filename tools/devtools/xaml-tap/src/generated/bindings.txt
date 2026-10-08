@@ -131,3 +131,12 @@ Windows::Win32::IMAGE_NT_HEADERS64
 Windows::Win32::IMAGE_NT_SIGNATURE
 Windows::Win32::IMAGE_NT_OPTIONAL_HDR64_MAGIC
 Windows::Win32::IMAGE_DIRECTORY_ENTRY_EXCEPTION
+Windows::Win32::TH32CS_SNAPTHREAD
+Windows::Win32::THREADENTRY32
+Windows::Win32::Thread32First
+Windows::Win32::Thread32Next
+Windows::Win32::QueryThreadCycleTime
+Windows::Win32::GetThreadDescription
+Windows::Win32::LocalFree
+Windows::Win32::GetCurrentProcessId
+Windows::Win32::THREAD_QUERY_LIMITED_INFORMATION

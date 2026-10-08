@@ -130,11 +130,7 @@ impl Page for Profiler {
 
         components::heading(
             ui,
-            &format!(
-                "{} · {} frames",
-                profile.second_named(second),
-                frames.len()
-            ),
+            &format!("{} · {} frames", profile.second_named(second), frames.len()),
         );
         if let Some(picked) = components::block(ui, |ui| frame_strip(ui, &profile, &frames, frame))
         {
@@ -231,16 +227,24 @@ impl Profiler {
             if inspector.info.can(Capability::NativeSamples)
                 && ui
                     .add(egui::Button::selectable(self.sampling, "sampling stacks"))
-                    .on_hover_text("the UI thread's stack, a thousand times a second")
+                    .on_hover_text(
+                        "every thread's stack while it runs, and the UI thread's even while it waits, a thousand times a second",
+                    )
                     .clicked()
             {
                 self.sampling = !self.sampling;
                 asked = Some(Command::NativeSampling { on: self.sampling });
             }
             if !inspector.inspection.sampled.samples.is_empty() {
-                ui.menu_button("shown", |ui| self.lens.shown.edit(ui))
+                let threads = sessions
+                    .profile(app.id)
+                    .map(|profile| profile.threads())
+                    .unwrap_or_default();
+                ui.menu_button("shown", |ui| self.lens.edit(ui, &threads))
                     .response
-                    .on_hover_text("whose calls the stacks show, besides the application's");
+                    .on_hover_text(
+                        "whose calls the stacks show, besides the application's, and on which threads",
+                    );
             }
             ui.separator();
             ui.label(components::dim(format!(

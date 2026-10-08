@@ -30,7 +30,7 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 4, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 5, 0);
 
 /// The first version whose devtools take [`Report::Changed`] in place of
 /// one snapshot after another.
@@ -156,9 +156,9 @@ pub enum Command {
     /// Needs [`Capability::Profiler`]. Switches the puffin profiler on or
     /// off; the application answers with [`Report::Profiler`].
     Profiler { on: bool },
-    /// Needs [`Capability::NativeSamples`]. Starts or stops sampling the UI
-    /// thread's stack; what was sampled comes with the next
-    /// [`Report::NativePerf`].
+    /// Needs [`Capability::NativeSamples`]. Starts or stops sampling the
+    /// stacks of the UI thread and of every thread that runs; what was
+    /// sampled comes with the next [`Report::NativePerf`].
     NativeSampling { on: bool },
     /// Needs [`Capability::Act`]. The action the application registered as
     /// `action`, decoded from `payload`, to the scope that answers it - under
@@ -249,7 +249,7 @@ pub enum Capability {
     NativeHighlight,
     /// [`Report::NativePerf`], on request.
     NativePerf,
-    /// [`Command::NativeSampling`]: the UI thread's stacks, with the frames.
+    /// [`Command::NativeSampling`]: the threads' stacks, with the frames.
     NativeSamples,
     /// [`Report::Profiler`]: the puffin profiler, switched on from here and
     /// read over its own connection.

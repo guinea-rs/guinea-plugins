@@ -13,6 +13,7 @@ windows_core::link!("user32.dll" "system" fn DestroyWindow(hwnd : HWND) -> windo
 windows_core::link!("user32.dll" "system" fn EnumThreadWindows(dwthreadid : u32, lpfn : WNDENUMPROC, lparam : LPARAM) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn GetAncestor(hwnd : HWND, gaflags : u32) -> HWND);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentProcess() -> HANDLE);
+windows_core::link!("kernel32.dll" "system" fn GetCurrentProcessId() -> u32);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentThread() -> HANDLE);
 windows_core::link!("kernel32.dll" "system" fn GetCurrentThreadId() -> u32);
 windows_core::link!("user32.dll" "system" fn GetCursorPos(lppoint : *mut POINT) -> windows_core::BOOL);
@@ -22,15 +23,18 @@ windows_core::link!("kernel32.dll" "system" fn GetModuleHandleW(lpmodulename : w
 windows_core::link!("kernel32.dll" "system" fn GetProcAddress(hmodule : HMODULE, lpprocname : windows_core::PCSTR) -> FARPROC);
 windows_core::link!("user32.dll" "system" fn GetSystemMetrics(nindex : i32) -> i32);
 windows_core::link!("kernel32.dll" "system" fn GetThreadContext(hthread : HANDLE, lpcontext : LPCONTEXT) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn GetThreadDescription(hthread : HANDLE, ppszthreaddescription : *mut windows_core::PWSTR) -> windows_core::HRESULT);
 windows_core::link!("user32.dll" "system" fn GetWindowLongW(hwnd : HWND, nindex : i32) -> i32);
 windows_core::link!("user32.dll" "system" fn GetWindowThreadProcessId(hwnd : HWND, lpdwprocessid : *mut u32) -> u32);
 windows_core::link!("user32.dll" "system" fn IsWindowVisible(hwnd : HWND) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn LoadLibraryW(lplibfilename : windows_core::PCWSTR) -> HMODULE);
+windows_core::link!("kernel32.dll" "system" fn LocalFree(hmem : HLOCAL) -> HLOCAL);
 windows_core::link!("kernel32.dll" "system" fn Module32FirstW(hsnapshot : HANDLE, lpme : *mut MODULEENTRY32W) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn Module32NextW(hsnapshot : HANDLE, lpme : *mut MODULEENTRY32W) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn OpenThread(dwdesiredaccess : u32, binherithandle : windows_core::BOOL, dwthreadid : u32) -> HANDLE);
 windows_core::link!("user32.dll" "system" fn PostThreadMessageW(idthread : u32, msg : u32, wparam : WPARAM, lparam : LPARAM) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn QueryPerformanceCounter(lpperformancecount : *mut i64) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn QueryThreadCycleTime(threadhandle : HANDLE, cycletime : *mut u64) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn RegisterClassW(lpwndclass : *const WNDCLASSW) -> ATOM);
 windows_core::link!("kernel32.dll" "system" fn ResumeThread(hthread : HANDLE) -> u32);
 #[cfg(any(target_arch = "arm64ec", target_arch = "x86_64"))]
@@ -53,6 +57,8 @@ windows_core::link!("dbghelp.dll" "system" fn SymInitializeW(hprocess : HANDLE, 
 windows_core::link!("dbghelp.dll" "system" fn SymRefreshModuleList(hprocess : HANDLE) -> windows_core::BOOL);
 windows_core::link!("dbghelp.dll" "system" fn SymSetOptions(symoptions : u32) -> u32);
 windows_core::link!("dbghelp.dll" "system" fn SymSetSearchPathW(hprocess : HANDLE, searchpatha : windows_core::PCWSTR) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn Thread32First(hsnapshot : HANDLE, lpte : *mut THREADENTRY32) -> windows_core::BOOL);
+windows_core::link!("kernel32.dll" "system" fn Thread32Next(hsnapshot : HANDLE, lpte : *mut THREADENTRY32) -> windows_core::BOOL);
 windows_core::link!("user32.dll" "system" fn UnhookWindowsHookEx(hhk : HHOOK) -> windows_core::BOOL);
 windows_core::link!("kernel32.dll" "system" fn WaitForSingleObject(hhandle : HANDLE, dwmilliseconds : u32) -> u32);
 windows_core::link!("user32.dll" "system" fn WindowFromPoint(point : POINT) -> HWND);
@@ -671,6 +677,7 @@ pub type HCURSOR = HICON;
 pub type HHOOK = *mut core::ffi::c_void;
 pub type HICON = *mut core::ffi::c_void;
 pub type HINSTANCE = *mut core::ffi::c_void;
+pub type HLOCAL = HANDLE;
 pub type HMENU = *mut core::ffi::c_void;
 pub type HMODULE = HINSTANCE;
 pub type HOOKPROC =
@@ -8169,9 +8176,22 @@ pub const SYMOPT_DEFERRED_LOADS: i32 = 4;
 pub const SYMOPT_FAIL_CRITICAL_ERRORS: i32 = 512;
 pub const SYMOPT_UNDNAME: i32 = 2;
 pub const TH32CS_SNAPMODULE: i32 = 8;
+pub const TH32CS_SNAPTHREAD: i32 = 4;
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct THREADENTRY32 {
+    pub dwSize: u32,
+    pub cntUsage: u32,
+    pub th32ThreadID: u32,
+    pub th32OwnerProcessID: u32,
+    pub tpBasePri: i32,
+    pub tpDeltaPri: i32,
+    pub dwFlags: u32,
+}
 pub const THREAD_GET_CONTEXT: i32 = 8;
 pub const THREAD_PRIORITY_TIME_CRITICAL: i32 = 15;
 pub const THREAD_QUERY_INFORMATION: i32 = 64;
+pub const THREAD_QUERY_LIMITED_INFORMATION: i32 = 2048;
 pub const THREAD_SUSPEND_RESUME: i32 = 2;
 pub const TIMER_ALL_ACCESS: i32 = 2031619;
 pub type ToggleState = i32;

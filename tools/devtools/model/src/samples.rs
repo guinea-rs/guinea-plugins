@@ -1,15 +1,16 @@
-//! The UI thread's sampled stacks, kept across captures.
+//! The threads' sampled stacks, kept across captures.
 //!
 //! Each capture names its functions and stacks by its own indices; kept
 //! here they are named by one table, so a stack is the same number however
 //! many captures it came in.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use guinea_devtools_protocol::native::{Sample, Stacks};
 
-/// How many samples are kept: at a thousand a second, two minutes of them.
-pub const KEPT_SAMPLES: usize = 120_000;
+/// How many samples are kept: at a thousand a second a thread, two minutes
+/// of the UI thread and a busy worker or two.
+pub const KEPT_SAMPLES: usize = 300_000;
 
 /// Whose code a sampled function is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -36,7 +37,10 @@ impl Origin {
         let path = module.to_ascii_lowercase();
         let file = path.rsplit(['\\', '/']).next().unwrap_or(&path);
 
-        if path.get(1..).is_some_and(|path| path.starts_with(r":\windows\")) {
+        if path
+            .get(1..)
+            .is_some_and(|path| path.starts_with(r":\windows\"))
+        {
             Origin::Windows
         } else if path.contains(r"\windowsapps\microsoft.windowsappruntime")
             || file.starts_with("microsoft.")
@@ -91,6 +95,17 @@ pub fn waits(function: &str) -> bool {
         .is_some_and(|call| WAITS.contains(&call))
 }
 
+/// `threads` with the UI thread first and the rest by id, each once, a
+/// thread a tap that names none sampled counted as the UI thread.
+pub fn ui_first<'a>(threads: impl Iterator<Item = (u32, &'a str)>, ui: u32) -> Vec<(u32, &'a str)> {
+    let mut threads: Vec<(u32, &'a str)> = threads
+        .map(|(id, name)| (if id == 0 { ui } else { id }, name))
+        .collect();
+    threads.sort_by_key(|(id, name)| (*id != ui, *id, name.is_empty()));
+    threads.dedup_by_key(|(id, _)| *id);
+    threads
+}
+
 /// Every sample since the inspector came, oldest first: the newest
 /// [`KEPT_SAMPLES`] of them.
 #[derive(Clone, Debug, Default)]
@@ -109,6 +124,9 @@ pub struct Sampled {
     function_ids: HashMap<String, u32>,
     module_ids: HashMap<String, u32>,
     stack_ids: HashMap<Vec<u32>, u32>,
+    /// Every thread sampled, with its name or an empty one.
+    threads: BTreeMap<u32, String>,
+    cycles_per_second: u64,
 }
 
 impl Sampled {
@@ -162,18 +180,19 @@ impl Sampled {
             let Some(&stack) = stack_ids.get(sample.stack as usize) else {
                 continue;
             };
+            self.threads.entry(sample.thread).or_default();
             if let Err(at) = self
                 .samples
-                .binary_search_by_key(&sample.qpc, |kept| kept.qpc)
+                .binary_search_by_key(&(sample.qpc, sample.thread), |kept| (kept.qpc, kept.thread))
             {
-                self.samples.insert(
-                    at,
-                    Sample {
-                        qpc: sample.qpc,
-                        stack,
-                    },
-                );
+                self.samples.insert(at, Sample { stack, ..sample });
             }
+        }
+        for thread in stacks.threads {
+            self.threads.insert(thread.id, thread.name);
+        }
+        if stacks.cycles_per_second > 0 {
+            self.cycles_per_second = stacks.cycles_per_second;
         }
 
         let over = self.samples.len().saturating_sub(KEPT_SAMPLES);
@@ -230,10 +249,23 @@ impl Sampled {
         let module = self.origins.get(id as usize).copied().flatten()?;
         self.modules.get(module as usize).map(String::as_str)
     }
+
+    /// Every thread a sample was taken on, by id, with its name or none.
+    pub fn threads(&self) -> impl Iterator<Item = (u32, &str)> {
+        self.threads.iter().map(|(id, name)| (*id, name.as_str()))
+    }
+
+    /// How many of [`Sample::cycles`] go by in a second, as the tap last
+    /// said; zero when it never did.
+    pub fn cycles_per_second(&self) -> u64 {
+        self.cycles_per_second
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use guinea_devtools_protocol::native::SampledThread;
+
     use super::*;
 
     fn capture(functions: &[&str], stacks: &[&[u32]], samples: &[(u64, u32)]) -> Stacks {
@@ -242,7 +274,11 @@ mod tests {
             stacks: stacks.iter().map(|stack| stack.to_vec()).collect(),
             samples: samples
                 .iter()
-                .map(|&(qpc, stack)| Sample { qpc, stack })
+                .map(|&(qpc, stack)| Sample {
+                    qpc,
+                    stack,
+                    ..Sample::default()
+                })
                 .collect(),
             ..Stacks::default()
         }
@@ -266,11 +302,7 @@ mod tests {
     fn captures_that_number_their_functions_differently_land_on_one_table() {
         let mut sampled = Sampled::default();
 
-        sampled.absorb(capture(
-            &["main", "draw"],
-            &[&[1, 0]],
-            &[(10, 0), (20, 0)],
-        ));
+        sampled.absorb(capture(&["main", "draw"], &[&[1, 0]], &[(10, 0), (20, 0)]));
         sampled.absorb(capture(
             &["measure", "draw", "main"],
             &[&[1, 2], &[0, 1, 2]],
@@ -294,7 +326,10 @@ mod tests {
     fn a_function_knows_its_module_whichever_capture_named_it() {
         let mut sampled = Sampled::default();
         sampled.absorb(Stacks {
-            modules: vec![r"C:\app\app.exe".into(), r"C:\Windows\System32\ntdll.dll".into()],
+            modules: vec![
+                r"C:\app\app.exe".into(),
+                r"C:\Windows\System32\ntdll.dll".into(),
+            ],
             origins: vec![Some(1), Some(0), None],
             ..capture(&["NtWait", "main", "0x7ff0"], &[&[0, 1, 2]], &[(1, 0)])
         });
@@ -330,10 +365,26 @@ mod tests {
         const APP: &str = r"C:\dev\uniproc\target\release\uniproc.exe";
         let cases = [
             ("uniproc::ui::render", Some(APP), Origin::App),
-            ("core::ops::function::FnOnce::call_once", Some(APP), Origin::Rust),
-            ("std::sys::backtrace::__rust_begin_short_backtrace", Some(APP), Origin::Rust),
-            ("<alloc::vec::Vec<u8> as core::ops::drop::Drop>::drop", Some(APP), Origin::Rust),
-            ("<uniproc::Row as core::fmt::Debug>::fmt", Some(APP), Origin::App),
+            (
+                "core::ops::function::FnOnce::call_once",
+                Some(APP),
+                Origin::Rust,
+            ),
+            (
+                "std::sys::backtrace::__rust_begin_short_backtrace",
+                Some(APP),
+                Origin::Rust,
+            ),
+            (
+                "<alloc::vec::Vec<u8> as core::ops::drop::Drop>::drop",
+                Some(APP),
+                Origin::Rust,
+            ),
+            (
+                "<uniproc::Row as core::fmt::Debug>::fmt",
+                Some(APP),
+                Origin::App,
+            ),
             (
                 "win32u.dll!NtUserGetMessage+0x14",
                 Some(r"C:\WINDOWS\System32\win32u.dll"),
@@ -382,6 +433,48 @@ mod tests {
         ] {
             assert!(!waits(working), "{working}");
         }
+    }
+
+    #[test]
+    fn a_sample_keeps_its_thread_and_what_it_ran_and_two_threads_at_one_moment_are_two() {
+        let mut sampled = Sampled::default();
+        let taken = || Stacks {
+            samples: vec![
+                Sample {
+                    qpc: 10,
+                    stack: 0,
+                    thread: 2,
+                    cycles: 50,
+                },
+                Sample {
+                    qpc: 10,
+                    stack: 0,
+                    thread: 1,
+                    cycles: 100,
+                },
+            ],
+            threads: vec![SampledThread {
+                id: 1,
+                name: "main".into(),
+            }],
+            cycles_per_second: 1_000,
+            ..capture(&["main"], &[&[0]], &[])
+        };
+
+        sampled.absorb(taken());
+        sampled.absorb(taken());
+
+        let kept: Vec<(u64, u32, u64)> = sampled
+            .samples
+            .iter()
+            .map(|sample| (sample.qpc, sample.thread, sample.cycles))
+            .collect();
+        assert_eq!(kept, [(10, 1, 100), (10, 2, 50)]);
+        assert_eq!(
+            sampled.threads().collect::<Vec<_>>(),
+            [(1, "main"), (2, "")]
+        );
+        assert_eq!(sampled.cycles_per_second(), 1_000);
     }
 
     #[test]

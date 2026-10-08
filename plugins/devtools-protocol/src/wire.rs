@@ -122,9 +122,16 @@ mod tests {
                     samples: vec![crate::native::Sample {
                         qpc: 81_234_568_000,
                         stack: 0,
+                        thread: 18_044,
+                        cycles: 2_900_000,
                     }],
                     modules: vec![r"C:\app\app.exe".into()],
                     origins: vec![Some(0), None],
+                    threads: vec![crate::native::SampledThread {
+                        id: 18_044,
+                        name: "main".into(),
+                    }],
+                    cycles_per_second: 2_900_000_000,
                 },
             },
             Report::Refused {
@@ -160,9 +167,13 @@ mod tests {
             Ok(crate::native::Stacks {
                 functions: vec!["main".into()],
                 stacks: vec![vec![0]],
-                samples: vec![crate::native::Sample { qpc: 1, stack: 0 }],
-                modules: Vec::new(),
-                origins: Vec::new(),
+                samples: vec![crate::native::Sample {
+                    qpc: 1,
+                    stack: 0,
+                    thread: 0,
+                    cycles: 0,
+                }],
+                ..crate::native::Stacks::default()
             })
         );
     }
