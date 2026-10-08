@@ -257,7 +257,11 @@ mod tests {
             parent,
             at: id * 10,
             took: None,
-            point: TracePoint::Tick { timer: None },
+            point: TracePoint::Tick {
+                timer: None,
+                name: None,
+                declared: None,
+            },
             thread: 0,
         }
     }

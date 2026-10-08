@@ -40,6 +40,7 @@ fn changes_bring_a_snapshot_up_to_date() {
         global_bus: vec![BusSubscription {
             event: "a::Old".into(),
             subscribers: 1,
+            listeners: Vec::new(),
         }],
         ..Snapshot::default()
     };

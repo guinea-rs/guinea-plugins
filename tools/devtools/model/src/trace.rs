@@ -722,7 +722,7 @@ mod tests {
                         message: "a::Kill".into(),
                     },
                 ),
-                span(2, Some(1), TracePoint::Tick { timer: None }),
+                span(2, Some(1), untimed_tick()),
                 span(
                     3,
                     None,
@@ -1013,6 +1013,14 @@ mod tests {
         assert_eq!(ids(&shown, &log), [1, 2, 3, 4, 5, 6, 7]);
     }
 
+    fn untimed_tick() -> TracePoint {
+        TracePoint::Tick {
+            timer: None,
+            name: None,
+            declared: None,
+        }
+    }
+
     fn at(id: u64, parent: Option<u64>, at: u64, took: Option<u64>, point: TracePoint) -> Span {
         Span {
             id,
@@ -1078,7 +1086,7 @@ mod tests {
                 at(2, Some(1), 10, Some(5), handle("a::Kill")),
                 at(3, Some(2), 11, None, logged("INFO")),
                 at(4, Some(2), 12, Some(2), spanned("DEBUG")),
-                at(5, None, 20, None, TracePoint::Tick { timer: None }),
+                at(5, None, 20, None, untimed_tick()),
                 at(6, Some(5), 21, Some(1), spanned("")),
                 at(7, Some(5), 22, None, logged("WARN")),
             ],
@@ -1275,7 +1283,7 @@ mod tests {
         let mut log = TraceLog::default();
         log.absorb(TraceBatch {
             spans: vec![
-                at(1, None, 0, None, TracePoint::Tick { timer: None }),
+                at(1, None, 0, None, untimed_tick()),
                 at(2, Some(1), 10, Some(3_000), handle("a::Scan")),
                 at(
                     3,

@@ -9,7 +9,7 @@
 
 use std::collections::HashSet;
 
-use guinea_devtools_protocol::{Node, Panel, Snapshot};
+use guinea_devtools_protocol::{BusListener, BusSubscription, HeardBy, Node, Panel, Snapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::names::window_name;
@@ -53,8 +53,118 @@ pub fn listed(snapshot: &Snapshot) -> Vec<Listed> {
             });
         }
     }
+    listed.extend(bus(snapshot));
 
     listed
+}
+
+/// The key of the panel devtools make of the buses.
+pub const BUS: &str = "guinea.bus";
+
+/// Every bus as a panel of its own making: a section for the global bus and
+/// one for each window's, an event under each, and under the event who hears
+/// it.
+fn bus(snapshot: &Snapshot) -> Option<Listed> {
+    let section = |label: String, kind: &str, subscriptions: &[BusSubscription]| Node {
+        label,
+        kind: kind.to_string(),
+        properties: Vec::new(),
+        children: subscriptions.iter().map(event).collect(),
+    };
+    let sections: Vec<Node> = (!snapshot.global_bus.is_empty())
+        .then(|| section("global".into(), "bus", &snapshot.global_bus))
+        .into_iter()
+        .chain(
+            snapshot
+                .roots
+                .iter()
+                .enumerate()
+                .filter(|(_, root)| !root.bus.is_empty())
+                .map(|(index, root)| {
+                    section(
+                        window_name(root.label.as_deref(), index),
+                        "window bus",
+                        &root.bus,
+                    )
+                }),
+        )
+        .collect();
+
+    (!sections.is_empty()).then(|| Listed {
+        key: BUS.to_string(),
+        title: "bus".to_string(),
+        panel: Panel {
+            id: BUS.to_string(),
+            title: "bus".to_string(),
+            nodes: sections,
+        },
+    })
+}
+
+/// One event on a bus, with who hears it under it.
+fn event(subscription: &BusSubscription) -> Node {
+    let count = match subscription.subscribers {
+        1 => "1 listener".to_string(),
+        many => format!("{many} listeners"),
+    };
+    Node {
+        label: subscription.event.clone(),
+        kind: count,
+        properties: vec![("event".into(), subscription.event.clone())],
+        children: subscription.listeners.iter().map(listener).collect(),
+    }
+}
+
+fn listener(listener: &BusListener) -> Node {
+    let (label, who, mut properties) = match &listener.by {
+        HeardBy::Actor { name, id } => (
+            name.clone(),
+            format!("actor #{id}"),
+            vec![
+                ("actor".to_string(), name.clone()),
+                ("id".into(), id.to_string()),
+            ],
+        ),
+        HeardBy::Callback { declared } => {
+            let file = std::path::Path::new(&declared.file)
+                .file_name()
+                .map_or_else(
+                    || declared.file.clone(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+            (
+                format!("{file}:{}", declared.line),
+                "callback".to_string(),
+                vec![(
+                    "subscribed at".to_string(),
+                    format!("{}:{}:{}", declared.file, declared.line, declared.column),
+                )],
+            )
+        }
+        HeardBy::Unknown => (
+            "a subscriber that does not say".to_string(),
+            "unknown".to_string(),
+            Vec::new(),
+        ),
+    };
+    let mut kind = who;
+    if listener.answers {
+        kind.push_str(" · answers");
+        properties.push(("answers".into(), "the request, not only hears it".into()));
+    }
+    if listener.asleep {
+        kind.push_str(" · asleep");
+        properties.push((
+            "asleep".into(),
+            "its scope sleeps: it hears nothing now".into(),
+        ));
+    }
+    Node {
+        label,
+        kind,
+        properties,
+        children: Vec::new(),
+    }
 }
 
 /// The node at `path`, each step an index into the level below.
@@ -357,6 +467,84 @@ fn words(node: &Node, language: Option<&str>) -> Vec<Word> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_buses_are_a_panel_of_who_hears_what_and_none_when_nothing_listens() {
+        use guinea_devtools_protocol::{Declared, Root};
+
+        fn outline(nodes: &[Node], depth: usize, out: &mut Vec<String>) {
+            for node in nodes {
+                out.push(format!(
+                    "{}{} ({})",
+                    "  ".repeat(depth),
+                    node.label,
+                    node.kind
+                ));
+                outline(&node.children, depth + 1, out);
+            }
+        }
+        let snapshot = Snapshot {
+            global_bus: vec![BusSubscription {
+                event: "app::Refresh".into(),
+                subscribers: 2,
+                listeners: vec![
+                    BusListener {
+                        by: HeardBy::Actor {
+                            name: "app::Agent".into(),
+                            id: 3,
+                        },
+                        answers: true,
+                        asleep: false,
+                    },
+                    BusListener {
+                        by: HeardBy::Callback {
+                            declared: Declared {
+                                file: "C:/app/src/main.rs".into(),
+                                line: 12,
+                                column: 5,
+                                found: true,
+                            },
+                        },
+                        answers: false,
+                        asleep: true,
+                    },
+                ],
+            }],
+            roots: vec![Root {
+                id: 1,
+                label: Some("Main".into()),
+                bus: vec![BusSubscription {
+                    event: "app::Closed".into(),
+                    subscribers: 1,
+                    listeners: Vec::new(),
+                }],
+                ..Root::default()
+            }],
+            ..Snapshot::default()
+        };
+
+        let mut drawn = Vec::new();
+        if let Some(bus) = listed(&snapshot).iter().find(|listed| listed.key == BUS) {
+            outline(&bus.panel.nodes, 0, &mut drawn);
+        }
+
+        assert_eq!(
+            drawn,
+            [
+                "global (bus)",
+                "  app::Refresh (2 listeners)",
+                "    app::Agent (actor #3 · answers)",
+                "    main.rs:12 (callback · asleep)",
+                "Main (window bus)",
+                "  app::Closed (1 listener)",
+            ]
+        );
+        assert!(
+            !listed(&Snapshot::default())
+                .iter()
+                .any(|listed| listed.key == BUS)
+        );
+    }
 
     #[test]
     fn a_node_is_found_by_a_property() {

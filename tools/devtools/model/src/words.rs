@@ -384,8 +384,10 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
             Word::link(&type_name(reducer), name, Target::Reducer(reducer.clone())),
         ],
         TracePoint::Navigate { root, to } => vec![text(format!("{root} navigates to {to}"))],
-        TracePoint::Tick { timer: None } => vec![text("timer".into())],
-        TracePoint::Tick { timer: Some(id) } => vec![
+        TracePoint::Tick { timer: None, .. } => vec![text("timer".into())],
+        TracePoint::Tick {
+            timer: Some(id), ..
+        } => vec![
             text("timer ".into()),
             Word::link(
                 &timers.label(*id),
@@ -485,6 +487,14 @@ pub fn gist_words(point: &TracePoint, timers: &Timers) -> Vec<Word> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn untimed_tick() -> TracePoint {
+        TracePoint::Tick {
+            timer: None,
+            name: None,
+            declared: None,
+        }
+    }
     use guinea_devtools_protocol::{BusKind, StoreOp};
 
     #[test]
@@ -508,7 +518,7 @@ mod tests {
         };
 
         assert_eq!(gist(&handle, &timers), "ProcessActor handles Kill");
-        assert_eq!(gist(&TracePoint::Tick { timer: None }, &timers), "timer");
+        assert_eq!(gist(&untimed_tick(), &timers), "timer");
 
         let stored = TracePoint::Store {
             op: StoreOp::Set,
@@ -616,7 +626,7 @@ mod tests {
             Some(Level::Info),
             "a span that did not say"
         );
-        assert_eq!(Level::of(&TracePoint::Tick { timer: None }), None);
+        assert_eq!(Level::of(&untimed_tick()), None);
         assert_eq!(Level::parse("warn"), Some(Level::Warn));
         assert_eq!(Level::parse("loud"), None);
     }
@@ -630,7 +640,14 @@ mod tests {
             ..guinea_devtools_protocol::Timer::default()
         }]);
 
-        let words = sentence(&TracePoint::Tick { timer: Some(4) }, &timers);
+        let words = sentence(
+            &TracePoint::Tick {
+                timer: Some(4),
+                name: None,
+                declared: None,
+            },
+            &timers,
+        );
 
         assert_eq!(text(&words), "timer housekeeping");
         assert_eq!(words[1].link, Some(Target::Stream("timer/#4".into())));

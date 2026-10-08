@@ -30,7 +30,7 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 6, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 7, 0);
 
 /// The first version whose devtools take [`Report::Changed`] in place of
 /// one snapshot after another.
@@ -409,10 +409,17 @@ pub enum TracePoint {
         root: String,
         to: String,
     },
-    /// A timer fired; `timer` is its id in [`Snapshot::timers`].
+    /// A timer fired; `timer` is its id in [`Snapshot::timers`], which
+    /// lists it only while it runs.
     Tick {
         #[serde(default)]
         timer: Option<u64>,
+        /// What the application named it, if it did.
+        #[serde(default)]
+        name: Option<String>,
+        /// Where it was set up; `None` from an application older than 3.7.
+        #[serde(default)]
+        declared: Option<Declared>,
     },
     Store {
         op: StoreOp,
@@ -728,6 +735,35 @@ pub struct Timer {
 pub struct BusSubscription {
     pub event: String,
     pub subscribers: usize,
+    /// Who hears it, in the order they subscribed; empty from an
+    /// application older than 3.7.
+    #[serde(default)]
+    pub listeners: Vec<BusListener>,
+}
+
+/// One subscriber of one event on a bus.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BusListener {
+    pub by: HeardBy,
+    /// It answers the request rather than only hearing it.
+    #[serde(default)]
+    pub answers: bool,
+    /// Its scope is asleep, and it hears nothing now.
+    #[serde(default)]
+    pub asleep: bool,
+}
+
+/// Who a subscriber is.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HeardBy {
+    /// An actor, by its type and its id in [`Snapshot::actors`].
+    Actor { name: String, id: u64 },
+    /// A callback, by where it was subscribed.
+    Callback { declared: Declared },
+    /// A subscriber that does not say, or one this version cannot name.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A subscription a feature made.

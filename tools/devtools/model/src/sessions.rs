@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use guinea_devtools_protocol::{Answer, AppInfo, Capability, Report, Snapshot};
+use guinea_devtools_protocol::{Answer, AppInfo, Capability, Report, Snapshot, TracePoint};
 use serde::{Deserialize, Serialize};
 
 use crate::chains::Chains;
@@ -314,6 +314,16 @@ impl Sessions {
                         session.snapshot = snapshot;
                     }
                     Report::Trace(batch) => {
+                        for span in &batch.spans {
+                            if let TracePoint::Tick {
+                                timer: Some(id),
+                                name,
+                                declared,
+                            } = &span.point
+                            {
+                                session.timers.hear(*id, name.as_deref(), declared.as_ref());
+                            }
+                        }
                         session.trace.absorb(batch);
                         session.classes.absorb(Reading {
                             log: &session.trace,
@@ -398,6 +408,37 @@ impl Sessions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_timer_that_ran_between_snapshots_is_named_by_its_ticks() {
+        use guinea_devtools_protocol::{Span, TraceBatch, TracePoint};
+
+        let mut sessions = Sessions::default();
+        sessions.apply(Incoming::Opened(1));
+        sessions.apply(Incoming::Report(
+            1,
+            Box::new(Report::Trace(TraceBatch {
+                spans: vec![Span {
+                    id: 1,
+                    parent: None,
+                    at: 1,
+                    took: None,
+                    point: TracePoint::Tick {
+                        timer: Some(43),
+                        name: Some("activity-flush".into()),
+                        declared: None,
+                    },
+                    thread: 0,
+                }],
+                ..TraceBatch::default()
+            })),
+        ));
+
+        assert_eq!(
+            sessions.get(1).map(|session| session.timers.label(43)),
+            Some("activity-flush".to_string())
+        );
+    }
 
     #[test]
     fn memory_is_kept_by_process_and_moves_nothing_drawn() {

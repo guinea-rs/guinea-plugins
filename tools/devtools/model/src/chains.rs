@@ -358,7 +358,7 @@ fn key(point: &TracePoint, timers: &Timers) -> u64 {
         TracePoint::Deliver { event, bus } => ("deliver", event, bus).hash(h),
         TracePoint::Push { reducer } => ("push", reducer).hash(h),
         TracePoint::Navigate { root, to } => ("navigate", root, to).hash(h),
-        TracePoint::Tick { timer } => ("tick", timer.map(|id| timers.site(id))).hash(h),
+        TracePoint::Tick { timer, .. } => ("tick", timer.map(|id| timers.site(id))).hash(h),
         TracePoint::Store { op, path, .. } => ("store", op, path).hash(h),
         // The segment, not how long it took: two slow frames of one page are
         // the same step of a chain.
@@ -374,8 +374,10 @@ fn key(point: &TracePoint, timers: &Timers) -> u64 {
 
 fn stream_of(span: &Span, timers: &Timers) -> Stream {
     match &span.point {
-        TracePoint::Tick { timer: Some(id) } => Stream::Timer(timers.site(*id)),
-        TracePoint::Tick { timer: None } => Stream::Timer("#?".to_string()),
+        TracePoint::Tick {
+            timer: Some(id), ..
+        } => Stream::Timer(timers.site(*id)),
+        TracePoint::Tick { timer: None, .. } => Stream::Timer("#?".to_string()),
         TracePoint::Arrived { actor, output, .. } | TracePoint::Pull { actor, output, .. } => {
             Stream::Source(Stream::source_of(actor, output))
         }
@@ -824,7 +826,15 @@ mod tests {
 
     fn tick(id: u64) -> Vec<Span> {
         vec![
-            span(id, None, TracePoint::Tick { timer: Some(7) }),
+            span(
+                id,
+                None,
+                TracePoint::Tick {
+                    timer: Some(7),
+                    name: None,
+                    declared: None,
+                },
+            ),
             span(id + 1, Some(id), handle("a::Sweep")),
         ]
     }

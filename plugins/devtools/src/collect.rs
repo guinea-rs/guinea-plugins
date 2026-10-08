@@ -6,14 +6,14 @@ use std::time::Instant;
 
 use guinea::observability::snapshot::{self, RouterView, app_actors, installed_plugins};
 use guinea::timers::{TimerInfo, running};
-use guinea_core::actor::event_bus::GlobalEventBus;
+use guinea_core::actor::event_bus::{GlobalEventBus, HeardBy as Heard, Listening};
 use guinea_core::actor::registry::ActorSnapshot;
 use guinea_core::actor::shape;
 use guinea_core::trace::{self, Bus, Cause, Point, Trace};
 use guinea_devtools_protocol::{
-    Actor, BusKind, BusSubscription, Channel, Declared, End, Flow, Handled, Installed, Listener,
-    Node, Panel, ReducerState, Root, Segment, Snapshot, Span, StoreOp, Timer, TraceBatch,
-    TracePoint,
+    Actor, BusKind, BusListener, BusSubscription, Channel, Declared, End, Flow, Handled, HeardBy,
+    Installed, Listener, Node, Panel, ReducerState, Root, Segment, Snapshot, Span, StoreOp, Timer,
+    TraceBatch, TracePoint,
 };
 
 /// How many records wait for the next batch before new ones are dropped.
@@ -196,8 +196,15 @@ fn point(point: &Point) -> TracePoint {
             root: root.clone(),
             to: to.clone(),
         },
-        Point::Tick { timer } => TracePoint::Tick {
+        Point::Tick {
+            timer,
+            name,
+            file,
+            line,
+        } => TracePoint::Tick {
             timer: Some(*timer),
+            name: name.map(str::to_string),
+            declared: Some(written(file, *line)),
         },
         Point::Store {
             op,
@@ -425,7 +432,7 @@ pub fn app_panels() -> Vec<Panel> {
 }
 
 pub fn global_bus() -> Vec<BusSubscription> {
-    subscriptions(&GlobalEventBus::bus().subscriptions())
+    heard(&GlobalEventBus::bus().listeners())
 }
 
 thread_local! {
@@ -565,6 +572,42 @@ fn subscriptions(listed: &[(&'static str, usize)]) -> Vec<BusSubscription> {
         .map(|(event, subscribers)| BusSubscription {
             event: event.to_string(),
             subscribers: *subscribers,
+            listeners: Vec::new(),
+        })
+        .collect()
+}
+
+/// Every event on a bus with who hears it, as [`EventBus::listeners`] lists
+/// them.
+///
+/// [`EventBus::listeners`]: guinea_core::actor::event_bus::EventBus::listeners
+fn heard(listed: &[Listening]) -> Vec<BusSubscription> {
+    listed
+        .iter()
+        .map(|listening| BusSubscription {
+            event: listening.event.to_string(),
+            subscribers: listening.listeners.len(),
+            listeners: listening
+                .listeners
+                .iter()
+                .map(|listener| BusListener {
+                    by: match &listener.by {
+                        Heard::Actor { name, id } => HeardBy::Actor {
+                            name: name.to_string(),
+                            id: *id as u64,
+                        },
+                        Heard::Callback(at) => HeardBy::Callback {
+                            declared: Declared {
+                                column: at.column(),
+                                ..written(at.file(), at.line())
+                            },
+                        },
+                        _ => HeardBy::Unknown,
+                    },
+                    answers: listener.answers,
+                    asleep: listener.asleep,
+                })
+                .collect(),
         })
         .collect()
 }
@@ -711,10 +754,104 @@ mod tests {
     }
 
     #[test]
+    fn a_bus_says_who_hears_each_event_and_where_a_callback_was_subscribed() {
+        use guinea_core::actor::event_bus::Listener as Subscriber;
+
+        let at = std::panic::Location::caller();
+        let sent = heard(&[Listening {
+            event: "a::Refresh",
+            listeners: vec![
+                Subscriber {
+                    by: Heard::Actor {
+                        name: "a::Agent",
+                        id: 3,
+                    },
+                    answers: true,
+                    asleep: false,
+                },
+                Subscriber {
+                    by: Heard::Callback(at),
+                    answers: false,
+                    asleep: true,
+                },
+                Subscriber {
+                    by: Heard::Unknown,
+                    answers: false,
+                    asleep: false,
+                },
+            ],
+        }]);
+
+        assert_eq!(
+            sent,
+            [BusSubscription {
+                event: "a::Refresh".into(),
+                subscribers: 3,
+                listeners: vec![
+                    BusListener {
+                        by: HeardBy::Actor {
+                            name: "a::Agent".into(),
+                            id: 3,
+                        },
+                        answers: true,
+                        asleep: false,
+                    },
+                    BusListener {
+                        by: HeardBy::Callback {
+                            declared: Declared {
+                                file: at.file().into(),
+                                line: at.line(),
+                                column: at.column(),
+                                found: false,
+                            },
+                        },
+                        answers: false,
+                        asleep: true,
+                    },
+                    BusListener {
+                        by: HeardBy::Unknown,
+                        answers: false,
+                        asleep: false,
+                    },
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn a_tick_says_whose_timer_it_is_by_name_and_place() {
+        let sent = point(&Point::Tick {
+            timer: 43,
+            name: Some("activity-flush"),
+            file: "src/pages/activity.rs",
+            line: 7,
+        });
+
+        assert_eq!(
+            sent,
+            TracePoint::Tick {
+                timer: Some(43),
+                name: Some("activity-flush".into()),
+                declared: Some(Declared {
+                    file: "src/pages/activity.rs".into(),
+                    line: 7,
+                    column: 1,
+                    found: false,
+                }),
+            }
+        );
+    }
+
+    #[test]
     fn records_past_the_limit_are_counted_rather_than_kept() {
         let traces = collected();
         for _ in 0..PENDING + 5 {
-            trace::mark(|| Point::Tick { timer: 1 });
+            trace::mark(|| Point::Tick {
+                timer: 1,
+                name: None,
+                file: "src/tick.rs",
+                line: 1,
+            });
         }
         trace::stop_observing();
 
