@@ -56,6 +56,16 @@ let general = cx.try_settings::<GeneralSettings>()?;
 `configure(|builder| ..)` takes any other `StoreBuilder` setting, `backend(..)`
 picks the engine. The store is closed, and so written out, on shutdown.
 
+`keeping(guard)` holds anything until the store has closed, and drops it
+right after. A test whose store lives in a temporary directory hands it the
+`TempDir`, so the directory is removed after the store wrote itself out
+rather than before, when the write would bring it back:
+
+```rust
+let dir = tempfile::tempdir()?;
+h.plugin(StorePlugin::at(dir.path().join("settings")).backend(Backend::Json).keeping(dir))?;
+```
+
 `or_in_memory()` starts the application anyway where the file will not open -
 it will not read, another process holds it, a migration fails: on an empty
 store in memory that writes nothing and leaves the file as it was. Why is

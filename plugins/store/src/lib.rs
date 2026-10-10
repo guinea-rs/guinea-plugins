@@ -60,6 +60,7 @@ pub struct StorePlugin {
     configure: Option<Configure>,
     steps: Vec<Steps>,
     or_in_memory: bool,
+    kept: Vec<Box<dyn Send>>,
 }
 
 impl StorePlugin {
@@ -142,6 +143,15 @@ impl StorePlugin {
         self
     }
 
+    /// Keeps `guard` until the store is closed on shutdown, and drops it
+    /// right after. A test hands it the `TempDir` the store lives in: the
+    /// store writes itself out when it closes, so a directory removed
+    /// before that comes back.
+    pub fn keeping(mut self, guard: impl Send + 'static) -> Self {
+        self.kept.push(Box::new(guard));
+        self
+    }
+
     fn with_open(open: Open) -> Self {
         Self {
             open,
@@ -149,6 +159,7 @@ impl StorePlugin {
             configure: None,
             steps: Vec::new(),
             or_in_memory: false,
+            kept: Vec::new(),
         }
     }
 }
@@ -206,12 +217,15 @@ impl Plugin for StorePlugin {
 
         let watching = devtools::Watching::start(&store, &report);
         let closing = store.clone();
+        let kept = self.kept;
 
         app.on_cleanup(move |_| {
             drop(watching);
-            closing
+            let closed = closing
                 .close()
-                .map_err(|error| anyhow::anyhow!("closing the store: {error:?}"))
+                .map_err(|error| anyhow::anyhow!("closing the store: {error:?}"));
+            drop(kept);
+            closed
         });
 
         app.provide(store);
@@ -226,6 +240,33 @@ impl Plugin for StorePlugin {
 mod tests {
     use super::*;
     use guinea::app::TestApp;
+
+    #[test]
+    fn a_directory_kept_until_the_store_closes_is_gone_after_shutdown() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("store");
+        let root = dir.path().to_path_buf();
+        let mut app = TestApp::new();
+
+        let installed = app
+            .install(StorePlugin::at(&path).backend(Backend::Json).keeping(dir))
+            .map(|_| ())
+            .map_err(|error| format!("{error:#}"));
+        let written = app
+            .require::<Store>()
+            .map_err(|error| format!("{error:#}"))
+            .and_then(|store| {
+                store
+                    .kv()
+                    .set("greeting", &"hello")
+                    .map_err(|error| format!("{error:?}"))
+            });
+        let nothing_leaked = app.shutdown().is_empty();
+
+        assert_eq!((installed, written), (Ok(()), Ok(())));
+        assert!(nothing_leaked, "no actors should leak");
+        assert!(!root.exists(), "{} is still there", root.display());
+    }
 
     #[test]
     fn provides_a_working_store_and_closes_it_on_shutdown() {
