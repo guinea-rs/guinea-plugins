@@ -30,7 +30,7 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 7, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 8, 0);
 
 /// The first version whose devtools take [`Report::Changed`] in place of
 /// one snapshot after another.
@@ -99,6 +99,9 @@ pub enum Report {
     /// Where the puffin profiler is listening, and `None` once it stops.
     /// Frames travel over that connection, not this one.
     Profiler { at: Option<String> },
+    /// The async runtime the application runs on, read a few times a
+    /// second while devtools are connected, oldest first.
+    Runtime { readings: Vec<RuntimeReading> },
     /// A command could not be carried out.
     Refused { command: String, reason: String },
     /// What a command that carries a `request` came to.
@@ -264,6 +267,30 @@ pub enum Capability {
     /// What a newer peer can do and this version of devtools cannot name.
     #[serde(other)]
     Unknown,
+}
+
+/// What the async runtime had done by one moment. Its counters only grow:
+/// what happened between two readings is their difference.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeReading {
+    /// Microseconds since the application started tracing, as a span's
+    /// `at`.
+    pub at: u64,
+    pub alive_tasks: u64,
+    /// Tasks in the runtime's shared queue, waiting for a worker to take
+    /// them.
+    pub queued: u64,
+    /// One per worker thread.
+    pub workers: Vec<WorkerReading>,
+}
+
+/// One worker thread of the runtime, since the runtime started.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerReading {
+    /// Microseconds it was not parked: polling tasks, or stuck in one.
+    pub busy_us: u64,
+    /// How many times it parked for want of work.
+    pub parks: u64,
 }
 
 /// Trace records, and the ends of points that were still open last time.

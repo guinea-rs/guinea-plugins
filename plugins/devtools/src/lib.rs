@@ -29,6 +29,7 @@ mod launch;
 mod link;
 mod live;
 mod profiler;
+mod runtime;
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

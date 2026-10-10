@@ -2,7 +2,7 @@
 //! what guinea said moved.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10,10 +10,11 @@ use std::time::{Duration, Instant};
 use guinea::observability::snapshot::installed_plugins;
 use guinea_core::observability::changes::{self, Change};
 use guinea_core::trace::{self, Bus, Point, Trace};
-use guinea_devtools_protocol::{AppInfo, Changes, Panel, Report, TraceBatch};
+use guinea_devtools_protocol::{AppInfo, Changes, Panel, Report, RuntimeReading, TraceBatch};
 
 use crate::collect::{self, Traces};
 use crate::link::Outbox;
+use crate::runtime;
 
 thread_local! {
     static LINK: RefCell<Option<Link>> = const { RefCell::new(None) };
@@ -41,6 +42,7 @@ struct Connection {
 struct Inbox {
     changes: Vec<Change>,
     traces: Traces,
+    runtime: VecDeque<RuntimeReading>,
     roots_moved: bool,
     flushing: bool,
     wait: Duration,
@@ -76,6 +78,7 @@ pub fn connected(generation: u64, takes_changes: bool) {
         let inbox = Rc::new(RefCell::new(Inbox {
             changes: Vec::new(),
             traces: Traces::default(),
+            runtime: VecDeque::new(),
             roots_moved: false,
             flushing: false,
             wait: link.wait,
@@ -111,17 +114,22 @@ pub fn connected(generation: u64, takes_changes: bool) {
     });
 
     flush();
-    take_elsewhere_in(generation);
+    poll_in(generation, tokio::runtime::Handle::try_current().ok(), 0);
 }
 
-/// How often what the other threads recorded is taken in.
-const ELSEWHERE_EVERY: Duration = Duration::from_millis(50);
+/// How often what happens off the UI thread is taken in.
+const POLL_EVERY: Duration = Duration::from_millis(50);
+/// Every how many polls the async runtime is read.
+const RUNTIME_EVERY: u32 = 2;
+/// How many runtime readings wait for a flush at most, the newest kept.
+const RUNTIME_KEPT: usize = 600;
 
-/// Takes in what the other threads recorded, every [`ELSEWHERE_EVERY`] while
-/// the connection `generation` lasts: nothing on the UI thread says when
-/// they did.
-fn take_elsewhere_in(generation: u64) {
-    guinea::timers::after(ELSEWHERE_EVERY, move || {
+/// Takes in what the other threads recorded, and every [`RUNTIME_EVERY`]th
+/// time what the async runtime did, every [`POLL_EVERY`] while the
+/// connection `generation` lasts: nothing on the UI thread says when they
+/// happened.
+fn poll_in(generation: u64, runtime: Option<tokio::runtime::Handle>, polled: u32) {
+    guinea::timers::after(POLL_EVERY, move || {
         let inbox = LINK.with_borrow(|link| {
             let connection = link.as_ref()?.connection.as_ref()?;
             (connection.generation == generation).then(|| connection.inbox.clone())
@@ -132,11 +140,21 @@ fn take_elsewhere_in(generation: u64) {
         {
             let mut inbox = inbox.borrow_mut();
             inbox.traces.take_elsewhere();
-            if !inbox.traces.is_empty() {
+            if let Some(handle) = runtime
+                .as_ref()
+                .filter(|_| polled.is_multiple_of(RUNTIME_EVERY))
+            {
+                if inbox.runtime.len() >= RUNTIME_KEPT {
+                    inbox.runtime.pop_front();
+                }
+                let at = trace::now().as_micros() as u64;
+                inbox.runtime.push_back(runtime::read(handle, at));
+            }
+            if !inbox.traces.is_empty() || !inbox.runtime.is_empty() {
                 soon(&mut inbox);
             }
         }
-        take_elsewhere_in(generation);
+        poll_in(generation, runtime, polled.wrapping_add(1));
     });
 }
 
@@ -179,12 +197,13 @@ fn flush() {
             return;
         };
 
-        let (changes, traced, roots_moved) = {
+        let (changes, traced, readings, roots_moved) = {
             let mut inbox = connection.inbox.borrow_mut();
             inbox.flushing = false;
             (
                 std::mem::take(&mut inbox.changes),
                 inbox.traces.take(),
+                Vec::from(std::mem::take(&mut inbox.runtime)),
                 std::mem::take(&mut inbox.roots_moved),
             )
         };
@@ -194,7 +213,10 @@ fn flush() {
         if roots_moved {
             connection.live.roots_moved();
         }
-        let flushed = connection.live.reports(traced, Instant::now());
+        let mut flushed = connection.live.reports(traced, Instant::now());
+        if !readings.is_empty() {
+            flushed.reports.push(Report::Runtime { readings });
+        }
 
         {
             let mut info = link

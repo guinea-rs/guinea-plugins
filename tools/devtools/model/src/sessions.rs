@@ -10,6 +10,7 @@ use crate::clock::Clock;
 use crate::memory::{Memory, MemorySample};
 use crate::native::{Inspection, Picked};
 use crate::profile::{Profile, Timeline};
+use crate::runtime::Runtime;
 use crate::tasks::Tasks;
 use crate::timers::Timers;
 use crate::trace::{Classes, Reading};
@@ -58,6 +59,8 @@ pub struct Session {
     pub tasks: Tasks,
     /// What a native inspector reported, when this session is one.
     pub inspection: Inspection,
+    /// What its async runtime did.
+    pub runtime: Runtime,
     /// Where its puffin profiler listens, while it is switched on.
     pub profiler: Option<String>,
     /// What the last [`ANSWERS_KEPT`] commands that carry a request came to,
@@ -217,7 +220,8 @@ impl Sessions {
             .ok_or("no native inspector: attach one first")?;
 
         let profile = Profile::new(timeline, app.clock(), &inspector.inspection.kept)
-            .with_samples(&inspector.inspection.sampled);
+            .with_samples(&inspector.inspection.sampled)
+            .with_runtime(&app.runtime);
         Ok(match self.memory(app.info.pid) {
             Some(memory) => profile.with_memory(memory),
             None => profile,
@@ -299,7 +303,10 @@ impl Sessions {
                 session.received += 1;
                 let shown = !matches!(
                     *report,
-                    Report::Answered { .. } | Report::Profiler { .. } | Report::Unknown
+                    Report::Answered { .. }
+                        | Report::Profiler { .. }
+                        | Report::Runtime { .. }
+                        | Report::Unknown
                 );
                 match *report {
                     Report::Hello(info) => session.info = info,
@@ -360,6 +367,7 @@ impl Sessions {
                         session.snapshot.apply(changes);
                     }
                     Report::Profiler { at } => session.profiler = at,
+                    Report::Runtime { readings } => session.runtime.absorb(readings),
                     Report::Unknown => {}
                     Report::Refused { command, reason } => {
                         session.inspection.refused = Some((command, reason));
@@ -471,6 +479,38 @@ mod tests {
         assert_eq!(sessions.watched().into_iter().collect::<Vec<_>>(), [pid]);
         sessions.apply(Incoming::Closed(1));
         assert!(sessions.watched().is_empty(), "nobody reads a gone process");
+    }
+
+    #[test]
+    fn what_the_runtime_did_is_kept_by_session_and_moves_nothing_drawn() {
+        use guinea_devtools_protocol::{RuntimeReading, WorkerReading};
+
+        let mut sessions = Sessions::default();
+        sessions.apply(Incoming::Opened(1));
+        let before = sessions.revision();
+
+        sessions.apply(Incoming::Report(
+            1,
+            Box::new(Report::Runtime {
+                readings: vec![RuntimeReading {
+                    at: 100,
+                    alive_tasks: 3,
+                    queued: 0,
+                    workers: vec![WorkerReading {
+                        busy_us: 40,
+                        parks: 2,
+                    }],
+                }],
+            }),
+        ));
+
+        assert_eq!(
+            sessions
+                .get(1)
+                .map(|session| session.runtime.samples().len()),
+            Some(1)
+        );
+        assert_eq!(sessions.revision(), before, "a reading redraws nothing");
     }
 
     fn hello(identifier: &str) -> Incoming {

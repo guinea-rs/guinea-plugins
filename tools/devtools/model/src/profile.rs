@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::clock::Clock;
 use crate::memory::{Memory, MemorySample};
+use crate::runtime::Runtime;
 use crate::samples::{Origin, Sampled};
 use crate::trace_log::TraceLog;
 
@@ -98,6 +99,7 @@ pub struct Profile<'a> {
     timeline: Option<Timeline>,
     sampled: Option<&'a Sampled>,
     memory: Option<&'a Memory>,
+    runtime: Option<&'a Runtime>,
 }
 
 impl<'a> Profile<'a> {
@@ -176,6 +178,19 @@ impl<'a> Profile<'a> {
         samples.get(past.checked_sub(1)?).copied()
     }
 
+    /// With what the application's async runtime did, as `runtime` kept it.
+    pub fn with_runtime(self, runtime: &'a Runtime) -> Self {
+        Self {
+            runtime: Some(runtime),
+            ..self
+        }
+    }
+
+    /// What the application's async runtime did, when it read any.
+    pub fn runtime(&self) -> Option<&'a Runtime> {
+        self.runtime.filter(|runtime| !runtime.samples().is_empty())
+    }
+
     /// The thread the application runs its UI on, as its clock said.
     pub fn ui_thread(&self) -> u32 {
         self.timeline
@@ -242,6 +257,7 @@ impl<'a> Profile<'a> {
             timeline: Some(timeline),
             sampled: None,
             memory: None,
+            runtime: None,
         }
     }
 

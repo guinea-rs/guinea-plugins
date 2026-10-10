@@ -15,6 +15,7 @@ pub mod native;
 pub mod panels;
 pub mod profile;
 pub mod properties;
+pub mod runtime;
 pub mod samples;
 pub mod sessions;
 pub mod tasks;

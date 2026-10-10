@@ -2,8 +2,9 @@
 
 Lets [guinea devtools](../../tools/devtools) look inside a running guinea
 application: its routes and segments, actors and state, the trace of what set
-off what, timers and the global bus - and, through the native inspector, the
-UI tree and its frames.
+off what, timers and the global bus, what the async runtime's workers are
+busy with by tokio's own counters - and, through the native inspector, the UI
+tree and its frames.
 
 ```rust
 guinea::app::GuineaApp::new()

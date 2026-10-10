@@ -138,6 +138,17 @@ mod tests {
                 command: "NativeEdit".into(),
                 reason: "no such property".into(),
             },
+            Report::Runtime {
+                readings: vec![crate::RuntimeReading {
+                    at: 1_500,
+                    alive_tasks: 12,
+                    queued: 3,
+                    workers: vec![crate::WorkerReading {
+                        busy_us: 90_000,
+                        parks: 41,
+                    }],
+                }],
+            },
         ];
 
         for report in &sent {

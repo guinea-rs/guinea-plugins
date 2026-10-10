@@ -18,7 +18,7 @@ use guinea_devtools_model::timers::Timers;
 use guinea_devtools_model::words;
 
 use super::flame::{self, NARROWEST_US, View, last_segment};
-use super::memory;
+use super::{memory, runtime};
 use super::{ms, shade, short};
 use crate::components;
 use crate::theme;
@@ -38,6 +38,8 @@ const SAMPLE_PERIOD_US: i64 = 1_000;
 const STACK_DEPTHS: usize = 80;
 /// How many lanes the line of what the process held takes.
 const MEMORY_ROWS: usize = 2;
+/// How many lanes the async runtime's line takes.
+const RUNTIME_ROWS: usize = 2;
 /// How many of the functions sampled in a selection are listed.
 const HEAVIEST: usize = 12;
 
@@ -237,8 +239,16 @@ pub fn timeline(
     } else {
         MEMORY_ROWS
     };
+    let tokio = profile.runtime();
+    let tokio_lane = memory_lane + memory_rows;
+    let tokio_rows =
+        if tokio.is_some_and(|tokio| !tokio.busy_between(within.from, within.to).is_empty()) {
+            RUNTIME_ROWS
+        } else {
+            0
+        };
     let mut stacked: Vec<Stacked> = Vec::new();
-    let mut lanes = memory_lane + memory_rows;
+    let mut lanes = tokio_lane + tokio_rows;
     for (thread, name) in threads {
         if lens.hidden.contains(&thread) {
             continue;
@@ -279,7 +289,7 @@ pub fn timeline(
         });
         lanes += own_lanes + rows;
     }
-    let gaps = 2 + usize::from(memory_rows > 0) + stacked.len();
+    let gaps = 2 + usize::from(memory_rows > 0) + usize::from(tokio_rows > 0) + stacked.len();
 
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(
@@ -345,6 +355,7 @@ pub fn timeline(
     let starts: Vec<usize> = [frame_lane, frame_lane + 1]
         .into_iter()
         .chain((memory_rows > 0).then_some(memory_lane))
+        .chain((tokio_rows > 0).then_some(tokio_lane))
         .chain(stacked.iter().map(|stacked| stacked.first))
         .collect();
     let top_of = |index: usize| {
@@ -362,6 +373,7 @@ pub fn timeline(
         (frame_lane, frame_lane + 1, "frame"),
         (frame_lane + 1, frame_lane + 1 + pass_rows, "layout"),
         (memory_lane, memory_lane + memory_rows, "memory"),
+        (tokio_lane, tokio_lane + tokio_rows, "tokio"),
     ]
     .into_iter()
     .chain(
@@ -592,6 +604,21 @@ pub fn timeline(
             .collect();
         memory::line(&painter.with_clip_rect(band), band, &points);
     }
+    let tokio_band = (tokio_rows > 0).then(|| {
+        Rect::from_x_y_ranges(
+            track.x_range(),
+            lane(tokio_lane).top()..=lane(tokio_lane + tokio_rows - 1).bottom(),
+        )
+    });
+    if let (Some(band), Some(tokio)) = (tokio_band, tokio) {
+        let points: Vec<(f32, f64)> = tokio
+            .busy_between(view.from, view.to)
+            .into_iter()
+            .map(|(at, busy)| (x(at), busy))
+            .collect();
+        let workers = tokio.samples().back().map_or(0, |sample| sample.workers);
+        runtime::line(&painter.with_clip_rect(band), band, &points, workers);
+    }
 
     for frame in frames.iter().filter(|frame| frame.over()) {
         let budget = x(frame.at_us + BUDGET_US as i64);
@@ -641,8 +668,21 @@ pub fn timeline(
         let held = memory_band
             .filter(|band| band.contains(pointer))
             .and_then(|_| profile.memory_at(moment(pointer.x)));
+        let ran = tokio_band
+            .filter(|band| band.contains(pointer))
+            .and(tokio)
+            .and_then(|tokio| {
+                let at = moment(pointer.x);
+                let busy = tokio.busy_between(at, at + 1).last().map(|(_, busy)| *busy);
+                tokio.at(at).map(|sample| runtime::said(sample, busy))
+            });
         match hits.iter().rev().find(|(shape, _, _)| shape.contains(pointer)) {
             Some((_, about, _)) => response.on_hover_text(about.as_str()),
+            None if ran.is_some() => response.on_hover_text(format!(
+                "{}\nat {}",
+                ran.unwrap_or_default(),
+                profile.when(moment(pointer.x))
+            )),
             None if held.is_some() => response.on_hover_text(format!(
                 "{}\nat {}",
                 held.map(memory::said).unwrap_or_default(),
@@ -722,6 +762,19 @@ pub fn timeline(
                 "memory",
                 change(before.private, after.private),
                 change(before.working_set, after.working_set)
+            )));
+        }
+
+        if let Some((busy, last)) = tokio.and_then(|tokio| {
+            Some((
+                tokio.busy(selected.from, selected.to)?,
+                tokio.at(selected.to)?,
+            ))
+        }) {
+            ui.label(components::mono(format!(
+                "{:<24} {}",
+                "tokio",
+                runtime::summary(busy, last)
             )));
         }
 

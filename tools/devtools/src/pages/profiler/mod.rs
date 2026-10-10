@@ -8,6 +8,7 @@
 
 mod flame;
 mod memory;
+mod runtime;
 mod timeline;
 
 use std::time::{Duration, Instant};
