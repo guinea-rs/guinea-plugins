@@ -31,28 +31,37 @@ mod tests {
             .worker_threads(2)
             .build()
             .map_err(|error| error.to_string());
+        let busy = |reading: &RuntimeReading| {
+            reading
+                .workers
+                .iter()
+                .map(|worker| worker.busy_us)
+                .sum::<u64>()
+        };
         let reading = runtime.map(|runtime| {
             runtime.spawn(std::future::pending::<()>());
-            runtime.spawn(async {
+            let spun = runtime.spawn(async {
                 let started = Instant::now();
                 while started.elapsed() < Duration::from_millis(60) {
                     std::hint::spin_loop();
                 }
             });
-            std::thread::sleep(Duration::from_millis(150));
-            read(runtime.handle(), 7)
+            let _ = runtime.block_on(spun);
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                let reading = read(runtime.handle(), 7);
+                if busy(&reading) >= 50_000 || Instant::now() > deadline {
+                    break reading;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
         });
 
         let seen = reading.map(|reading| {
             (
                 reading.at,
                 reading.workers.len(),
-                reading
-                    .workers
-                    .iter()
-                    .map(|worker| worker.busy_us)
-                    .sum::<u64>()
-                    >= 50_000,
+                busy(&reading) >= 50_000,
                 reading.alive_tasks >= 1,
             )
         });
