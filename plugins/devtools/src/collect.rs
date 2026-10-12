@@ -22,6 +22,7 @@ const PENDING: usize = 16_384;
 #[derive(Default)]
 pub struct Traces {
     spans: Vec<Span>,
+    pending: HashMap<u64, usize>,
     ends: Vec<End>,
     dropped: u64,
 }
@@ -53,6 +54,7 @@ impl Traces {
                     self.dropped += 1;
                     return;
                 }
+                self.pending.insert(record.id.get(), self.spans.len());
                 self.spans.push(Span {
                     id: record.id.get(),
                     parent: record.parent.map(Cause::get),
@@ -64,15 +66,19 @@ impl Traces {
             }
             Trace::End { id, took } => {
                 let took = took.as_micros() as u64;
-                match self.spans.iter_mut().rev().find(|span| span.id == id.get()) {
-                    Some(span) => span.took = Some(took),
-                    None => self.ends.push(End { id: id.get(), took }),
+                match self.pending.get(&id.get()) {
+                    Some(&at) => self.spans[at].took = Some(took),
+                    None if self.ends.len() < PENDING => {
+                        self.ends.push(End { id: id.get(), took });
+                    }
+                    None => {}
                 }
             }
         }
     }
 
     pub fn take(&mut self) -> TraceBatch {
+        self.pending.clear();
         TraceBatch {
             spans: std::mem::take(&mut self.spans),
             ends: std::mem::take(&mut self.ends),
@@ -677,6 +683,26 @@ mod tests {
             "the action ended inside the batch"
         );
         assert_eq!(batch.spans[1].parent, Some(batch.spans[0].id));
+    }
+
+    #[test]
+    fn what_waits_for_a_batch_stays_bounded_however_much_is_recorded() {
+        let traces = collected();
+        for _ in 0..PENDING * 3 {
+            let _work = trace::enter(|| Point::Action { message: "Tick" });
+        }
+        trace::stop_observing();
+
+        let batch = traces.borrow_mut().take();
+        assert_eq!(
+            (
+                batch.spans.len(),
+                batch.spans.iter().all(|span| span.took.is_some()),
+                batch.ends.len() <= PENDING,
+                batch.dropped
+            ),
+            (PENDING, true, true, 2 * PENDING as u64)
+        );
     }
 
     #[test]
