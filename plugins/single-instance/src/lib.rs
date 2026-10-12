@@ -69,17 +69,20 @@ pub fn path(identifier: &str) -> io::Result<PathBuf> {
         })
 }
 
+/// `identifier` as a file name, every byte that is not `[A-Za-z0-9._-]`
+/// written as `%XX`, so that two identifiers never share one.
 fn sanitized(identifier: &str) -> String {
-    identifier
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    use std::fmt::Write;
+
+    let mut name = String::with_capacity(identifier.len());
+    for byte in identifier.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_') {
+            name.push(byte as char);
+        } else {
+            let _ = write!(name, "%{byte:02X}");
+        }
+    }
+    name
 }
 
 fn claim_at(path: PathBuf) -> io::Result<Option<Instance>> {
@@ -219,10 +222,20 @@ mod tests {
     }
 
     #[test]
-    fn an_identifier_becomes_a_file_name() {
+    fn an_identifier_becomes_a_file_name_of_its_own() {
         assert_eq!(
-            sanitized("dev.uniproc/guinea devtools"),
-            "dev.uniproc_guinea_devtools"
+            [
+                sanitized("dev.uniproc.guinea-devtools_1"),
+                sanitized("dev.uniproc/guinea devtools"),
+                sanitized("мой.редактор"),
+            ],
+            [
+                "dev.uniproc.guinea-devtools_1",
+                "dev.uniproc%2Fguinea%20devtools",
+                "%D0%BC%D0%BE%D0%B9.%D1%80%D0%B5%D0%B4%D0%B0%D0%BA%D1%82%D0%BE%D1%80",
+            ]
         );
+        assert_ne!(sanitized("a/b"), sanitized("a_b"));
+        assert_ne!(sanitized("мой.редактор"), sanitized("мой.терминал"));
     }
 }
