@@ -1,7 +1,7 @@
 //! A session's trace, as it is read: filtered, as rows, and one record with
 //! where it came from and what it set off.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use guinea_devtools_protocol::{Declared, Span, TracePoint};
 use serde::{Deserialize, Serialize};
@@ -486,6 +486,7 @@ pub struct Consequence {
 struct Walk {
     budget: usize,
     cut: bool,
+    passed: HashSet<u64>,
 }
 
 /// Whether a send and what it caused are one thing said twice.
@@ -561,6 +562,7 @@ pub fn record(reading: Reading, id: u64, query: &Query) -> Option<Record> {
     let mut walk = Walk {
         budget: TREE_LIMIT,
         cut: false,
+        passed: HashSet::new(),
     };
     let set_off = set_off(reading, id, 0, &mut walk);
 
@@ -619,6 +621,7 @@ pub fn about(reading: Reading, id: u64) -> Option<About> {
     let mut walk = Walk {
         budget: TREE_LIMIT,
         cut: false,
+        passed: HashSet::new(),
     };
     let inside = ran_inside(reading, span, span.id, 0, &mut walk);
 
@@ -681,7 +684,7 @@ fn ran_inside(
                 row: row(reading, child),
                 children: ran_inside(reading, child, child.id, depth + 1, walk),
             });
-        } else {
+        } else if walk.passed.insert(child.id) {
             out.extend(ran_inside(reading, outer, child.id, depth, walk));
         }
     }
@@ -743,6 +746,48 @@ mod tests {
         });
 
         log
+    }
+
+    #[test]
+    #[ignore = "run in a process of its own by a_record_that_names_itself_its_parent_is_read_without_looping"]
+    fn reading_about_a_record_that_names_itself_its_parent() {
+        let mut log = TraceLog::default();
+        log.absorb(TraceBatch {
+            spans: vec![Span {
+                id: 5,
+                parent: Some(5),
+                at: 50,
+                took: Some(0),
+                point: TracePoint::Handle {
+                    actor: "a::Actor".into(),
+                    message: "Go".into(),
+                },
+                thread: 0,
+            }],
+            ..TraceBatch::default()
+        });
+        let timers = Timers::default();
+
+        assert!(about(read(&log, &timers), 5).is_some());
+    }
+
+    #[test]
+    fn a_record_that_names_itself_its_parent_is_read_without_looping() {
+        let run = std::env::current_exe().and_then(|test| {
+            std::process::Command::new(test)
+                .args([
+                    "--exact",
+                    "trace::tests::reading_about_a_record_that_names_itself_its_parent",
+                    "--ignored",
+                ])
+                .output()
+        });
+
+        assert_eq!(
+            run.map(|out| out.status.code())
+                .map_err(|error| error.to_string()),
+            Ok(Some(0))
+        );
     }
 
     #[test]
