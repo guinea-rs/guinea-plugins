@@ -204,6 +204,12 @@ pub struct Chains {
     chains: BTreeMap<u64, Chain>,
     /// The chains of each stream and shape, by the record that started them.
     groups: HashMap<(Stream, u64), BTreeSet<u64>>,
+    /// The steps under each step.
+    under: BTreeMap<u64, Vec<u64>>,
+    /// Chains started by a record whose cause had not arrived, by that cause:
+    /// records made off the UI thread reach devtools later than what they set
+    /// off on it.
+    waiting: BTreeMap<u64, Vec<u64>>,
 }
 
 impl Chains {
@@ -240,15 +246,23 @@ impl Chains {
             }
         };
 
+        let linked = parent.filter(|_| !repeats).map(|(parent, _)| parent);
         self.nodes.insert(
             span.id,
             Node {
                 root,
-                parent: parent.filter(|_| !repeats).map(|(parent, _)| parent),
+                parent: linked,
                 key,
                 path,
             },
         );
+        match (linked, span.parent) {
+            (Some(parent), _) => self.under.entry(parent).or_default().push(span.id),
+            (None, Some(cause)) if parent.is_none() => {
+                self.waiting.entry(cause).or_default().push(span.id);
+            }
+            _ => {}
+        }
 
         if let Some(stream) = stream {
             self.chains.insert(
@@ -261,26 +275,83 @@ impl Chains {
             );
         }
 
-        let Some(chain) = self.chains.get_mut(&root) else {
-            return;
-        };
-
-        if chain.size > 0 {
-            let old = (chain.stream.clone(), chain.shape);
-            if let Some(roots) = self.groups.get_mut(&old) {
-                roots.remove(&root);
-                if roots.is_empty() {
-                    self.groups.remove(&old);
-                }
-            }
+        if let Some(mut chain) = self.chains.remove(&root) {
+            self.ungroup(root, &chain);
+            chain.shape = chain.shape.wrapping_add(path);
+            chain.size += 1;
+            self.regroup(root, chain);
         }
 
-        chain.shape = chain.shape.wrapping_add(path);
-        chain.size += 1;
+        for started in self.waiting.remove(&span.id).unwrap_or_default() {
+            self.adopt(span.id, started);
+        }
+    }
+
+    /// Hangs the chain `started` began under `parent`, which arrived after
+    /// it: every step of it joins the chain `parent` is in, as though it had
+    /// arrived in order.
+    fn adopt(&mut self, parent: u64, started: u64) {
+        let (Some(&above), Some(&first)) = (self.nodes.get(&parent), self.nodes.get(&started))
+        else {
+            return;
+        };
+        if first.root != started || above.root == started || self.repeats(parent, first.key) {
+            return;
+        }
+        let Some(mut chain) = self.chains.remove(&above.root) else {
+            return;
+        };
+        if let Some(gone) = self.chains.remove(&started) {
+            self.ungroup(started, &gone);
+        }
+        self.ungroup(above.root, &chain);
+
+        let mut steps = vec![(started, above.path)];
+        while let Some((id, path_above)) = steps.pop() {
+            let Some(node) = self
+                .nodes
+                .get_mut(&id)
+                .filter(|node| node.root != above.root)
+            else {
+                continue;
+            };
+            node.root = above.root;
+            node.path = mix(path_above, node.key);
+            chain.shape = chain.shape.wrapping_add(node.path);
+            chain.size += 1;
+            let path = node.path;
+            if let Some(under) = self.under.get(&id) {
+                steps.extend(under.iter().map(|below| (*below, path)));
+            }
+        }
+        if let Some(node) = self.nodes.get_mut(&started) {
+            node.parent = Some(parent);
+        }
+        self.under.entry(parent).or_default().push(started);
+        self.regroup(above.root, chain);
+    }
+
+    /// Takes the chain `root` started out of its group, if it is in one.
+    fn ungroup(&mut self, root: u64, chain: &Chain) {
+        if chain.size == 0 {
+            return;
+        }
+        let group = (chain.stream.clone(), chain.shape);
+        if let Some(roots) = self.groups.get_mut(&group) {
+            roots.remove(&root);
+            if roots.is_empty() {
+                self.groups.remove(&group);
+            }
+        }
+    }
+
+    /// Keeps the chain `root` started, in the group of its stream and shape.
+    fn regroup(&mut self, root: u64, chain: Chain) {
         self.groups
             .entry((chain.stream.clone(), chain.shape))
             .or_default()
             .insert(root);
+        self.chains.insert(root, chain);
     }
 
     /// Whether a step with `key` under `parent` repeats one above it in the
@@ -304,17 +375,13 @@ impl Chains {
 
     fn forget(&mut self, first: u64) {
         self.nodes = self.nodes.split_off(&first);
+        self.under = self.under.split_off(&first);
+        self.waiting = self.waiting.split_off(&first);
 
         let kept = self.chains.split_off(&first);
         let gone = std::mem::replace(&mut self.chains, kept);
         for (root, chain) in gone {
-            let group = (chain.stream, chain.shape);
-            if let Some(roots) = self.groups.get_mut(&group) {
-                roots.remove(&root);
-                if roots.is_empty() {
-                    self.groups.remove(&group);
-                }
-            }
+            self.ungroup(root, &chain);
         }
     }
 
@@ -942,6 +1009,75 @@ mod tests {
                 Stream::Source(Stream::source_of("a::Agent", "a::Streamed")),
                 2
             )]
+        );
+    }
+
+    #[test]
+    fn a_record_that_arrives_after_what_it_set_off_joins_their_chain() {
+        let timers = Timers::default();
+        let go = span(
+            1,
+            None,
+            TracePoint::Action {
+                message: "a::Go".into(),
+            },
+        );
+        let send = span(
+            2,
+            Some(1),
+            TracePoint::Send {
+                actor: "a::Worker".into(),
+                message: "a::Go".into(),
+            },
+        );
+        let handled = span(3, Some(2), handle("a::Go"));
+        let pushed = span(
+            4,
+            Some(3),
+            TracePoint::Push {
+                reducer: "a::List".into(),
+            },
+        );
+        let seen = |log: &TraceLog, chains: &Chains| {
+            let reading = Reading {
+                log,
+                clock: Clock::default(),
+                timers: &timers,
+            };
+            let lines: Vec<(Stream, usize)> = streams(chains, reading)
+                .into_iter()
+                .map(|line| (line.stream, line.chains))
+                .collect();
+            let groups: Vec<String> = view(chains, reading, &Stream::All, "")
+                .groups
+                .iter()
+                .map(|group| words::text(&group.words))
+                .collect();
+            (lines, groups)
+        };
+
+        let in_order = log_of(vec![
+            go.clone(),
+            send.clone(),
+            handled.clone(),
+            pushed.clone(),
+        ]);
+        let mut ordered = Chains::default();
+        ordered.absorb(&in_order, &timers);
+
+        let mut late = log_of(vec![go, handled, pushed]);
+        let mut chains = Chains::default();
+        chains.absorb(&late, &timers);
+        late.absorb(TraceBatch {
+            spans: vec![send],
+            ..TraceBatch::default()
+        });
+        chains.absorb(&late, &timers);
+
+        assert_eq!(seen(&late, &chains), seen(&in_order, &ordered));
+        assert_eq!(
+            seen(&late, &chains).0,
+            [(Stream::Action("a::Go".into()), 1)]
         );
     }
 
