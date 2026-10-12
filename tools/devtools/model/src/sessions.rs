@@ -272,6 +272,12 @@ impl Sessions {
         for id in gone {
             self.by_id.remove(&id);
         }
+        let kept: BTreeSet<u32> = self
+            .by_id
+            .values()
+            .map(|session| session.info.pid)
+            .collect();
+        self.memory.retain(|pid, _| kept.contains(pid));
     }
 
     pub fn apply(&mut self, incoming: Incoming) {
@@ -479,6 +485,38 @@ mod tests {
         assert_eq!(sessions.watched().into_iter().collect::<Vec<_>>(), [pid]);
         sessions.apply(Incoming::Closed(1));
         assert!(sessions.watched().is_empty(), "nobody reads a gone process");
+    }
+
+    #[test]
+    fn what_a_process_held_is_forgotten_with_its_last_session() {
+        let mut sessions = Sessions::default();
+        let held = MemorySample {
+            qpc: 10,
+            private: 1,
+            working_set: 1,
+        };
+        for id in 1..=GONE_KEPT as u64 + 1 {
+            let pid = 100 + id as u32;
+            sessions.apply(Incoming::Opened(id));
+            sessions.apply(Incoming::Report(
+                id,
+                Box::new(Report::Hello(AppInfo {
+                    pid,
+                    ..AppInfo::default()
+                })),
+            ));
+            sessions.apply(Incoming::Memory(pid, held));
+            sessions.apply(Incoming::Closed(id));
+        }
+
+        assert_eq!(
+            (
+                sessions.get(1).is_some(),
+                sessions.memory(101).is_some(),
+                sessions.memory(102).is_some()
+            ),
+            (false, false, true)
+        );
     }
 
     #[test]
