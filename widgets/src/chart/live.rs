@@ -19,11 +19,16 @@ const SLOWEST: Duration = Duration::from_secs(1);
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(super) struct Clock {
     anchor: Option<(f64, Instant)>,
+    newest: Option<f64>,
 }
 
 impl Clock {
-    /// Takes the newest sample, seen at `at`.
+    /// Takes the newest sample, seen at `at`. The one taken last, seen
+    /// again, says nothing new.
     pub fn saw(&mut self, newest: f64, window: f64, per_second: f64, at: Instant) {
+        if self.newest.replace(newest) == Some(newest) {
+            return;
+        }
         match self.now(per_second, at) {
             Some(now) if newest <= now && now - newest <= window => {}
             _ => self.anchor = Some((newest, at)),
@@ -37,7 +42,7 @@ impl Clock {
     }
 
     pub fn forget(&mut self) {
-        self.anchor = None;
+        *self = Self::default();
     }
 }
 
@@ -99,6 +104,18 @@ mod tests {
 
         clock.saw(10.0, 1_000.0, 1000.0, later);
         assert_eq!(clock.now(1000.0, later), Some(10.0));
+    }
+
+    #[test]
+    fn the_same_newest_sample_seen_again_after_the_window_leaves_the_clock_running() {
+        let start = Instant::now();
+        let mut clock = Clock::default();
+        clock.saw(5_000.0, 1_000.0, 1000.0, start);
+
+        let stalled = start + Duration::from_secs(2);
+        clock.saw(5_000.0, 1_000.0, 1000.0, stalled);
+
+        assert_eq!(clock.now(1000.0, stalled), Some(7_000.0));
     }
 
     #[test]
