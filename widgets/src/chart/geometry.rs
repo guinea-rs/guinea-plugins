@@ -87,13 +87,8 @@ impl Frame {
     pub fn multiples(&self, every: u64) -> impl Iterator<Item = u64> {
         let every = every.max(1);
         let first = (self.from.max(0.0) / every as f64).ceil() as u64;
-        let last = (self.to / every as f64).floor();
-        let in_view = if last < 0.0 {
-            1..=0
-        } else {
-            first..=last as u64
-        };
-        in_view.map(move |k| k * every)
+        let past = ((self.to / every as f64).floor() + 1.0).max(0.0) as u64;
+        (first..past).map(move |k| k * every)
     }
 }
 
