@@ -269,7 +269,8 @@ impl<'a> Profile<'a> {
 
     /// Where second `t` begins on the trace, in microseconds.
     pub fn second_starts(&self, t: i64) -> i64 {
-        t * 1_000_000 - self.clock.epoch_ms as i64 * 1_000
+        t.saturating_mul(1_000_000)
+            .saturating_sub(self.clock.epoch_ms as i64 * 1_000)
     }
 
     /// Every second with a frame in it, oldest first; idle ones are not
@@ -345,18 +346,18 @@ impl<'a> Profile<'a> {
     /// A source waiting for its next item is left out: the wait is not work,
     /// though what the source does under it is.
     pub fn work<'log>(&self, frame: &Frame, log: &'log TraceLog) -> Vec<&'log Span> {
-        let since = self
+        let from = self
             .frames
             .iter()
             .take_while(|earlier| earlier.at_us < frame.at_us)
             .last()
-            .map_or(frame.at_us, Frame::end_us);
+            .map_or(frame.at_us, |earlier| earlier.end_us().saturating_add(1));
         let until = frame.end_us();
         if until < 0 {
             return Vec::new();
         }
 
-        log.during(since.saturating_add(1).max(0) as u64, until as u64)
+        log.during(from.max(0) as u64, until as u64)
             .filter(|span| !matches!(span.point, TracePoint::Pull { .. }))
             .collect()
     }
@@ -521,6 +522,7 @@ mod tests {
         log.absorb(TraceBatch {
             spans: vec![
                 note(1, 50),
+                note(6, 500_000),
                 note(2, 505_000),
                 note(3, 550_000),
                 note(4, 590_000),
@@ -540,10 +542,27 @@ mod tests {
 
         assert_eq!(
             ids(&profile.frames[0]),
-            [2],
-            "the first frame: only what happened during it"
+            [6, 2],
+            "the first frame: only what happened during it, from its start"
         );
         assert_eq!(ids(&profile.frames[1]), [3, 4]);
+    }
+
+    #[test]
+    fn a_second_past_any_clock_is_read_without_overflowing() {
+        let profile = Profile::new(timeline(), Clock::default(), &[]);
+
+        let read = std::panic::catch_unwind(|| {
+            (
+                profile.second_starts(10_000_000_000_000),
+                profile.second_named(-10_000_000_000_000),
+            )
+        });
+
+        assert_eq!(
+            read.map_err(|_| "overflowed"),
+            Ok((i64::MAX, "-10000000000000 s".to_string()))
+        );
     }
 
     #[test]
