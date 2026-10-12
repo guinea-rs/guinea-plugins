@@ -81,6 +81,12 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
                 S::for_tag(&self.default_tag)
             })
             .ok_or_else(|| anyhow::anyhow!("`{}` is not a language tag", self.default_tag))?;
+        if !has_locale::<S>(&strings.tag()) {
+            anyhow::bail!(
+                "the default language `{}` has no strings in this application",
+                self.default_tag
+            );
+        }
 
         let language = app
             .state::<Language<S>>()
@@ -108,13 +114,22 @@ impl<S: Localization> Plugin for L10nPlugin<S> {
 }
 
 /// Whether the application has strings for `tag`. A resolver that does not
-/// list its locales is taken at its word for any tag it accepts.
+/// list its locales is taken at its word for any tag it accepts. A locale
+/// directory may separate the subtags with `_`, as a language id parses it.
 fn has_locale<S: Localization>(tag: &str) -> bool {
+    let subtag = |byte: u8| match byte {
+        b'_' => b'-',
+        other => other.to_ascii_lowercase(),
+    };
     let languages = S::languages();
     languages.is_empty()
-        || languages
-            .iter()
-            .any(|known| known.eq_ignore_ascii_case(tag))
+        || languages.iter().any(|known| {
+            known.len() == tag.len()
+                && known
+                    .bytes()
+                    .zip(tag.bytes())
+                    .all(|(known, asked)| subtag(known) == subtag(asked))
+        })
 }
 
 #[cfg(feature = "persist")]
@@ -288,6 +303,44 @@ mod tests {
             has_locale::<Strings>("de"),
             "an unlisted resolver is taken at its word"
         );
+    }
+
+    #[test]
+    fn a_locale_named_with_an_underscore_is_the_tag_named_with_a_hyphen() {
+        #[derive(Clone, Default)]
+        struct Underscored;
+
+        impl Localization for Underscored {
+            fn for_tag(_: &str) -> Option<Self> {
+                Some(Self)
+            }
+
+            fn tag(&self) -> String {
+                String::new()
+            }
+
+            fn languages() -> &'static [&'static str] {
+                &["en", "pt_BR"]
+            }
+        }
+
+        assert_eq!(
+            [
+                has_locale::<Underscored>("pt-BR"),
+                has_locale::<Underscored>("pt_br"),
+                has_locale::<Underscored>("pt"),
+            ],
+            [true, true, false]
+        );
+    }
+
+    #[test]
+    fn a_default_tag_the_application_has_no_strings_for_is_an_installation_error() {
+        let mut app = TestApp::new();
+
+        let installed = app.install(L10nPlugin::<Listed>::new("de").persist(false));
+
+        assert!(installed.is_err());
     }
 
     #[test]
