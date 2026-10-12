@@ -262,10 +262,7 @@ fn draw_labels(
         if x < plot.left || x > plot.right {
             continue;
         }
-        let middle = x.clamp(
-            TICK_LABEL_WIDE / 2.0,
-            (plot.right - TICK_LABEL_WIDE / 2.0).max(0.0),
-        );
+        let middle = tick_label_middle(x, plot.right);
         let rect = Rect::new(
             middle - TICK_LABEL_WIDE / 2.0,
             plot.bottom + TICK_LONG,
@@ -273,5 +270,35 @@ fn draw_labels(
             height,
         );
         draw.draw_text(text, &labels.under, &rect, ink);
+    }
+}
+
+/// Where the label of a tick at `x` is centred, kept inside `0..right`.
+fn tick_label_middle(x: f32, right: f32) -> f32 {
+    if right < TICK_LABEL_WIDE {
+        return right.max(0.0) / 2.0;
+    }
+    x.clamp(TICK_LABEL_WIDE / 2.0, right - TICK_LABEL_WIDE / 2.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tick_label_stays_inside_the_chart_and_one_narrower_than_a_label_centres_it() {
+        let placed = |x: f32, right: f32| {
+            std::panic::catch_unwind(|| tick_label_middle(x, right)).map_err(|_| "panicked")
+        };
+
+        assert_eq!(
+            [
+                placed(10.0, 500.0),
+                placed(200.0, 500.0),
+                placed(490.0, 500.0),
+                placed(10.0, 50.0),
+            ],
+            [Ok(32.0), Ok(200.0), Ok(468.0), Ok(25.0)]
+        );
     }
 }
