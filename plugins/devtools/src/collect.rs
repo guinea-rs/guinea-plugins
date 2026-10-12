@@ -42,6 +42,11 @@ impl Traces {
         }
     }
 
+    /// Counts `records` that were made and will never reach devtools.
+    pub fn lose(&mut self, records: u64) {
+        self.dropped += records;
+    }
+
     /// Whether there is nothing to send.
     pub fn is_empty(&self) -> bool {
         self.spans.is_empty() && self.ends.is_empty() && self.dropped == 0

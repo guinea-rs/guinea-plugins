@@ -230,11 +230,13 @@ fn flush() {
                 info.plugins = flushed.plugins.iter().map(|id| id.to_string()).collect();
             }
         }
-        let mut dropped = false;
-        for report in flushed.reports {
-            dropped |= !link.outbox.send(report);
-        }
-        if dropped {
+        let handed = hand_over(flushed.reports, |report| link.outbox.send(report));
+        connection
+            .inbox
+            .borrow_mut()
+            .traces
+            .lose(handed.records_lost);
+        if handed.refused {
             connection.live.lost();
             soon(&mut connection.inbox.borrow_mut());
         } else if let Some(due) = flushed.due {
@@ -242,6 +244,32 @@ fn flush() {
             flush_in(&mut connection.inbox.borrow_mut(), wait);
         }
     });
+}
+
+/// What came of handing a flush's reports to the link.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Handed {
+    /// Whether any report was refused.
+    refused: bool,
+    /// The records in the trace batches refused, and those they said were
+    /// dropped already.
+    records_lost: u64,
+}
+
+/// Hands `reports` to `send`, which says whether it took each one.
+fn hand_over(reports: Vec<Report>, mut send: impl FnMut(Report) -> bool) -> Handed {
+    let mut handed = Handed::default();
+    for report in reports {
+        let records = match &report {
+            Report::Trace(batch) => batch.spans.len() as u64 + batch.dropped,
+            _ => 0,
+        };
+        if !send(report) {
+            handed.refused = true;
+            handed.records_lost += records;
+        }
+    }
+    handed
 }
 
 /// What one flush hands the link, and what the application's info learnt.
@@ -591,6 +619,36 @@ mod tests {
             changes.actors_gone,
             [41, 42],
             "an actor never said to be added is not devtools' to drop"
+        );
+    }
+
+    #[test]
+    fn the_records_of_a_trace_batch_the_link_refused_are_counted_as_dropped() {
+        let mut batch = traced();
+        batch.spans.push(batch.spans[0].clone());
+        batch.dropped = 1;
+        let mut taken = 0;
+
+        let handed = hand_over(
+            vec![
+                Report::Trace(traced()),
+                Report::Trace(batch),
+                Report::Runtime {
+                    readings: Vec::new(),
+                },
+            ],
+            |_| {
+                taken += 1;
+                taken == 1
+            },
+        );
+
+        assert_eq!(
+            handed,
+            Handed {
+                refused: true,
+                records_lost: 3,
+            }
         );
     }
 
