@@ -36,7 +36,7 @@ impl Frame {
         y_range: Option<(f32, f32)>,
         end: Option<f64>,
     ) -> Option<Frame> {
-        let (min_t, max_t, all_min_v, all_max_v) = bounds(series)?;
+        let (min_t, max_t, _, _) = bounds(series)?;
         let (from, to) = match x_window {
             Some(window) => {
                 let to = end.unwrap_or(max_t as f64);
@@ -46,15 +46,18 @@ impl Frame {
         };
 
         let (min_v, max_v) = y_range.unwrap_or_else(|| {
-            let mut shown = series
-                .iter()
-                .flat_map(|s| s.points.iter())
-                .filter(|(t, _)| (from..=to).contains(&(*t as f64)))
-                .map(|&(_, v)| v);
-            match shown.next() {
-                Some(first) => shown.fold((first, first), |(lo, hi), v| (lo.min(v), hi.max(v))),
-                None => (all_min_v, all_max_v),
-            }
+            let fit = |in_view: bool| {
+                series
+                    .iter()
+                    .flat_map(|s| s.points.iter())
+                    .filter(|(t, v)| {
+                        v.is_finite() && (!in_view || (from..=to).contains(&(*t as f64)))
+                    })
+                    .fold(None, |fit: Option<(f32, f32)>, &(_, v)| {
+                        Some(fit.map_or((v, v), |(lo, hi)| (lo.min(v), hi.max(v))))
+                    })
+            };
+            fit(true).or_else(|| fit(false)).unwrap_or((0.0, 0.0))
         });
 
         Some(Frame {
@@ -84,8 +87,13 @@ impl Frame {
     pub fn multiples(&self, every: u64) -> impl Iterator<Item = u64> {
         let every = every.max(1);
         let first = (self.from.max(0.0) / every as f64).ceil() as u64;
-        let last = (self.to / every as f64).floor() as u64;
-        (first..=last).map(move |k| k * every)
+        let last = (self.to / every as f64).floor();
+        let in_view = if last < 0.0 {
+            1..=0
+        } else {
+            first..=last as u64
+        };
+        in_view.map(move |k| k * every)
     }
 }
 
@@ -228,6 +236,31 @@ mod tests {
         let early = Frame::of(&[series(&[(500, 0.0)])], Some(2_000), None, None).unwrap();
         assert_eq!(early.multiples(1_000).collect::<Vec<_>>(), [0]);
         assert_eq!(early.t_at(0.0, 100.0), 0);
+    }
+
+    #[test]
+    fn a_value_that_is_not_finite_is_left_out_of_the_fit() {
+        let data = [series(&[
+            (0, 1.0),
+            (10, f32::INFINITY),
+            (20, f32::NAN),
+            (30, 5.0),
+        ])];
+
+        let fitted = |frame: Option<Frame>| frame.map(|frame| (frame.min_v, frame.max_v));
+        assert_eq!(fitted(Frame::of(&data, None, None, None)), Some((1.0, 5.0)));
+        assert_eq!(
+            fitted(Frame::of(&data, Some(5), None, Some(15.0))),
+            Some((1.0, 5.0)),
+            "nothing finite in view fits the finite values of all"
+        );
+    }
+
+    #[test]
+    fn a_frame_that_ends_before_zero_has_no_multiples_in_view() {
+        let early = Frame::of(&[series(&[(0, 0.0)])], Some(2_000), None, Some(-500.0)).unwrap();
+
+        assert_eq!(early.multiples(1_000).collect::<Vec<_>>(), []);
     }
 
     #[test]
