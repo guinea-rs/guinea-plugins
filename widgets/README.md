@@ -10,7 +10,7 @@ parts that are pure layout or geometry stay available without one.
 | Module | What it has |
 |---|---|
 | `table` | A table whose columns sort, resize and reorder - reported to the page, which keeps the widths; `SortState` without a backend |
-| `chart` | A line chart, live or still, drawn with Direct2D; `RingSeries` and the geometry without a backend |
+| `chart` | A line chart, live or still, drawn with Direct2D; `RingSeries` without a backend |
 | `chart::scatter` | Points in time against a value, on a linear or log scale, with named bands past its ends; hover, brush and click |
 | `painted` | A view drawn with Direct2D that the page keeps as a field, with the pointer handed back |
 | `resize` | The drag handle that resizes a column |
@@ -31,7 +31,8 @@ scatter.publish(Rc::clone(&self.points), ScatterOptions { x: (from, to), ..Scatt
 |---|---|
 | `winui` (default) | The WinUI views, on `windows-reactor-pre` and `windows-canvas-pre` |
 
-Without it, what is left is what needs no backend: sort state, ring series,
-the charts' geometry.
+Without it, what is left is what needs no backend: sort state and ring
+series. The charts' geometry needs it for now: a `Series` carries a Direct2D
+colour.
 
 `cargo run -p guinea-widgets --example scatter` shows a scatter chart.
