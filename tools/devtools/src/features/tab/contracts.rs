@@ -1,5 +1,3 @@
-use guinea_core::scope::Reducer;
-
 #[derive(Debug, Clone)]
 pub struct Opened(pub &'static str);
 
@@ -7,10 +5,7 @@ pub struct Opened(pub &'static str);
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LastTab(pub String);
 
-impl Reducer for LastTab {
-    type Update = String;
-
-    fn reduce(&mut self, tab: String) {
-        self.0 = tab;
-    }
+#[guinea::reducer]
+fn reduce_lasttab(this: &mut LastTab, tab: String) {
+    this.0 = tab;
 }

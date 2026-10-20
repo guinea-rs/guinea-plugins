@@ -53,7 +53,7 @@ impl Page for Greeting {
 
 fn installed() -> Harness {
     let mut h = Harness::new(1);
-    h.plugin(L10nPlugin::<Strings>::new("en").persist(false))
+    h.plugin::<L10nPlugin<Strings>>(guinea_plugin_l10n::L10nConfig::new("en"))
         .expect("install");
     h
 }

@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use guinea::eframe::{Page, PageCx};
-use guinea::feature::FeatureInitContext;
+use guinea::feature::Install;
 use guinea_devtools_model::elements::{self, Details, Element};
 use guinea_devtools_protocol::{Capability, Command};
 
@@ -37,12 +37,13 @@ pub struct Elements {
     inspecting: native::Inspecting,
 }
 
+#[guinea::eframe::page]
 impl Page for Elements {
-    type Params = crate::routes::ElementsParams;
-    type Installs = NativeFeature;
+    type Params = ();
 
-    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(&())
+    fn install(cx: &Install) -> anyhow::Result<Self> {
+        cx.install::<NativeFeature>(&())?;
+        Ok(Self::default())
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {

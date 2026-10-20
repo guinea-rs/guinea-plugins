@@ -1,5 +1,5 @@
 use guinea::eframe::{Page, PageCx};
-use guinea::feature::FeatureInitContext;
+use guinea::feature::Install;
 
 use crate::components;
 use crate::features::sessions::contracts::Live;
@@ -9,12 +9,12 @@ pub struct Home {
     cycle: Option<egui::TextureHandle>,
 }
 
+#[guinea::eframe::page]
 impl Page for Home {
-    type Params = crate::routes::HomeParams;
-    type Installs = ();
+    type Params = ();
 
-    fn install(_ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<()> {
-        Ok(())
+    fn install(_cx: &Install) -> anyhow::Result<Self> {
+        Ok(Self::default())
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {

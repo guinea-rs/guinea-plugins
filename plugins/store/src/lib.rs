@@ -1,13 +1,19 @@
 //! Persistent storage for guinea applications, backed by [`amethystate`].
 //!
 //! ```no_run
-//! # use guinea_plugin_store::StorePlugin;
-//! guinea::app::GuineaApp::new()
-//!     .plugin(StorePlugin::for_app("my-app", "settings"))
-//!     # ;
+//! use guinea_plugin_store::{StoreConfig, StorePlugin};
+//! fn app(app: &mut guinea::app::FeatureBuilder) -> anyhow::Result<()> {
+//!     let StorePlugin(store, persistence) =
+//!         app.plugin::<StorePlugin>(StoreConfig::for_app("my-app", "settings"))?;
+//!     app.provide(store);
+//!     if let Some(persistence) = persistence {
+//!         app.provide(persistence);
+//!     }
+//!     Ok(())
+//! }
 //! ```
 //!
-//! Features reach the store with `app.require::<Store>()`, and open a struct
+//! Features reach the store with an explicitly supplied `Store`, and open a struct
 //! over it with [`StoreAccess::settings`]. It is not amethystate's global
 //! store: nothing reads it through `global_store()` or a struct's `new()`.
 
@@ -15,11 +21,12 @@ mod devtools;
 mod settings;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use amethystate::StoreBuilder;
 use amethystate::migration::builder::MigrationBuilder;
 use amethystate::store::builder::{Backend, Layout};
-use guinea::app::{Plugin, PluginBuilder};
+use guinea::app::PluginBuilder;
 
 /// Re-exported so an application can read and write through the store without
 /// depending on amethystate itself.
@@ -27,8 +34,8 @@ pub use amethystate;
 pub use settings::StoreAccess;
 
 /// Where the store keeps what it is given: in its file, or in memory for this
-/// run because the file would not open. Provided when the store was asked to
-/// fall back with [`StorePlugin::or_in_memory`].
+/// run because the file would not open. Returned when the store was asked to
+/// fall back with [`StoreConfig::or_in_memory`].
 pub use amethystate::store::Persistence;
 
 /// The store this plugin provides.
@@ -49,12 +56,11 @@ enum Open {
 }
 
 /// Opens the application's store, runs pending migrations, provides it as a
-/// service and closes it on shutdown.
+/// value and closes it on shutdown.
 ///
-/// The store is not amethystate's process-wide one: it is reached through
-/// the context, with `require::<Store>()` or [`StoreAccess`], so any number
-/// of them can be open in one process.
-pub struct StorePlugin {
+/// The returned store is independent of amethystate's process-wide store.
+/// Pass it explicitly or publish it through the application's `provide`.
+pub struct StoreConfig {
     open: Open,
     backend: Option<Backend>,
     configure: Option<Configure>,
@@ -63,7 +69,7 @@ pub struct StorePlugin {
     kept: Vec<Box<dyn Send>>,
 }
 
-impl StorePlugin {
+impl StoreConfig {
     /// Stores under the platform's configuration directory for `app_name`.
     pub fn for_app(app_name: impl Into<String>, config_name: impl Into<String>) -> Self {
         Self::with_open(Open::App {
@@ -164,76 +170,74 @@ impl StorePlugin {
     }
 }
 
-impl Plugin for StorePlugin {
-    const ID: &'static str = "guinea.store";
-    type Exports = ();
-
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        let in_memory = matches!(self.open, Open::Memory);
-        let mut builder = match self.open {
-            Open::App {
-                app,
-                config,
-                layout,
-            } => StoreBuilder::located(|at| match layout {
-                Some(layout) => at.app_under(layout, &app, &config),
-                None => at.app(&app, &config),
-            })
-            .map_err(|error| anyhow::anyhow!("opening the store: {error:?}"))?,
-            Open::Path(path) => StoreBuilder::new(path),
-            Open::Memory => StoreBuilder::in_memory(),
-            Open::Custom(f) => f()?,
-        };
-        if let Some(backend) = self.backend.filter(|_| !in_memory) {
-            builder = builder.backend(backend);
-        }
-        if let Some(configure) = self.configure {
-            builder = configure(builder);
-        }
-
-        let steps = self.steps;
-        let migrating = builder.migrations(move |migrations| {
-            for step in steps {
-                step(migrations);
-            }
-        });
-        let (store, report, persistence) = if self.or_in_memory {
-            let (store, report, persistence) = migrating.or_in_memory().migrate();
-            (store, report, Some(persistence))
-        } else {
-            let (store, report) = migrating.migrate().map_err(|refused| match refused {
-                amethystate::store::OpenStore::Migrating { why, report } => {
-                    let failed = report
-                        .as_ref()
-                        .map(|report| report.failures().count())
-                        .unwrap_or_default();
-
-                    anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
-                }
-                other => anyhow::anyhow!("opening the store: {other:?}"),
-            })?;
-            (store, report, None)
-        };
-
-        let watching = devtools::Watching::start(&store, &report);
-        let closing = store.clone();
-        let kept = self.kept;
-
-        app.on_cleanup(move |_| {
-            drop(watching);
-            let closed = closing
-                .close()
-                .map_err(|error| anyhow::anyhow!("closing the store: {error:?}"));
-            drop(kept);
-            closed
-        });
-
-        app.provide(store);
-        if let Some(persistence) = persistence {
-            app.provide(persistence);
-        }
-        Ok(())
+guinea::plugin! {
+    pub StorePlugin {
+        provides { Store, Option<Arc<Persistence>> }
     }
+}
+
+#[guinea::builds]
+fn store(app: &mut PluginBuilder, config: StoreConfig) -> anyhow::Result<StorePlugin> {
+    let in_memory = matches!(config.open, Open::Memory);
+    let mut builder = match config.open {
+        Open::App {
+            app,
+            config,
+            layout,
+        } => StoreBuilder::located(|at| match layout {
+            Some(layout) => at.app_under(layout, &app, &config),
+            None => at.app(&app, &config),
+        })
+        .map_err(|error| anyhow::anyhow!("opening the store: {error:?}"))?,
+        Open::Path(path) => StoreBuilder::new(path),
+        Open::Memory => StoreBuilder::in_memory(),
+        Open::Custom(f) => f()?,
+    };
+    if let Some(backend) = config.backend.filter(|_| !in_memory) {
+        builder = builder.backend(backend);
+    }
+    if let Some(configure) = config.configure {
+        builder = configure(builder);
+    }
+
+    let steps = config.steps;
+    let migrating = builder.migrations(move |migrations| {
+        for step in steps {
+            step(migrations);
+        }
+    });
+    let (store, report, persistence) = if config.or_in_memory {
+        let (store, report, persistence) = migrating.or_in_memory().migrate();
+        (store, report, Some(persistence))
+    } else {
+        let (store, report) = migrating.migrate().map_err(|refused| match refused {
+            amethystate::store::OpenStore::Migrating { why, report } => {
+                let failed = report
+                    .as_ref()
+                    .map(|report| report.failures().count())
+                    .unwrap_or_default();
+
+                anyhow::anyhow!("the store's migration did not finish ({failed} failed): {why}")
+            }
+            other => anyhow::anyhow!("opening the store: {other:?}"),
+        })?;
+        (store, report, None)
+    };
+
+    let watching = devtools::Watching::start(&store, &report);
+    let closing = store.clone();
+    let kept = config.kept;
+
+    app.on_cleanup(move || {
+        drop(watching);
+        let closed = closing
+            .close()
+            .map_err(|error| anyhow::anyhow!("closing the store: {error:?}"));
+        drop(kept);
+        closed
+    });
+
+    Ok(StorePlugin(store, persistence.map(Arc::new)))
 }
 
 #[cfg(test)]
@@ -247,24 +251,11 @@ mod tests {
         let path = dir.path().join("store");
         let root = dir.path().to_path_buf();
         let mut app = TestApp::new();
-
-        let installed = app
-            .install(StorePlugin::at(&path).backend(Backend::Json).keeping(dir))
-            .map(|_| ())
-            .map_err(|error| format!("{error:#}"));
-        let written = app
-            .require::<Store>()
-            .map_err(|error| format!("{error:#}"))
-            .and_then(|store| {
-                store
-                    .kv()
-                    .set("greeting", &"hello")
-                    .map_err(|error| format!("{error:?}"))
-            });
-        let nothing_leaked = app.shutdown().is_empty();
-
-        assert_eq!((installed, written), (Ok(()), Ok(())));
-        assert!(nothing_leaked, "no actors should leak");
+        let StorePlugin(store, _) = app
+            .plugin::<StorePlugin>(StoreConfig::at(&path).backend(Backend::Json).keeping(dir))
+            .unwrap();
+        store.kv().set("greeting", &"hello").unwrap();
+        drop(app);
         assert!(!root.exists(), "{} is still there", root.display());
     }
 
@@ -274,14 +265,14 @@ mod tests {
         let path = dir.path().join("store");
         let mut app = TestApp::new();
 
-        app.install(StorePlugin::at(&path).backend(Backend::Json))
+        let StorePlugin(store, _) = app
+            .plugin::<StorePlugin>(StoreConfig::at(&path).backend(Backend::Json))
             .expect("install");
 
-        let store = app.require::<Store>().expect("store provided");
         store.kv().set("greeting", &"hello").expect("set");
         drop(store);
 
-        assert!(app.shutdown().is_empty(), "no actors should leak");
+        drop(app);
 
         let reopened = StoreBuilder::new(&path)
             .backend(Backend::Json)

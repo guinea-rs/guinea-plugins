@@ -11,9 +11,9 @@ use amethystate::store::{StoreLayout, StorePath};
 use amethystate::{
     MigrationReport, Store, StoreBackend, StoreEvent, StoreOp, StoreSubscription, SubscriptionKind,
 };
-use guinea_core::observability::mark_anywhere;
-use guinea_core::observability::panels::{self, Panel, PanelGuard, PanelNode};
-use guinea_core::trace::{self, Point};
+use guinea::observability::mark_anywhere;
+use guinea::observability::panels::{self, Panel, PanelGuard, PanelNode};
+use guinea::observability::trace::Point;
 
 /// How many keys the panel lists; past that it says how many it left out.
 const KEYS_SHOWN: usize = 2_000;
@@ -64,22 +64,25 @@ impl Watching {
 }
 
 fn changed(event: &StoreEvent) {
-    if !trace::is_observed_anywhere() && !tracing::enabled!(target: "guinea", tracing::Level::DEBUG)
+    if !guinea::observability::is_observed()
+        && !tracing::enabled!(target: "guinea", tracing::Level::DEBUG)
     {
         return;
     }
-    let op = match event.op {
-        StoreOp::Set => trace::StoreOp::Set,
-        StoreOp::Delete => trace::StoreOp::Delete,
-        StoreOp::DeletePrefix => trace::StoreOp::DeletePrefix,
+    let kind = match event.op {
+        StoreOp::Set => "store.set",
+        StoreOp::Delete => "store.delete",
+        StoreOp::DeletePrefix => "store.delete-prefix",
     };
     let path = event.path.clone();
     let outside = event.is_external_edit();
-    mark_anywhere(move || Point::Store {
-        op,
-        field: field(&path),
-        path: path.to_string(),
-        outside,
+    mark_anywhere(move || Point::Plugin {
+        kind,
+        fields: vec![
+            ("path", path.to_string()),
+            ("field", field(&path).unwrap_or_default()),
+            ("outside", outside.to_string()),
+        ],
     });
 }
 
@@ -319,6 +322,14 @@ mod tests {
 
     #[test]
     fn a_write_is_traced_under_its_cause_and_the_panel_shows_it() {
+        use guinea::observability::trace;
+        guinea::plugin! { Inspector { provides { guinea::observability::Observed } } }
+        #[guinea::builds]
+        fn inspector(app: &mut guinea::app::PluginBuilder) -> anyhow::Result<Inspector> {
+            Ok(Inspector(app.observed()))
+        }
+        let mut app = guinea::app::TestApp::new();
+        let Inspector(observed) = app.plugin::<Inspector>(()).unwrap();
         let dir = tempfile::tempdir().expect("tempdir");
         let store = amethystate::StoreBuilder::new(dir.path().join("store"))
             .backend(amethystate::store::builder::Backend::Json)
@@ -326,28 +337,32 @@ mod tests {
             .expect("open");
         let watching = Watching::start(&store, &MigrationReport::default());
 
-        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let sink = seen.clone();
-        trace::observe(move |record| {
-            if let trace::Trace::Mark(record) = record
-                && let Point::Store { op, path, .. } = &record.point
-            {
-                sink.borrow_mut().push((record.parent, *op, path.clone()));
-            }
-        });
+        let observing = observed.watch(|| {}).unwrap();
+        observing.take();
         let action = trace::mark(|| Point::Action { message: "Save" });
         {
             let _resumed = trace::resume(Some(action));
             store.kv().set("greeting", &"hello").expect("set");
         }
-        trace::stop_observing();
+        let seen: Vec<_> = observing
+            .take()
+            .trace
+            .into_iter()
+            .filter_map(|(_, record)| {
+                let trace::Trace::Mark(record) = record else {
+                    return None;
+                };
+                let Point::Plugin { kind, fields } = record.point else {
+                    return None;
+                };
+                let path = fields.into_iter().find(|(key, _)| *key == "path")?.1;
+                Some((record.parent, kind, path))
+            })
+            .collect();
 
-        assert_eq!(
-            *seen.borrow(),
-            [(Some(action), trace::StoreOp::Set, "greeting".to_string())]
-        );
+        assert_eq!(seen, [(Some(action), "store.set", "greeting".to_string())]);
 
-        let panels = panels::for_app();
+        let panels = observed.panels(None);
         let panel = panels
             .iter()
             .find(|p| p.id == "guinea.store")
@@ -365,7 +380,7 @@ mod tests {
         );
 
         drop(watching);
-        assert!(panels::for_app().is_empty());
+        assert!(observed.panels(None).is_empty());
     }
 
     #[test]

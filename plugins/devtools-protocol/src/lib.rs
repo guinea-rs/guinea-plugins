@@ -30,7 +30,7 @@ pub mod devtools_capnp {
 /// A new variant of [`Report`], [`TracePoint`] or [`Answer`] is a minor:
 /// a peer that cannot name it reads it as `Unknown` and reads the rest of
 /// the message.
-pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 8, 0);
+pub const PROTOCOL: Protocol = Protocol::new(0x96fa_2dd1_07e3_d402, 3, 9, 0);
 
 /// The first version whose devtools take [`Report::Changed`] in place of
 /// one snapshot after another.
@@ -354,6 +354,21 @@ impl StoreOp {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TracePoint {
+    Plugin {
+        name: String,
+        fields: Vec<(String, String)>,
+    },
+    Superseded {
+        actor: String,
+        actor_id: u64,
+        output: String,
+        took_us: u64,
+    },
+    Skipped {
+        actor: String,
+        actor_id: u64,
+        output: String,
+    },
     Action {
         message: String,
     },
@@ -394,9 +409,13 @@ pub enum TracePoint {
         actor: String,
         actor_id: u64,
         output: String,
+        #[serde(default)]
+        source: Option<u64>,
+        #[serde(default)]
+        declared: Option<Declared>,
     },
     /// An item came from a source. A root, as a tick is; `source` is the id
-    /// of the [`TracePoint::Source`] record it came from.
+    /// of the running source in protocol 3.9; older peers use its opening record.
     Arrived {
         actor: String,
         actor_id: u64,
@@ -405,7 +424,7 @@ pub enum TracePoint {
     },
     /// A source making its next item, for as long as it was waited for: what
     /// the source does to make it happens under this. A root, as an arrival
-    /// is; `source` is the id of the [`TracePoint::Source`] record.
+    /// is; `source` names the running source in protocol 3.9.
     Pull {
         actor: String,
         actor_id: u64,
@@ -419,6 +438,8 @@ pub enum TracePoint {
         output: String,
         took_us: u64,
         gone: bool,
+        #[serde(default)]
+        source: Option<u64>,
     },
     Publish {
         event: String,
@@ -497,6 +518,9 @@ pub enum TracePoint {
 impl TracePoint {
     pub fn kind(&self) -> &'static str {
         match self {
+            TracePoint::Plugin { .. } => "plugin",
+            TracePoint::Superseded { .. } => "superseded",
+            TracePoint::Skipped { .. } => "skipped",
             TracePoint::Action { .. } => "action",
             TracePoint::Send { .. } => "send",
             TracePoint::Handle { .. } => "handle",
@@ -524,6 +548,9 @@ impl TracePoint {
     /// One line, for a list.
     pub fn describe(&self) -> String {
         match self {
+            TracePoint::Plugin { name, fields } => format!("{name} {fields:?}"),
+            TracePoint::Superseded { actor, output, .. } => format!("{actor}: {output} superseded"),
+            TracePoint::Skipped { actor, output, .. } => format!("{actor}: {output} skipped"),
             TracePoint::Action { message } => format!("action {message}"),
             TracePoint::Send { actor, message } => format!("send {message} → {actor}"),
             TracePoint::Handle { actor, message } => format!("{actor} handles {message}"),
@@ -742,7 +769,7 @@ impl Snapshot {
     }
 }
 
-/// A running timer.
+/// A running timer; protocol 3.9 also lists other scoped sources here.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Timer {
     pub id: u64,

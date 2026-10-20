@@ -1,5 +1,6 @@
-use guinea_core::feature::Push;
-use guinea_macros::{actor, handler};
+use guinea::prelude::In;
+use guinea::prelude::Push;
+use guinea::{actor, handler};
 
 use super::contracts::{Changed, NativeState, Picking, Select};
 
@@ -21,11 +22,11 @@ actor! {
 }
 
 #[handler]
-fn select(this: &mut NativeActor, Select(selected): Select) {
+fn select(In(this, Select(selected), _): In<NativeActor, Select>) {
     this.push.send(Changed::Selected(selected));
 }
 
 #[handler]
-fn picking(this: &mut NativeActor, Picking(on): Picking) {
+fn picking(In(this, Picking(on), _): In<NativeActor, Picking>) {
     this.push.send(Changed::Picking(on));
 }

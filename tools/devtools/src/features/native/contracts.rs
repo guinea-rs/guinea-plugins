@@ -1,5 +1,3 @@
-use guinea_core::scope::Reducer;
-
 #[derive(Debug, Clone)]
 pub struct Select(pub u64);
 
@@ -19,13 +17,10 @@ pub enum Changed {
     Picking(bool),
 }
 
-impl Reducer for NativeState {
-    type Update = Changed;
-
-    fn reduce(&mut self, changed: Changed) {
-        match changed {
-            Changed::Selected(handle) => self.selected = Some(handle),
-            Changed::Picking(on) => self.picking = on,
-        }
+#[guinea::reducer]
+fn reduce_nativestate(this: &mut NativeState, changed: Changed) {
+    match changed {
+        Changed::Selected(handle) => this.selected = Some(handle),
+        Changed::Picking(on) => this.picking = on,
     }
 }

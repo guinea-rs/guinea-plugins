@@ -7,8 +7,9 @@ busy with by tokio's own counters - and, through the native inspector, the UI
 tree and its frames.
 
 ```rust
-guinea::app::GuineaApp::new()
-    .plugin(guinea_plugin_devtools::DevToolsPlugin::new())
+use guinea_plugin_devtools::{DevToolsConfig, DevToolsPlugin};
+
+app.plugin::<DevToolsPlugin>(DevToolsConfig::new().for_app(meta))?;
 ```
 
 Devtools listen; the application connects, and keeps trying while devtools
@@ -30,3 +31,8 @@ otherwise: devtools can call the application's remote actions, and a build
 shipped to users should not listen for that because a line was left in.
 
 What goes over the wire is [`guinea-devtools-protocol`](../devtools-protocol).
+
+The plugin observes guinea 0.31 through the application's `Observed` handle.
+It rebuilds its view on reconnect and sends changes after the initial snapshot.
+The optional `profiling` feature serves explicit puffin instrumentation; guinea's
+old core puffin zones no longer exist. Native backend profiling remains separate.

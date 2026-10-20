@@ -1,11 +1,12 @@
 //! Keeps one copy of an application running per user.
 //!
 //! ```no_run
-//! # use guinea_plugin_single_instance::SingleInstancePlugin;
-//! guinea::app::GuineaApp::new()
-//!     .meta(guinea::app::AppMeta::new("app", "dev.example.app", "0.1.0", "example"))
-//!     .plugin(SingleInstancePlugin::new())
-//!     # ;
+//! use guinea_plugin_single_instance::{SingleInstanceConfig, SingleInstancePlugin};
+//! fn app(app: &mut guinea::app::FeatureBuilder) -> anyhow::Result<()> {
+//!     let meta = guinea::app::AppMeta::new("app", "dev.example.app", "0.1.0", "example");
+//!     app.plugin::<SingleInstancePlugin>(SingleInstanceConfig::new(&meta))?;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! The first copy holds a lock on a file named after the application's
@@ -28,7 +29,7 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use guinea::app::{AppMeta, Plugin, PluginBuilder};
+use guinea::app::{AppMeta, PluginBuilder};
 
 /// Holds the lock. The application is the running copy while this lives.
 pub struct Instance {
@@ -123,49 +124,44 @@ fn try_claim(path: &PathBuf) -> io::Result<Option<File>> {
 
 /// Stops the application when another copy of it is running.
 ///
-/// The identifier is the application's [`AppMeta`] one unless
-/// [`named`](Self::named) says otherwise.
-#[derive(Default)]
-pub struct SingleInstancePlugin {
-    identifier: Option<String>,
+/// Construct from [`AppMeta`] or use [`named`](Self::named) for an explicit identifier.
+pub struct SingleInstanceConfig {
+    identifier: String,
 }
 
-impl SingleInstancePlugin {
-    pub fn new() -> Self {
-        Self::default()
+impl SingleInstanceConfig {
+    pub fn new(meta: &AppMeta) -> Self {
+        Self {
+            identifier: meta.identifier.to_string(),
+        }
     }
 
     /// Locks under `identifier` rather than the application's own.
-    pub fn named(mut self, identifier: impl Into<String>) -> Self {
-        self.identifier = Some(identifier.into());
-        self
+    pub fn named(identifier: impl Into<String>) -> Self {
+        Self {
+            identifier: identifier.into(),
+        }
     }
 }
 
-impl Plugin for SingleInstancePlugin {
-    const ID: &'static str = "guinea.single-instance";
-    type Exports = ();
+guinea::plugin! { pub SingleInstancePlugin {} }
 
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        let identifier = match self.identifier {
-            Some(identifier) => identifier,
-            None => app
-                .try_require::<AppMeta>()
-                .map(|meta| meta.identifier.to_string())
-                .ok_or_else(|| anyhow::anyhow!("a single instance needs AppMeta or a name"))?,
-        };
+#[guinea::builds]
+fn single_instance(
+    app: &mut PluginBuilder,
+    config: SingleInstanceConfig,
+) -> anyhow::Result<SingleInstancePlugin> {
+    let identifier = config.identifier;
+    let Some(instance) = claim(&identifier)? else {
+        tracing::info!(%identifier, "another copy is already running");
+        return Err(guinea::app::Stop.into());
+    };
 
-        let Some(instance) = claim(&identifier)? else {
-            tracing::info!(%identifier, "another copy is already running");
-            return Err(guinea::app::Stop.into());
-        };
-
-        app.on_cleanup(move |_| {
-            drop(instance);
-            Ok(())
-        });
+    app.on_cleanup(move || {
+        drop(instance);
         Ok(())
-    }
+    });
+    Ok(SingleInstancePlugin)
 }
 
 #[cfg(test)]
@@ -187,36 +183,34 @@ mod tests {
         assert!(claim_at(path).expect("claim").is_some());
     }
 
-    struct Earlier(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    guinea::plugin! { Earlier {} }
 
-    impl Plugin for Earlier {
-        const ID: &'static str = "test.earlier";
-        type Exports = ();
-
-        fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-            app.on_cleanup(move |_| {
-                self.0.store(true, std::sync::atomic::Ordering::SeqCst);
-                Ok(())
-            });
+    #[guinea::builds]
+    fn earlier(
+        app: &mut PluginBuilder,
+        cleaned: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<Earlier> {
+        app.on_cleanup(move || {
+            cleaned.store(true, std::sync::atomic::Ordering::SeqCst);
             Ok(())
-        }
+        });
+        Ok(Earlier)
     }
 
     #[test]
     fn a_second_copy_stops_and_what_came_before_it_is_cleaned_up() {
         let identifier = format!("guinea-plugins.single-instance-test.{}", std::process::id());
         let first = claim(&identifier).expect("claim").expect("the first copy");
-
         let cleaned = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let installed = guinea::app::GuineaApp::new()
-            .plugin(Earlier(cleaned.clone()))
-            .plugin(SingleInstancePlugin::new().named(identifier.as_str()))
-            .install(guinea::core::actor::UiThreadToken::dangerously_create_token_unchecked());
-
-        let error = installed.err().expect("the second copy stops");
+        let result = (|| -> anyhow::Result<guinea::app::TestApp> {
+            let mut app = guinea::app::TestApp::new();
+            app.plugin::<Earlier>(cleaned.clone())?;
+            app.plugin::<SingleInstancePlugin>(SingleInstanceConfig::named(&identifier))?;
+            Ok(app)
+        })();
+        let error = result.err().expect("the second copy stops");
         assert!(error.is::<guinea::app::Stop>());
         assert!(cleaned.load(std::sync::atomic::Ordering::SeqCst));
-
         drop(first);
         let _ = std::fs::remove_file(path(&identifier).expect("a path"));
     }

@@ -1,6 +1,5 @@
 use std::sync::{Arc, RwLockReadGuard};
 
-use guinea_core::scope::Reducer;
 use guinea_devtools_hub::Hub;
 use guinea_devtools_model::sessions::Sessions;
 
@@ -44,15 +43,12 @@ impl std::fmt::Debug for Change {
     }
 }
 
-impl Reducer for Live {
-    type Update = Change;
-
-    fn reduce(&mut self, change: Change) {
-        match change {
-            Change::Started(hub) => self.hub = hub,
-            Change::Changed => {}
-        }
-
-        self.revision += 1;
+#[guinea::reducer]
+fn reduce_live(this: &mut Live, change: Change) {
+    match change {
+        Change::Started(hub) => this.hub = hub,
+        Change::Changed => {}
     }
+
+    this.revision += 1;
 }

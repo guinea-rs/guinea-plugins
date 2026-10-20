@@ -1,5 +1,6 @@
-use guinea_core::feature::Push;
-use guinea_macros::{actor, handler};
+use guinea::prelude::In;
+use guinea::prelude::Push;
+use guinea::{actor, handler};
 
 use super::contracts::{Open, PanelsState, Picked, Select};
 use super::settings::PanelsSettings;
@@ -23,13 +24,13 @@ actor! {
 }
 
 #[handler]
-fn open(this: &mut PanelsActor, Open(id): Open) {
+fn open(In(this, Open(id), _): In<PanelsActor, Open>) {
     this.settings.panel().set(id.clone());
     this.push.send(Picked::Panel(id));
 }
 
 #[handler]
-fn select(this: &mut PanelsActor, Select(path): Select) {
+fn select(In(this, Select(path), _): In<PanelsActor, Select>) {
     if let Some(section) = path.first() {
         this.settings.section().set(*section);
     }

@@ -1,106 +1,107 @@
 ![guinea-plugins](https://raw.githubusercontent.com/guinea-rs/guinea-plugins/master/assets/banners/guinea-plugins.png)
 
-Plugins for [guinea](https://github.com/guinea-rs/guinea) applications.
+Plugins for [guinea](https://github.com/guinea-rs/guinea) 0.31 applications.
 
-A plugin closes a need a typical desktop application has but that does not
-belong in the framework: persistence, localisation, single instance, an
-updater, a tray icon. It knows guinea; guinea does not know it.
-
-| Crate | What it does |
+| Crate | Purpose |
 |---|---|
-| [`guinea-plugin-store`](plugins/store) | Persistent key-value storage backed by [amethystate](https://crates.io/crates/amethystate), with migrations, and a store in memory when the file will not open |
-| [`guinea-plugin-l10n`](plugins/l10n) | The language the application shows, its Fluent strings as typed accessors, and the choice remembered |
-| [`guinea-plugin-l10n-build`](plugins/l10n-build) | The build-time half of l10n: turns `.ftl` files into those accessors |
-| [`guinea-plugin-single-instance`](plugins/single-instance) | Keeps one copy of an application running per user |
-| [`guinea-plugin-window-state`](plugins/window-state) | Remembers where the windows were, and opens them there again |
-| [`guinea-plugin-devtools`](plugins/devtools) | Lets [guinea devtools](tools/devtools) look inside the running application |
-| [`guinea-devtools-protocol`](plugins/devtools-protocol) | What an application and devtools say to each other, and where |
+| [guinea-plugin-store](plugins/store) | Persistent storage, migrations and optional in-memory fallback |
+| [guinea-plugin-l10n](plugins/l10n) | Typed localisation and an explicitly remembered language |
+| [guinea-plugin-l10n-build](plugins/l10n-build) | Fluent accessors generated in build.rs |
+| [guinea-plugin-single-instance](plugins/single-instance) | One running copy per application identifier and user |
+| [guinea-plugin-window-state](plugins/window-state) | Window geometry persisted by label |
+| [guinea-plugin-devtools](plugins/devtools) | Connection to devtools |
+| [guinea-devtools-protocol](plugins/devtools-protocol) | Messages shared by applications and devtools |
 
-Beside them:
+[guinea-widgets](widgets) contains tables, charts and drag handles.
+[guinea-devtools](tools/devtools) is the inspector application, HTTP API and MCP server.
 
-| Crate | What it is |
-|---|---|
-| [`guinea-widgets`](widgets) | Tables, charts and drag-resize handles: components, not a plugin |
-| [`guinea-devtools`](tools/devtools) | The devtools application: elements, the trace, a frame profiler, an HTTP API and MCP tools |
-
-## Usage
+## Application wiring
 
 ```rust
-use guinea_plugin_l10n::L10nPlugin;
-use guinea_plugin_store::StorePlugin;
-use guinea_plugin_window_state::WindowStatePlugin;
+use guinea::app::FeatureBuilder;
+use guinea_plugin_store::{StoreConfig, StorePlugin};
+use guinea_plugin_l10n::{L10nConfig, L10nPlugin};
 
-guinea::app::GuineaApp::new()
-    .plugin(StorePlugin::for_app("my-app", "settings"))
-    .plugin(L10nPlugin::<L10n>::new("en"))
-    .plugin(WindowStatePlugin::new())
+fn app(app: &mut FeatureBuilder) -> anyhow::Result<guinea::winui::Window> {
+    let StorePlugin(store, persistence) =
+        app.plugin::<StorePlugin>(StoreConfig::for_app("my-app", "settings").or_in_memory())?;
+    app.plugin::<L10nPlugin<L10n>>(L10nConfig::new("en").remembered_in(store.clone()))?;
+    app.provide(store);
+    if let Some(persistence) = persistence {
+        app.provide(persistence);
+    }
+    Ok(guinea::winui::Window::of::<Shell>().title("My app"))
+}
 ```
 
-Installation is idempotent and keyed by `Plugin::ID`, so a feature can install
-the plugins it depends on itself, and listing the same plugin twice is a no-op
-rather than a conflict.
+The application selects the instances and the order. Every call builds a new plugin.
+A returned service is not provided automatically: pass it in another plugin's
+configuration, or call `app.provide` so feature installation can inject it.
+Reducer exports, such as `Language<L10n>`, are published by the plugin declaration.
 
-Order matters only where one plugin reads what another provides - the l10n
-plugin above restores the saved language if a store is already installed, and
-runs without persistence if it is not; window-state needs the store.
+Configuration is separate from the installed value: `StoreConfig`, `L10nConfig`,
+`SingleInstanceConfig`, `WindowStateConfig` and `DevToolsConfig`.
+Plugin resources belong to the application scope; dropping a returned value does not
+uninstall them. Dropping the application tears down its resources and runs cleanup.
 
 ## Writing a plugin
 
 ```rust
-use guinea::app::{Plugin, PluginBuilder};
+use guinea::prelude::*;
 
-pub struct MyPlugin;
-
-impl Plugin for MyPlugin {
-    const ID: &'static str = "vendor.my-plugin";
-    type Exports = ();
-
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        let store = app.require::<guinea_plugin_store::Store>()?;
-        app.provide(MyService::new(store));
-        app.on_cleanup(|_| Ok(()));
-        Ok(())
+plugin! {
+    pub MyPlugin {
+        provides { MyService }
     }
+}
+
+#[builds]
+fn my_plugin(app: &mut PluginBuilder, config: MyConfig) -> anyhow::Result<MyPlugin> {
+    let service = MyService::open(config)?;
+    let closing = service.clone();
+    app.on_cleanup(move || closing.close());
+    Ok(MyPlugin(service))
 }
 ```
 
-`PluginBuilder` is deliberately narrow - services in and out (`provide` /
-`require`), actors (`spawn`), timers (`every` / `repeat`), global-bus
-subscriptions, and cleanups. Anything a plugin registers is tracked and torn
-down for it; subscription ids are never handed out, so an unsubscribe cannot
-be forgotten.
+Validate configuration before creating resources. A failed installation does not
+undo external side effects or release resources already registered in the application
+scope. Propagating the error out of the application's startup drops that scope.
 
-Test a plugin with `guinea`'s `test-utils` feature, which runs installation
-without a window:
+Test installation without a window using guinea's `test-utils` feature:
 
 ```rust
 let mut app = guinea::app::TestApp::new();
-app.install(MyPlugin).unwrap();
-assert!(app.shutdown().is_empty());
+let StorePlugin(store, _) = app.plugin::<StorePlugin>(StoreConfig::in_memory())?;
+drop(app);
 ```
 
-## Layout
+## Compatibility
 
-Each plugin is its own crate under `plugins/`. They share the workspace's
-version, which follows guinea's minor; the store follows amethystate's instead,
-since it re-exports it.
+Dependencies use guinea 0.31.1 or a compatible patch release. The WinUI stack is
+`windows-reactor-pre` 0.105.0 and `windows-canvas-pre` 0.105.0,
+with `windows-window-pre` 0.104.0.
+Consumers must use the same guinea and reactor types; depending on an older
+plugin tag alongside guinea 0.31 creates incompatible copies.
 
-guinea and the WinUI stack come from crates.io: `guinea` 0.26, and the
-windows-rs reactor and canvas guinea is written against as
-`windows-reactor-pre` and `windows-canvas-pre` 0.103, under their usual lib
-names. An application must take guinea and the `-pre` crates from the same
-source as the plugins, otherwise cargo builds two copies and the
-`PluginBuilder` a plugin expects is a different type from the one the
-application has.
-
-Working on a plugin and on guinea at the same time is a `[patch]` pointing at
-your guinea checkout:
+The store re-exports amethystate 0.28 and has its own package version, 0.28.0.
+The other workspace packages use version 0.31.0. Plugins are distributed by
+repository git tags, not through crates.io:
 
 ```toml
-[patch.crates-io]
-guinea = { path = "../guinea/crates/guinea" }
-guinea-core = { path = "../guinea/crates/guinea-core" }
-guinea-mark = { path = "../guinea/crates/guinea-mark" }
-windows-reactor-pre = { path = "../guinea/crates/vendor/windows-reactor-pre" }
-windows-canvas-pre = { path = "../guinea/crates/vendor/windows-canvas-pre" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.31.0" }
+```
+
+The older `v0.30.2` tag targets guinea 0.29 and must not be used for the API
+shown here. The devtools JSON protocol is 3.9; rebuild the inspector to display
+the source and actor trace points introduced with this migration.
+
+## Checks
+
+```sh
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --all-features --locked
+cargo test --manifest-path tools/devtools/Cargo.toml --workspace --locked
 ```

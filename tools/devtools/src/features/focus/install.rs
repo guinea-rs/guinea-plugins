@@ -1,5 +1,5 @@
-use guinea::feature::FeatureInitContext;
-use guinea_macros::{feature, installs};
+use guinea::feature::Install;
+use guinea::{feature, installs};
 
 use super::actor::FocusActor;
 use super::contracts::{Change, Focus};
@@ -11,7 +11,8 @@ feature! {
 }
 
 #[installs]
-fn focus(cx: &FeatureInitContext, app: &u64) -> anyhow::Result<FocusFeature> {
+fn focus(cx: &Install<u64>) -> anyhow::Result<FocusFeature> {
+    let app = cx.params();
     let seed = Focus {
         app: *app,
         ..Focus::default()

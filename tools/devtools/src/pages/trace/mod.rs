@@ -6,8 +6,8 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use guinea::eframe::{Page, PageCx};
-use guinea::feature::FeatureInitContext;
-use guinea_core::feature::Dispatch;
+use guinea::feature::Install;
+use guinea::prelude::Dispatch;
 use guinea_devtools_model::chains::Stream;
 use guinea_devtools_model::sessions::Session;
 use guinea_devtools_model::trace::{self, About, Consequence, Origins, Query, Record, Row, Shown};
@@ -32,12 +32,13 @@ use crate::theme;
 #[derive(Default)]
 pub struct Traces;
 
+#[guinea::eframe::page]
 impl Page for Traces {
-    type Params = crate::routes::TracesParams;
-    type Installs = TraceFeature;
+    type Params = ();
 
-    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(&())
+    fn install(cx: &Install) -> anyhow::Result<Self> {
+        cx.install::<TraceFeature>(&())?;
+        Ok(Self)
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {

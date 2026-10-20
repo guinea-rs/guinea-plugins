@@ -8,10 +8,10 @@ mod routes;
 mod theme;
 
 use clap::Parser;
-use guinea::app::GuineaApp;
+use guinea::eframe::Window;
 use guinea::eframe::run;
 use guinea_devtools_protocol::IDENTIFIER;
-use guinea_plugin_single_instance::SingleInstancePlugin;
+use guinea_plugin_single_instance::{SingleInstanceConfig, SingleInstancePlugin};
 use routes::Route;
 
 /// Looks inside running guinea applications.
@@ -52,19 +52,6 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let app = GuineaApp::new()
-        .meta(guinea::app::AppMeta::new(
-            "guinea devtools",
-            IDENTIFIER,
-            env!("CARGO_PKG_VERSION"),
-            "uniproc",
-        ))
-        .plugin(SingleInstancePlugin::new())
-        .plugin(
-            guinea_plugin_store::StorePlugin::for_app("guinea-devtools", "settings")
-                .backend(amethystate::store::builder::Backend::Json),
-        );
-
     let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/guinea.png"))?;
 
     let options = eframe::NativeOptions {
@@ -75,5 +62,24 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    run(app, "guinea devtools", options, |_| Route::Home {})
+    run(move |app| {
+        let meta = guinea::app::AppMeta::new(
+            "guinea devtools",
+            IDENTIFIER,
+            env!("CARGO_PKG_VERSION"),
+            "uniproc",
+        );
+        app.plugin::<SingleInstancePlugin>(SingleInstanceConfig::new(&meta))?;
+        let guinea_plugin_store::StorePlugin(store, _) = app
+            .plugin::<guinea_plugin_store::StorePlugin>(
+                guinea_plugin_store::StoreConfig::for_app("guinea-devtools", "settings")
+                    .backend(amethystate::store::builder::Backend::Json),
+            )?;
+        app.provide(store);
+        app.provide(meta);
+        Ok(Window::of::<layouts::shell::Shell>()
+            .title("guinea devtools")
+            .options(options)
+            .at(Route::Home {}))
+    })
 }

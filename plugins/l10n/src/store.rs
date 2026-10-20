@@ -1,5 +1,3 @@
-use guinea_core::scope::Reducer;
-
 /// The strings the application shows: claimed by [`crate::L10nPlugin`] for
 /// the application, and exported to every window.
 #[derive(Clone, Default, PartialEq)]
@@ -21,21 +19,18 @@ impl<S> std::fmt::Debug for Language<S> {
     }
 }
 
-impl<S: Clone + Default + 'static> Reducer for Language<S> {
-    type Update = S;
-
-    fn reduce(&mut self, next: S) {
-        self.0 = next;
-    }
+#[guinea::reducer]
+fn switched<S: Clone + Default + 'static>(this: &mut Language<S>, next: S) {
+    this.0 = next;
 }
 
 /// The language from a page or a layout of any backend that reads as it
 /// draws.
 ///
 /// The segment reaches the language when the application installs
-/// `L10nPlugin<S>`: `app! { App { installs { L10nPlugin<S> } } }`.
+/// `L10nPlugin<S>`: `app.plugin::<L10nPlugin<S>>(config)?`.
 /// `let strings: Strings = cx.l10n();`, or `cx.l10n::<Strings>()`.
-pub trait L10nAccess: guinea::feature::Reads {
+pub trait L10nAccess: guinea::mount::Reads {
     /// The strings the application shows; the segment is drawn again when
     /// they change.
     fn l10n<S: Localization + PartialEq>(&mut self) -> S {
@@ -50,11 +45,11 @@ pub trait L10nAccess: guinea::feature::Reads {
     }
 }
 
-impl<C: guinea::feature::Reads> L10nAccess for C {}
+impl<C: guinea::mount::Reads> L10nAccess for C {}
 
 /// Switches the language the application shows, by tag.
 #[derive(Clone)]
-pub struct LanguageSwitch(guinea_core::feature::Dispatch);
+pub struct LanguageSwitch(guinea::prelude::Dispatch);
 
 impl LanguageSwitch {
     /// A tag the application has no strings for leaves the language as it

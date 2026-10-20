@@ -16,4 +16,5 @@ tracing.workspace = true
 workspace = true
 
 [dev-dependencies]
+guinea = { workspace = true, features = ["test-utils"] }
 tempfile = "3.27.0"

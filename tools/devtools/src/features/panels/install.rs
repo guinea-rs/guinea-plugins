@@ -1,6 +1,6 @@
-use guinea::feature::FeatureInitContext;
-use guinea_macros::{feature, installs};
-use guinea_plugin_store::StoreAccess;
+use guinea::feature::Install;
+use guinea::{feature, installs};
+use guinea_plugin_store::{Store, StoreAccess};
 
 use super::actor::PanelsActor;
 use super::contracts::PanelsState;
@@ -13,8 +13,8 @@ feature! {
 }
 
 #[installs]
-fn panels(cx: &FeatureInitContext) -> anyhow::Result<PanelsFeature> {
-    let settings = cx.try_settings::<PanelsSettings>()?;
+fn panels(cx: &Install, store: Store) -> anyhow::Result<PanelsFeature> {
+    let settings = store.try_settings::<PanelsSettings>()?;
     let panel = settings.panel().get();
 
     let seed = PanelsState {

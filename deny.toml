@@ -5,7 +5,7 @@ all-features = true
 version = 2
 yanked = "deny"
 ignore = [
-    { id = "RUSTSEC-2025-0141", reason = "bincode 1 comes with puffin through guinea-core; no puffin release without it" },
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1 comes with the plugin's optional puffin profiling feature; no compatible puffin release without it" },
     { id = "RUSTSEC-2024-0436", reason = "paste is a proc macro of compio-driver, which devtools and ogurpchik run on" },
 ]
 

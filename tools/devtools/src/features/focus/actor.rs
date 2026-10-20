@@ -1,5 +1,6 @@
-use guinea_core::feature::Push;
-use guinea_macros::{actor, handler};
+use guinea::prelude::In;
+use guinea::prelude::Push;
+use guinea::{actor, handler};
 
 use super::contracts::{Change, Focus, Show};
 
@@ -21,6 +22,6 @@ actor! {
 }
 
 #[handler]
-fn show(this: &mut FocusActor, Show(target): Show) {
+fn show(In(this, Show(target), _): In<FocusActor, Show>) {
     this.push.send(Change::Show(target));
 }

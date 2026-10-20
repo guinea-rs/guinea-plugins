@@ -43,6 +43,7 @@ jobs:
       - name: devtools
         working-directory: tools/devtools
         run: |
+          cargo fmt --all --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo test --workspace --locked
 
@@ -68,5 +69,6 @@ jobs:
       - name: devtools
         working-directory: tools/devtools
         run: |
+          cargo fmt --all --check
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo test --workspace --locked

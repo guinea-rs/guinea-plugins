@@ -1,10 +1,11 @@
 //! Sends what the application is doing to guinea devtools.
 //!
 //! ```no_run
-//! # use guinea_plugin_devtools::DevToolsPlugin;
-//! guinea::app::GuineaApp::new()
-//!     .plugin(DevToolsPlugin::new())
-//!     # ;
+//! use guinea_plugin_devtools::{DevToolsConfig, DevToolsPlugin};
+//! fn app(app: &mut guinea::app::FeatureBuilder) -> anyhow::Result<()> {
+//!     app.plugin::<DevToolsPlugin>(DevToolsConfig::new())?;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! Devtools listen; the application connects, and keeps trying while devtools
@@ -19,7 +20,7 @@
 //! spend more on its debugger than on itself.
 //!
 //! In a release build the plugin does nothing unless
-//! [`in_release`](DevToolsPlugin::in_release) says otherwise: devtools can
+//! [`in_release`](DevToolsConfig::in_release) says otherwise: devtools can
 //! call the application's remote actions, and a build shipped to users should
 //! not listen for that because a line was left in.
 
@@ -32,32 +33,39 @@ mod profiler;
 mod runtime;
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use guinea::app::{AppMeta, Plugin, PluginBuilder};
+use guinea::app::{AppMeta, PluginBuilder};
 use guinea_devtools_protocol::{AppInfo, Capability};
 
-pub struct DevToolsPlugin {
+pub struct DevToolsConfig {
+    meta: Option<AppMeta>,
     wait_ms: u64,
     reread_ms: u64,
     launch: bool,
     in_release: bool,
 }
 
-impl Default for DevToolsPlugin {
+impl Default for DevToolsConfig {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DevToolsPlugin {
+impl DevToolsConfig {
     pub fn new() -> Self {
         Self {
+            meta: None,
             wait_ms: 50,
             reread_ms: 1000,
             launch: false,
             in_release: false,
         }
+    }
+
+    pub fn for_app(mut self, meta: AppMeta) -> Self {
+        self.meta = Some(meta);
+        self
     }
 
     /// Connects in a release build too. Off unless asked for.
@@ -89,64 +97,70 @@ impl DevToolsPlugin {
     }
 }
 
-impl Plugin for DevToolsPlugin {
-    const ID: &'static str = "guinea.devtools";
-    type Exports = ();
+guinea::plugin! { pub DevToolsPlugin {} }
 
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        if !cfg!(debug_assertions) && !self.in_release {
-            tracing::info!(
-                "devtools stay off in a release build; DevToolsPlugin::in_release turns them on"
-            );
-            return Ok(());
-        }
-
-        let info = app
-            .try_require::<AppMeta>()
-            .map(|meta| AppInfo {
-                name: meta.name.to_string(),
-                identifier: meta.identifier.to_string(),
-                version: meta.version.to_string(),
-                ..AppInfo::default()
-            })
-            .unwrap_or_default();
-        let info = Arc::new(Mutex::new(AppInfo {
-            pid: std::process::id(),
-            plugins: vec![Self::ID.to_string()],
-            capabilities: vec![
-                Capability::Snapshot,
-                Capability::Trace,
-                Capability::Profiler,
-                Capability::Act,
-            ],
-            trace_epoch_ms: guinea_core::trace::started_at()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |since| since.as_millis() as u64),
-            actions: guinea_core::remote::actions()
-                .iter()
-                .map(|name| name.to_string())
-                .collect(),
-            events: guinea_core::remote::events()
-                .iter()
-                .map(|name| name.to_string())
-                .collect(),
-            clock: Some(clock::anchor()),
-            ..info
-        }));
-
-        let outbox = link::spawn(info.clone(), self.launch);
-        live::start(
-            outbox,
-            info,
-            Instant::now(),
-            Duration::from_millis(self.wait_ms),
-            Duration::from_millis(self.reread_ms),
+#[guinea::builds]
+fn devtools(app: &mut PluginBuilder, config: DevToolsConfig) -> anyhow::Result<DevToolsPlugin> {
+    let observed = app.observed();
+    anyhow::ensure!(
+        !live::is_started(),
+        "devtools is already installed on this UI thread"
+    );
+    if !cfg!(debug_assertions) && !config.in_release {
+        tracing::info!(
+            "devtools stay off in a release build; DevToolsConfig::in_release turns them on"
         );
-
-        app.on_cleanup(|_| {
-            live::stop();
-            Ok(())
-        });
-        Ok(())
+        return Ok(DevToolsPlugin);
     }
+
+    let info = config
+        .meta
+        .map(|meta| AppInfo {
+            name: meta.name.to_string(),
+            identifier: meta.identifier.to_string(),
+            version: meta.version.to_string(),
+            ..AppInfo::default()
+        })
+        .unwrap_or_default();
+    let info = Arc::new(Mutex::new(AppInfo {
+        pid: std::process::id(),
+        plugins: vec![std::any::type_name::<DevToolsPlugin>().to_string()],
+        capabilities: {
+            let mut capabilities = vec![Capability::Snapshot, Capability::Trace, Capability::Act];
+            if cfg!(feature = "profiling") {
+                capabilities.push(Capability::Profiler);
+            }
+            capabilities
+        },
+        trace_epoch_ms: guinea::observability::trace::started_at()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_millis() as u64),
+        actions: observed
+            .actions()
+            .iter()
+            .map(|name| name.to_string())
+            .collect(),
+        events: observed
+            .events()
+            .iter()
+            .map(|name| name.to_string())
+            .collect(),
+        clock: Some(clock::anchor()),
+        ..info
+    }));
+
+    let outbox = link::spawn(info.clone(), config.launch);
+    live::start(
+        outbox,
+        info,
+        observed,
+        Duration::from_millis(config.wait_ms),
+        Duration::from_millis(config.reread_ms),
+    );
+
+    app.on_cleanup(|| {
+        live::stop();
+        Ok(())
+    });
+    Ok(DevToolsPlugin)
 }

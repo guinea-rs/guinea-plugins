@@ -1,4 +1,3 @@
-use guinea_core::scope::Reducer;
 use guinea_devtools_model::words::Target;
 
 #[derive(Debug, Clone)]
@@ -45,16 +44,13 @@ pub enum Change {
     Show(Target),
 }
 
-impl Reducer for Focus {
-    type Update = Change;
-
-    fn reduce(&mut self, change: Change) {
-        match change {
-            Change::App(app) => self.app = app,
-            Change::Show(target) => {
-                self.target = Some(target);
-                self.asked += 1;
-            }
+#[guinea::reducer]
+fn reduce_focus(this: &mut Focus, change: Change) {
+    match change {
+        Change::App(app) => this.app = app,
+        Change::Show(target) => {
+            this.target = Some(target);
+            this.asked += 1;
         }
     }
 }

@@ -1,5 +1,3 @@
-use guinea_core::scope::Reducer;
-
 #[derive(Debug, Clone)]
 pub struct Open(pub String);
 
@@ -19,19 +17,16 @@ pub enum Picked {
     Node(Vec<usize>),
 }
 
-impl Reducer for PanelsState {
-    type Update = Picked;
-
-    fn reduce(&mut self, picked: Picked) {
-        match picked {
-            Picked::Panel(id) => {
-                if self.panel.as_ref() != Some(&id) {
-                    self.node.clear();
-                }
-
-                self.panel = Some(id);
+#[guinea::reducer]
+fn reduce_panelsstate(this: &mut PanelsState, picked: Picked) {
+    match picked {
+        Picked::Panel(id) => {
+            if this.panel.as_ref() != Some(&id) {
+                this.node.clear();
             }
-            Picked::Node(path) => self.node = path,
+
+            this.panel = Some(id);
         }
+        Picked::Node(path) => this.node = path,
     }
 }

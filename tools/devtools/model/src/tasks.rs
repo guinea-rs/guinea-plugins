@@ -59,7 +59,9 @@ impl Tasks {
                         },
                     );
                 }
-                TracePoint::Settled { .. } | TracePoint::Cancelled { .. } => {
+                TracePoint::Settled { .. }
+                | TracePoint::Cancelled { .. }
+                | TracePoint::Superseded { .. } => {
                     if let Some(spawn) = span.parent {
                         self.running.remove(&spawn);
                     }

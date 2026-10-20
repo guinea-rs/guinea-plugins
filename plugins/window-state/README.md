@@ -4,13 +4,15 @@ Remembers where a guinea application's windows were, and opens them there
 again.
 
 ```rust
-guinea::app::GuineaApp::new()
-    .plugin(guinea_plugin_store::StorePlugin::for_app("app", "settings"))
-    .plugin(guinea_plugin_window_state::WindowStatePlugin::new())
+use guinea_plugin_store::{StoreConfig, StorePlugin};
+use guinea_plugin_window_state::{WindowStateConfig, WindowStatePlugin};
+
+let StorePlugin(store, _) = app.plugin::<StorePlugin>(StoreConfig::for_app("app", "settings"))?;
+let WindowStatePlugin(saved) = app.plugin::<WindowStatePlugin>(WindowStateConfig::new(store))?;
 ```
 
 It keeps the geometries in [`guinea-plugin-store`](../store), which has to be
-installed first.
+passed explicitly in WindowStateConfig.
 
 Two halves, going opposite ways. Writing is a subscription: the shell
 publishes `WindowChanged` whenever a window moves, and the plugin stores it.
@@ -25,3 +27,7 @@ remembered.
 The geometries live under `window` in the store, one entry per label;
 `.under("…")` picks another prefix for an application that already uses
 `window` for something of its own.
+
+Pass the returned `SavedGeometry` to the Slint window's `remembered_by(saved)`
+before running it. Returning the value does not register it as a service. In guinea
+0.31, WinUI does not consume this contract; this migration does not add that backend.

@@ -1,5 +1,6 @@
-use guinea_core::feature::Push;
-use guinea_macros::{actor, handler};
+use guinea::prelude::In;
+use guinea::prelude::Push;
+use guinea::{actor, handler};
 
 use super::contracts::{LastTab, Opened};
 use super::settings::TabSettings;
@@ -23,7 +24,7 @@ actor! {
 }
 
 #[handler]
-fn opened(this: &mut LastTabActor, Opened(title): Opened) {
+fn opened(In(this, Opened(title), _): In<LastTabActor, Opened>) {
     let title = title.to_string();
     this.settings.tab().set(title.clone());
     this.push.send(title);

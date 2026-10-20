@@ -1,4 +1,3 @@
-use guinea_core::scope::Reducer;
 use guinea_devtools_model::chains::Stream;
 use guinea_devtools_model::trace::{Class, Query};
 
@@ -56,15 +55,12 @@ pub enum Change {
     Stream(Stream),
 }
 
-impl Reducer for TraceState {
-    type Update = Change;
-
-    fn reduce(&mut self, change: Change) {
-        match change {
-            Change::Stream(stream) => self.stream = stream,
-            Change::Query(query) => self.query = query,
-            Change::Freeze(at) => self.frozen = at,
-            Change::Select(id) => self.selected = id,
-        }
+#[guinea::reducer]
+fn reduce_tracestate(this: &mut TraceState, change: Change) {
+    match change {
+        Change::Stream(stream) => this.stream = stream,
+        Change::Query(query) => this.query = query,
+        Change::Freeze(at) => this.frozen = at,
+        Change::Select(id) => this.selected = id,
     }
 }

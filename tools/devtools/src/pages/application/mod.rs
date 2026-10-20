@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use guinea::eframe::{Page, PageCx};
-use guinea::feature::FeatureInitContext;
+use guinea::feature::Install;
 use guinea_devtools_model::panels::{self, Entry, Line, Listed, Place};
 use guinea_devtools_protocol::Node;
 
@@ -32,12 +32,13 @@ pub struct Application {
     seen: Option<u64>,
 }
 
+#[guinea::eframe::page]
 impl Page for Application {
-    type Params = crate::routes::ApplicationParams;
-    type Installs = PanelsFeature;
+    type Params = ();
 
-    fn install(ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(&())
+    fn install(cx: &Install) -> anyhow::Result<Self> {
+        cx.install::<PanelsFeature>(&())?;
+        Ok(Self::default())
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {

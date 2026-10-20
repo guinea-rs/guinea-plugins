@@ -87,6 +87,8 @@ fn worked(span: &Span) -> Option<u64> {
         | TracePoint::Span { .. }
         | TracePoint::Settled { .. }
         | TracePoint::Cancelled { .. }
+        | TracePoint::Superseded { .. }
+        | TracePoint::Skipped { .. }
         | TracePoint::Closed { .. }
         | TracePoint::Pull { .. }
         | TracePoint::Unknown => None,
@@ -367,6 +369,7 @@ fn measured(point: &TracePoint) -> Option<u64> {
     match point {
         TracePoint::Settled { took_us, .. }
         | TracePoint::Cancelled { took_us, .. }
+        | TracePoint::Superseded { took_us, .. }
         | TracePoint::Closed { took_us, .. }
         | TracePoint::Render { took_us, .. } => Some(*took_us),
         _ => None,

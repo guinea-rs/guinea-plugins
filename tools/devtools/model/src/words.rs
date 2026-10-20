@@ -50,11 +50,14 @@ pub enum Kind {
     Log,
     Tick,
     Note,
+    Plugin,
+    Superseded,
+    Skipped,
 }
 
 impl Kind {
     /// Every kind, in the order a filter lists them.
-    pub const ALL: [Kind; 19] = [
+    pub const ALL: [Kind; 22] = [
         Kind::Action,
         Kind::Send,
         Kind::Handle,
@@ -74,6 +77,9 @@ impl Kind {
         Kind::Log,
         Kind::Tick,
         Kind::Note,
+        Kind::Plugin,
+        Kind::Superseded,
+        Kind::Skipped,
     ];
 
     pub fn of(point: &TracePoint) -> Kind {
@@ -97,6 +103,10 @@ impl Kind {
             TracePoint::Log { .. } => Kind::Log,
             TracePoint::Pull { .. } => Kind::Pull,
             TracePoint::Note { .. } | TracePoint::Unknown => Kind::Note,
+            TracePoint::Plugin { name, .. } if name.starts_with("store.") => Kind::Store,
+            TracePoint::Plugin { .. } => Kind::Plugin,
+            TracePoint::Superseded { .. } => Kind::Superseded,
+            TracePoint::Skipped { .. } => Kind::Skipped,
             TracePoint::Span { .. } => Kind::Span,
         }
     }
@@ -124,6 +134,9 @@ impl Kind {
             Kind::Log => "log",
             Kind::Tick => "tick",
             Kind::Note => "note",
+            Kind::Plugin => "plugin",
+            Kind::Superseded => "superseded",
+            Kind::Skipped => "skipped",
         }
     }
 }
@@ -438,7 +451,51 @@ pub fn sentence(point: &TracePoint, timers: &Timers) -> Vec<Word> {
 
             said
         }
-        TracePoint::Unknown => vec![text(point.describe())],
+        TracePoint::Plugin {
+            name: plugin,
+            fields,
+        } if plugin.starts_with("store.") => {
+            let field = |key: &str| {
+                fields
+                    .iter()
+                    .find(|(name, _)| name == key)
+                    .map(|(_, value)| value.as_str())
+            };
+            let path = field("path").unwrap_or_default();
+            let verb = match plugin.as_str() {
+                "store.set" => "sets",
+                "store.delete" => "deletes",
+                _ => "clears",
+            };
+            let who = if field("outside") == Some("true") {
+                "disk"
+            } else {
+                "store"
+            };
+            vec![
+                text(format!("{who} {verb} ")),
+                Word::link(path, name, Target::Key(path.into())),
+            ]
+        }
+        TracePoint::Superseded {
+            actor: owner,
+            output,
+            ..
+        } => vec![
+            actor(owner),
+            text(" replaced work for ".into()),
+            message(output),
+        ],
+        TracePoint::Skipped {
+            actor: owner,
+            output,
+            ..
+        } => vec![
+            actor(owner),
+            text(" skipped work for ".into()),
+            message(output),
+        ],
+        TracePoint::Plugin { .. } | TracePoint::Unknown => vec![text(point.describe())],
     }
 }
 
@@ -535,6 +592,21 @@ mod tests {
     }
 
     #[test]
+    fn store_plugin_points_keep_links_to_the_key() {
+        let point = TracePoint::Plugin {
+            name: "store.set".into(),
+            fields: vec![
+                ("path".into(), "app.theme".into()),
+                ("outside".into(), "false".into()),
+            ],
+        };
+        let words = sentence(&point, &Timers::default());
+        assert_eq!(text(&words), "store sets app.theme");
+        assert_eq!(words[1].link, Some(Target::Key("app.theme".into())));
+        assert_eq!(Kind::of(&point), Kind::Store);
+    }
+
+    #[test]
     fn a_source_is_opened_arrives_and_closes() {
         let timers = Timers::default();
         let (actor, output) = ("agent::Watcher<w::Win>", "events::Changed");
@@ -543,6 +615,8 @@ mod tests {
             actor: actor.into(),
             actor_id: 3,
             output: output.into(),
+            source: None,
+            declared: None,
         };
         assert_eq!(
             gist(&opened, &timers),
@@ -570,6 +644,7 @@ mod tests {
             output: output.into(),
             took_us: 5,
             gone,
+            source: None,
         };
         assert_eq!(
             text(&sentence(&closed(false), &timers)),

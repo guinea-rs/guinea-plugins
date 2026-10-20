@@ -9,7 +9,6 @@ repository.workspace = true
 
 [dependencies]
 guinea.workspace = true
-guinea-core.workspace = true
 guinea-devtools-protocol = { path = "../devtools-protocol" }
 guinea-plugin-single-instance = { path = "../single-instance" }
 ogurpchik = { git = "https://github.com/uniproc-dev/oguRPChik", tag = "v0.7.2" }
@@ -27,11 +26,11 @@ windows-link = "0.100.0"
 
 [features]
 default = []
-# The puffin profiler: zones around the same moments the trace marks, and a
-# server devtools can be told to start. Nothing runs until it is asked for.
+# Serves the application's explicit puffin instrumentation when requested.
+# This does not add guinea-core's former automatic profiling zones.
 # Off unless asked for: puffin's frame format brings bincode 1, which is
 # unmaintained.
-profiling = ["dep:puffin_http", "dep:puffin", "guinea-core/profiling"]
+profiling = ["dep:puffin_http", "dep:puffin"]
 
 [lints]
 workspace = true

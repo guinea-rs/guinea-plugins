@@ -9,7 +9,6 @@ repository.workspace = true
 
 [dependencies]
 guinea.workspace = true
-guinea-core.workspace = true
 guinea-plugin-store = { path = "../store", optional = true }
 anyhow.workspace = true
 tracing.workspace = true

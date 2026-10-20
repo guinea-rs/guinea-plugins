@@ -1,5 +1,3 @@
-use guinea_core::scope::Reducer;
-
 /// An editor source files can be opened in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Editor {
@@ -66,10 +64,7 @@ impl Default for EditorChoice {
     }
 }
 
-impl Reducer for EditorChoice {
-    type Update = Editor;
-
-    fn reduce(&mut self, editor: Editor) {
-        self.0 = editor;
-    }
+#[guinea::reducer]
+fn reduce_editorchoice(this: &mut EditorChoice, editor: Editor) {
+    this.0 = editor;
 }

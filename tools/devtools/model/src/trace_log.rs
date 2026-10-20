@@ -176,7 +176,9 @@ impl TraceLog {
                 !self.children(span.id).any(|child| {
                     matches!(
                         child.point,
-                        TracePoint::Settled { .. } | TracePoint::Cancelled { .. }
+                        TracePoint::Settled { .. }
+                            | TracePoint::Cancelled { .. }
+                            | TracePoint::Superseded { .. }
                     )
                 })
             })

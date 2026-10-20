@@ -10,22 +10,23 @@ publish = false
 [workspace]
 members = ["model", "api", "hub", "mcp", "xaml-tap"]
 
+[profile.dev]
+debug = 1
+
 [dependencies]
 guinea-devtools-model = { path = "model" }
 guinea-devtools-api = { path = "api" }
 guinea-devtools-hub = { path = "hub" }
-guinea = { version = "0.29.0", default-features = false, features = ["eframe"] }
-guinea-core = "0.29.0"
-guinea-macros = "0.29.0"
+guinea = { version = "0.31.1", default-features = false, features = ["eframe"] }
 guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
 guinea-plugin-store = { path = "../../plugins/store" }
 guinea-plugin-single-instance = { path = "../../plugins/single-instance" }
-amethystate = { version = "0.25.0", features = ["json"] }
+amethystate = { version = "0.28.0", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
 egui = "0.36"
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
-guicons = { git = "https://github.com/uniproc-dev/guicons", rev = "44b5d06", default-features = false, features = ["macros", "egui"] }
+guicons = { version = "0.14.1", default-features = false, features = ["macros", "egui"] }
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
 inventory = "0.3"

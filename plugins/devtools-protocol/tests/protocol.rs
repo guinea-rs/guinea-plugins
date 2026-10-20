@@ -4,6 +4,48 @@ use guinea_devtools_protocol::{
 use ogurpchik::auth::handshake::Version;
 
 #[test]
+fn new_trace_points_round_trip_and_old_sources_keep_reading() {
+    use guinea_devtools_protocol::TracePoint;
+    let points = [
+        TracePoint::Plugin {
+            name: "store.set".into(),
+            fields: vec![("path".into(), "theme".into())],
+        },
+        TracePoint::Superseded {
+            actor: "Worker".into(),
+            actor_id: 3,
+            output: "Result".into(),
+            took_us: 5,
+        },
+        TracePoint::Skipped {
+            actor: "Worker".into(),
+            actor_id: 3,
+            output: "Result".into(),
+        },
+        TracePoint::Source {
+            actor: "Worker".into(),
+            actor_id: 0,
+            output: "Item".into(),
+            source: Some(9),
+            declared: None,
+        },
+    ];
+    for point in points {
+        let encoded = serde_json::to_string(&point).unwrap();
+        assert_eq!(serde_json::from_str::<TracePoint>(&encoded).unwrap(), point);
+    }
+    let old = serde_json::json!({"kind":"source", "actor":"Worker", "actor_id":3, "output":"Item"});
+    assert!(matches!(
+        serde_json::from_value::<TracePoint>(old).unwrap(),
+        TracePoint::Source {
+            source: None,
+            declared: None,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn changes_go_to_devtools_new_enough_to_take_them() {
     let version = |minor| Version {
         major: 3,

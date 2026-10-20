@@ -1,6 +1,6 @@
-use guinea::feature::FeatureInitContext;
-use guinea_macros::{feature, installs};
-use guinea_plugin_store::StoreAccess;
+use guinea::feature::Install;
+use guinea::{feature, installs};
+use guinea_plugin_store::{Store, StoreAccess};
 
 use super::actor::EditorActor;
 use super::contracts::EditorChoice;
@@ -14,8 +14,8 @@ feature! {
 }
 
 #[installs]
-fn editor(cx: &FeatureInitContext) -> anyhow::Result<EditorFeature> {
-    let settings = cx.try_settings::<EditorSettings>()?;
+fn editor(cx: &Install, store: Store) -> anyhow::Result<EditorFeature> {
+    let settings = store.try_settings::<EditorSettings>()?;
     let seed = EditorChoice(detect::remembered(&settings.editor().get()));
 
     let (choice, _) = cx

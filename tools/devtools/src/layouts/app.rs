@@ -1,5 +1,5 @@
 use guinea::eframe::{Layout, LayoutCx};
-use guinea::feature::FeatureInitContext;
+use guinea::feature::Install;
 use guinea_devtools_model::sessions::{Listening, Session, Sessions};
 
 use crate::components;
@@ -36,12 +36,13 @@ fn tab(index: usize, app: u64) -> Route {
     }
 }
 
+#[guinea::eframe::layout]
 impl Layout for App {
     type Params = crate::routes::AppParams;
-    type Installs = FocusFeature;
 
-    fn install(ctx: &FeatureInitContext, params: &Self::Params) -> anyhow::Result<Self::Installs> {
-        ctx.install(&params.app)
+    fn install(cx: &Install<Self::Params>) -> anyhow::Result<Self> {
+        cx.install::<FocusFeature>(&cx.params().app)?;
+        Ok(Self)
     }
 
     fn render(&mut self, cx: &mut LayoutCx<'_, Self>) {
@@ -52,17 +53,23 @@ impl Layout for App {
         let nav = cx.navigate::<Route>();
 
         let current = [
-            cx.child_is::<Elements>(),
-            cx.child_is::<Traces>(),
-            cx.child_is::<Profiler>(),
-            cx.child_is::<Application>(),
+            matches!(nav.current(), Some(Route::Elements { .. })),
+            matches!(nav.current(), Some(Route::Traces { .. })),
+            matches!(nav.current(), Some(Route::Profiler { .. })),
+            matches!(nav.current(), Some(Route::Application { .. })),
         ];
         let open = current.iter().position(|on| *on).unwrap_or(0);
         if current[open] && last.0 != TABS[open] {
             remember.emit(Opened(TABS[open]));
         }
 
-        let page = cx.outlet();
+        let page = cx.outlet(&nav, |route, cx| match route {
+            Route::Elements { .. } => cx.mount::<Elements>(&()),
+            Route::Traces { .. } => cx.mount::<Traces>(&()),
+            Route::Profiler { .. } => cx.mount::<Profiler>(&()),
+            Route::Application { .. } => cx.mount::<Application>(&()),
+            Route::Home {} => cx.mount::<crate::pages::home::Home>(&()),
+        });
         let ui = cx.ui();
 
         let (known, mut go) = {

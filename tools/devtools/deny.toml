@@ -6,6 +6,9 @@ version = 2
 yanked = "deny"
 ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste is a proc macro of compio-driver, which the hub and ogurpchik run on" },
+    { id = "RUSTSEC-2026-0370", reason = "Temporary maintenance-risk exception for zvariant 5.15 via egui 0.36/accesskit/atspi and zbus 5; no patched standalone release exists. Replacing it requires upstream migration to zbus 6, not a lock-only update. Keep Linux accessibility enabled; review by 2026-11-20 or when that upstream stack migrates (https://github.com/z-galaxy/zbus/issues/2043). Vulnerability advisories remain enforced." },
+    { id = "RUSTSEC-2026-0371", reason = "Temporary maintenance-risk exception for zbus_names 4.3.4 via egui 0.36/accesskit/atspi and zbus 5; no patched standalone release exists. Replacing it requires upstream migration to zbus 6, not a lock-only update. Keep Linux accessibility enabled; review by 2026-11-20 or when that upstream stack migrates (https://github.com/z-galaxy/zbus/issues/2043). Vulnerability advisories remain enforced." },
+    { id = "RUSTSEC-2026-0372", reason = "Temporary maintenance-risk exception for zvariant_derive 5.15 via zvariant 5.15 in the egui 0.36/accesskit/atspi stack; no patched standalone release exists. Its macros move into zbus 6, requiring upstream migration. Review by 2026-11-20 or when that upstream stack migrates (https://github.com/z-galaxy/zbus/issues/2043). Vulnerability advisories remain enforced." },
 ]
 
 [bans]

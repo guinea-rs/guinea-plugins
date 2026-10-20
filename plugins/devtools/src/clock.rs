@@ -4,13 +4,13 @@ use guinea_devtools_protocol::ClockAnchor;
 
 /// Reads every clock now, on the calling thread.
 pub fn anchor() -> ClockAnchor {
-    let trace_before = guinea_core::trace::now();
+    let trace_before = guinea::observability::trace::now();
     let qpc = os::qpc();
     #[cfg(feature = "profiling")]
     let puffin_ns = Some(puffin::now_ns());
     #[cfg(not(feature = "profiling"))]
     let puffin_ns = None;
-    let trace_after = guinea_core::trace::now();
+    let trace_after = guinea::observability::trace::now();
 
     ClockAnchor {
         qpc,
@@ -87,10 +87,10 @@ mod tests {
 
     #[test]
     fn every_clock_is_read_at_one_moment() {
-        guinea_core::trace::now();
+        guinea::observability::trace::now();
         std::thread::sleep(Duration::from_millis(2));
 
-        let trace_before = micros(guinea_core::trace::now());
+        let trace_before = micros(guinea::observability::trace::now());
         #[cfg(windows)]
         let qpc_before = os::qpc();
         #[cfg(feature = "profiling")]
@@ -102,7 +102,7 @@ mod tests {
         let puffin_after = puffin::now_ns();
         #[cfg(windows)]
         let qpc_after = os::qpc();
-        let trace_after = micros(guinea_core::trace::now());
+        let trace_after = micros(guinea::observability::trace::now());
 
         assert!(
             (trace_before..=trace_after).contains(&anchor.trace_us),

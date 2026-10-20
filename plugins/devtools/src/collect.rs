@@ -1,22 +1,16 @@
-//! Reading the application, on the UI thread.
-
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::time::Instant;
-
-use guinea::observability::snapshot::{self, RouterView, app_actors, installed_plugins};
-use guinea::timers::{TimerInfo, running};
-use guinea_core::actor::event_bus::{GlobalEventBus, HeardBy as Heard, Listening};
-use guinea_core::actor::registry::ActorSnapshot;
-use guinea_core::actor::shape;
-use guinea_core::trace::{self, Bus, Cause, Point, Trace};
+use guinea::actor::event_bus::HeardBy as Heard;
+use guinea::actor::shape;
+use guinea::actor::snapshot::ActorSnapshot;
+use guinea::observability::trace::{Cause, Point, Trace};
+use guinea::observability::{Event, Observed, ScopeId};
 use guinea_devtools_protocol::{
     Actor, BusKind, BusListener, BusSubscription, Channel, Declared, End, Flow, Handled, HeardBy,
-    Installed, Listener, Node, Panel, ReducerState, Root, Segment, Snapshot, Span, StoreOp, Timer,
+    Installed, Listener, Node, Panel, ReducerState, Root, Segment, Snapshot, Span, Timer,
     TraceBatch, TracePoint,
 };
-
-/// How many records wait for the next batch before new ones are dropped.
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
+use std::time::Instant;
 const PENDING: usize = 16_384;
 
 #[derive(Default)]
@@ -28,20 +22,6 @@ pub struct Traces {
 }
 
 impl Traces {
-    /// A record made on the UI thread.
-    pub fn push(&mut self, record: &Trace) {
-        self.push_on(0, record);
-    }
-
-    /// Takes in what the threads that nobody observes recorded meanwhile.
-    pub fn take_elsewhere(&mut self) {
-        let elsewhere = trace::take_elsewhere();
-        self.dropped += elsewhere.dropped;
-        for (thread, record) in &elsewhere.records {
-            self.push_on(*thread, record);
-        }
-    }
-
     /// Counts `records` that were made and will never reach devtools.
     pub fn lose(&mut self, records: u64) {
         self.dropped += records;
@@ -52,7 +32,7 @@ impl Traces {
         self.spans.is_empty() && self.ends.is_empty() && self.dropped == 0
     }
 
-    fn push_on(&mut self, thread: u32, record: &Trace) {
+    pub fn push_on(&mut self, thread: u32, record: &Trace) {
         match record {
             Trace::Begin(record) | Trace::Mark(record) => {
                 if self.spans.len() >= PENDING {
@@ -89,13 +69,6 @@ impl Traces {
             ends: std::mem::take(&mut self.ends),
             dropped: std::mem::take(&mut self.dropped),
         }
-    }
-}
-
-fn bus(bus: Bus) -> BusKind {
-    match bus {
-        Bus::Global => BusKind::Global,
-        Bus::Window => BusKind::Window,
     }
 }
 
@@ -144,61 +117,54 @@ fn point(point: &Point) -> TracePoint {
             took_us: *took_us,
         },
         Point::Source {
-            actor,
-            actor_id,
-            output,
-        } => TracePoint::Source {
-            actor: actor.to_string(),
-            actor_id: *actor_id,
-            output: output.to_string(),
-        },
-        Point::Arrived {
-            actor,
-            actor_id,
+            to,
             output,
             source,
+            file,
+            line,
+        } => TracePoint::Source {
+            actor: to.to_string(),
+            actor_id: 0,
+            output: output.to_string(),
+            source: Some(*source),
+            declared: Some(written(file, *line)),
+        },
+        Point::Arrived {
+            to, output, source, ..
         } => TracePoint::Arrived {
-            actor: actor.to_string(),
-            actor_id: *actor_id,
+            actor: to.to_string(),
+            actor_id: 0,
             output: output.to_string(),
             source: *source,
         },
-        Point::Pull {
-            actor,
-            actor_id,
-            output,
-            source,
-        } => TracePoint::Pull {
-            actor: actor.to_string(),
-            actor_id: *actor_id,
+        Point::Pull { to, output, source } => TracePoint::Pull {
+            actor: to.to_string(),
+            actor_id: 0,
             output: output.to_string(),
             source: *source,
         },
         Point::Closed {
-            actor,
-            actor_id,
+            to,
             output,
             took_us,
             gone,
+            source,
         } => TracePoint::Closed {
-            actor: actor.to_string(),
-            actor_id: *actor_id,
+            actor: to.to_string(),
+            actor_id: 0,
             output: output.to_string(),
             took_us: *took_us,
             gone: *gone,
+            source: Some(*source),
         },
-        Point::Publish {
-            event,
-            bus: kind,
-            subscribers,
-        } => TracePoint::Publish {
+        Point::Publish { event, subscribers } => TracePoint::Publish {
             event: event.to_string(),
-            bus: bus(*kind),
+            bus: BusKind::Global,
             subscribers: *subscribers,
         },
-        Point::Deliver { event, bus: kind } => TracePoint::Deliver {
+        Point::Deliver { event } => TracePoint::Deliver {
             event: event.to_string(),
-            bus: bus(*kind),
+            bus: BusKind::Global,
         },
         Point::Push { reducer } => TracePoint::Push {
             reducer: reducer.to_string(),
@@ -207,30 +173,32 @@ fn point(point: &Point) -> TracePoint {
             root: root.clone(),
             to: to.clone(),
         },
-        Point::Tick {
-            timer,
-            name,
-            file,
-            line,
-        } => TracePoint::Tick {
-            timer: Some(*timer),
-            name: name.map(str::to_string),
-            declared: Some(written(file, *line)),
+        Point::Plugin { kind, fields } => TracePoint::Plugin {
+            name: kind.to_string(),
+            fields: fields
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.clone()))
+                .collect(),
         },
-        Point::Store {
-            op,
-            path,
-            field,
-            outside,
-        } => TracePoint::Store {
-            op: match op {
-                trace::StoreOp::Set => StoreOp::Set,
-                trace::StoreOp::Delete => StoreOp::Delete,
-                trace::StoreOp::DeletePrefix => StoreOp::DeletePrefix,
-            },
-            path: path.clone(),
-            field: field.clone(),
-            outside: *outside,
+        Point::Superseded {
+            actor,
+            actor_id,
+            output,
+            took_us,
+        } => TracePoint::Superseded {
+            actor: actor.to_string(),
+            actor_id: *actor_id,
+            output: output.to_string(),
+            took_us: *took_us,
+        },
+        Point::Skipped {
+            actor,
+            actor_id,
+            output,
+        } => TracePoint::Skipped {
+            actor: actor.to_string(),
+            actor_id: *actor_id,
+            output: output.to_string(),
         },
         Point::Render { segment, took_us } => TracePoint::Render {
             segment: segment.to_string(),
@@ -264,36 +232,20 @@ fn point(point: &Point) -> TracePoint {
             declared: file.zip(*line).map(|(file, line)| written(file, line)),
             level: level.to_string(),
         },
-        Point::Note(text) => TracePoint::Note { text: text.clone() },
-        unknown => TracePoint::Note {
-            text: unknown.to_string(),
-        },
     }
 }
-
-pub fn since(started: Instant) -> u64 {
-    started.elapsed().as_millis() as u64
-}
-
-pub struct Collected {
-    pub report: Snapshot,
-    pub backend: Option<&'static str>,
-    pub plugins: Vec<&'static str>,
-    /// Each window's segments, outermost first, as their scopes' keys.
-    pub segments: Vec<(u64, Vec<usize>)>,
-}
-
-/// Where a scope sits: its key, its window, how deep in the chain.
-pub type Scopes = [(usize, u64, usize)];
-
-pub fn actor(snapshot: &ActorSnapshot, root: Option<u64>, segments: &[usize]) -> Actor {
+pub fn actor(
+    snapshot: &guinea::actor::snapshot::ActorSnapshot,
+    root: Option<u64>,
+    segments: &[ScopeId],
+) -> Actor {
     note_crate(snapshot);
     let shape = snapshot.shape;
     let owner = snapshot.owner;
     Actor {
         id: snapshot.id as u64,
         type_name: snapshot.type_name.to_string(),
-        state: snapshot.state.clone(),
+        state: snapshot.state.preview.clone(),
         root,
         segment: owner
             .scope
@@ -355,95 +307,11 @@ fn flow(edge: &shape::Edge) -> Flow {
     Flow {
         channel: match edge.channel {
             shape::Channel::Send => Channel::Send,
-            shape::Channel::Bg => Channel::Bg,
-            shape::Channel::Emit => Channel::Emit,
-            shape::Channel::Ask => Channel::Ask,
+            shape::Channel::Task => Channel::Bg,
         },
         target: (edge.target)().to_string(),
         looping: edge.looping,
     }
-}
-
-pub fn snapshot(started: Instant) -> Collected {
-    let routers = snapshot::routers();
-    let backend = routers.first().map(|router| router.backend);
-
-    let app = app_actors();
-    let mut actors: Vec<Actor> = app
-        .iter()
-        .map(|snapshot| actor(snapshot, None, &[]))
-        .collect();
-    let mut chains: Vec<(u64, Vec<usize>)> = Vec::new();
-
-    let roots = routers
-        .into_iter()
-        .map(|router| {
-            let id = router.root.get();
-            let segments = segments(&router);
-            for snapshot in &router.actors {
-                actors.push(actor(snapshot, Some(id), &segments));
-            }
-            chains.push((id, segments));
-
-            root(router)
-        })
-        .collect();
-
-    Collected {
-        report: Snapshot {
-            at: since(started),
-            roots,
-            actors,
-            panels: app_panels(),
-            global_bus: global_bus(),
-            timers: timers(&scopes(chains.iter().map(|(root, keys)| (root, keys)))),
-        },
-        backend,
-        plugins: installed_plugins(),
-        segments: chains,
-    }
-}
-
-/// A window's segments, outermost first, as their scopes' keys.
-pub fn segments(router: &RouterView) -> Vec<usize> {
-    router
-        .segments
-        .iter()
-        .map(|segment| segment.scope)
-        .collect()
-}
-
-/// Every scope of every window's chain.
-pub fn scopes<'a>(
-    chains: impl IntoIterator<Item = (&'a u64, &'a Vec<usize>)>,
-) -> Vec<(usize, u64, usize)> {
-    chains
-        .into_iter()
-        .flat_map(|(root, keys)| {
-            keys.iter()
-                .enumerate()
-                .map(|(depth, key)| (*key, *root, depth))
-        })
-        .collect()
-}
-
-pub fn timers(scopes: &Scopes) -> Vec<Timer> {
-    let crate_dirs = CRATE_DIRS.with_borrow(Clone::clone);
-    running()
-        .into_iter()
-        .map(|info| timer(info, scopes, &crate_dirs))
-        .collect()
-}
-
-pub fn app_panels() -> Vec<Panel> {
-    guinea_core::observability::panels::for_app()
-        .into_iter()
-        .map(panel)
-        .collect()
-}
-
-pub fn global_bus() -> Vec<BusSubscription> {
-    heard(&GlobalEventBus::bus().listeners())
 }
 
 thread_local! {
@@ -498,120 +366,6 @@ fn written(file: &'static str, line: u32) -> Declared {
     }
 }
 
-fn timer(info: TimerInfo, scopes: &Scopes, crate_dirs: &[&'static str]) -> Timer {
-    let owner = info
-        .scope
-        .and_then(|scope| scopes.iter().find(|(key, _, _)| *key == scope));
-
-    let at = |crate_dir| shape::Declared {
-        file: info.place.file(),
-        line: info.place.line(),
-        column: info.place.column(),
-        crate_dir,
-    };
-    let declared = crate_dirs
-        .iter()
-        .map(|dir| at(dir))
-        .find(|declared| declared.path().is_some())
-        .unwrap_or_else(|| at(""));
-
-    Timer {
-        id: info.id,
-        name: info.name.map(str::to_string),
-        declared: Some(place(declared)),
-        feature: info.feature.map(feature_name),
-        period_ms: info.period.as_millis() as u64,
-        root: owner.map(|(_, root, _)| *root),
-        segment: owner.map(|(_, _, depth)| *depth),
-    }
-}
-
-pub fn root(router: RouterView) -> Root {
-    Root {
-        id: router.root.get(),
-        label: router.label,
-        route: router.route,
-        chain: router
-            .segments
-            .into_iter()
-            .map(|segment| Segment {
-                name: segment.name.to_string(),
-                params: String::new(),
-                reducers: segment
-                    .states
-                    .into_iter()
-                    .map(|state| ReducerState {
-                        type_name: short(state.type_name),
-                        state: Some(state.state),
-                        feature: state.feature.map(feature_name),
-                        declared: state.declared.map(place),
-                    })
-                    .collect(),
-                features: segment
-                    .features
-                    .into_iter()
-                    .map(|feature| Installed {
-                        name: feature_name(feature.name),
-                        declared: feature.declared.map(place),
-                    })
-                    .collect(),
-                listeners: segment
-                    .listeners
-                    .into_iter()
-                    .map(|listener| Listener {
-                        event: listener.event.to_string(),
-                        actor: listener.actor.map(str::to_string),
-                        bus: bus(listener.bus),
-                        feature: listener.feature.map(feature_name),
-                    })
-                    .collect(),
-                declared: segment.declared.map(place),
-                written: segment.written.map(place),
-            })
-            .collect(),
-        back: router.back,
-        forward: router.forward,
-        pending: router.pending,
-        panels: router.panels.into_iter().map(panel).collect(),
-        bus: heard(&router.bus),
-    }
-}
-
-/// Every event on a bus with who hears it, as [`EventBus::listeners`] lists
-/// them.
-///
-/// [`EventBus::listeners`]: guinea_core::actor::event_bus::EventBus::listeners
-fn heard(listed: &[Listening]) -> Vec<BusSubscription> {
-    listed
-        .iter()
-        .map(|listening| BusSubscription {
-            event: listening.event.to_string(),
-            subscribers: listening.listeners.len(),
-            listeners: listening
-                .listeners
-                .iter()
-                .map(|listener| BusListener {
-                    by: match &listener.by {
-                        Heard::Actor { name, id } => HeardBy::Actor {
-                            name: name.to_string(),
-                            id: *id as u64,
-                        },
-                        Heard::Callback(at) => HeardBy::Callback {
-                            declared: Declared {
-                                column: at.column(),
-                                ..written(at.file(), at.line())
-                            },
-                        },
-                        _ => HeardBy::Unknown,
-                    },
-                    answers: listener.answers,
-                    asleep: listener.asleep,
-                })
-                .collect(),
-        })
-        .collect()
-}
-
 /// A feature's type without its path: `ProcessesFeature`.
 fn feature_name(name: &str) -> String {
     let generic = name.find('<').unwrap_or(name.len());
@@ -619,7 +373,7 @@ fn feature_name(name: &str) -> String {
     name[start..].to_string()
 }
 
-fn panel(panel: guinea_core::observability::panels::Panel) -> Panel {
+fn panel(panel: guinea::observability::panels::Panel) -> Panel {
     Panel {
         id: panel.id.to_string(),
         title: panel.title.to_string(),
@@ -627,7 +381,7 @@ fn panel(panel: guinea_core::observability::panels::Panel) -> Panel {
     }
 }
 
-fn node(node: guinea_core::observability::panels::PanelNode) -> Node {
+fn node(node: guinea::observability::panels::PanelNode) -> Node {
     Node {
         label: node.label,
         kind: node.kind,
@@ -649,235 +403,488 @@ fn short(name: &str) -> String {
     format!("{kept}{rest}")
 }
 
+#[derive(Default)]
+pub struct Tree {
+    scopes: BTreeMap<u64, ScopeEntry>,
+    roots: BTreeMap<u64, ScopeId>,
+    labels: HashMap<u64, String>,
+    actors: BTreeMap<usize, Option<ScopeId>>,
+    sources: BTreeMap<u64, guinea::sources::SourceInfo>,
+    states_moved: BTreeMap<u64, Vec<&'static str>>,
+    subscriptions: BTreeMap<u64, (&'static str, Heard, bool)>,
+    pub plugins: Vec<String>,
+    pub backend: String,
+}
+
+struct ScopeEntry {
+    id: ScopeId,
+    parent: Option<ScopeId>,
+    segment: Segment,
+    navigation: Option<guinea::observability::Navigation>,
+    awake: bool,
+}
+
+impl Tree {
+    pub fn apply(&mut self, event: Event) {
+        match event {
+            Event::ScopeOpened { scope, parent } => {
+                self.scopes.insert(
+                    scope.get(),
+                    ScopeEntry {
+                        id: scope,
+                        parent,
+                        segment: Segment::default(),
+                        navigation: None,
+                        awake: true,
+                    },
+                );
+            }
+            Event::ScopeClosed { scope } => {
+                self.scopes.remove(&scope.get());
+            }
+            Event::Slept { scope } | Event::Woke { scope } => {
+                if let Some(entry) = self.scopes.get_mut(&scope.get()) {
+                    entry.awake = matches!(event, Event::Woke { .. });
+                }
+            }
+            Event::Installed {
+                scope,
+                name,
+                declared,
+            } => {
+                if let Some(entry) = self.scopes.get_mut(&scope.get()) {
+                    entry.segment.features.push(Installed {
+                        name: feature_name(name),
+                        declared: declared.map(place),
+                    });
+                }
+            }
+            Event::Withdrawn { scope, name } => {
+                if let Some(entry) = self.scopes.get_mut(&scope.get()) {
+                    entry
+                        .segment
+                        .features
+                        .retain(|feature| feature.name != feature_name(name));
+                }
+            }
+            Event::Mounted {
+                scope,
+                name,
+                written,
+            } => {
+                if let Some(entry) = self.scopes.get_mut(&scope.get()) {
+                    entry.segment.name = name.to_string();
+                    entry.segment.written = written.map(place);
+                }
+            }
+            Event::Listened { scope, listener } => {
+                if let Some(entry) = self.scopes.get_mut(&scope.get()) {
+                    entry.segment.listeners.push(Listener {
+                        event: listener.event.into(),
+                        actor: listener.actor.map(str::to_string),
+                        bus: BusKind::Global,
+                        feature: listener.feature.map(feature_name),
+                    });
+                }
+            }
+            Event::StateMoved { scope, reducer } => {
+                let moved = self.states_moved.entry(scope.get()).or_default();
+                if !moved.contains(&reducer) {
+                    moved.push(reducer);
+                }
+            }
+            Event::ActorAdded { id, owner, .. } => {
+                self.actors.insert(id, owner.scope);
+            }
+            Event::ActorRemoved { id } => {
+                self.actors.remove(&id);
+            }
+            Event::SourceOpened(info) => {
+                self.sources.insert(info.id, info);
+            }
+            Event::SourceNamed { id, name } => {
+                if let Some(source) = self.sources.get_mut(&id) {
+                    source.name = Some(name);
+                }
+            }
+            Event::SourceClosed { id } => {
+                self.sources.remove(&id);
+            }
+            Event::Subscribed {
+                seq,
+                event,
+                by,
+                answers,
+            } => {
+                self.subscriptions.insert(seq, (event, by, answers));
+            }
+            Event::Unsubscribed { seq } => {
+                self.subscriptions.remove(&seq);
+            }
+            Event::Plugin { name } => {
+                self.plugins.push(name.to_string());
+            }
+            Event::Backend { name } => {
+                self.backend = name.to_string();
+            }
+            Event::RootOpened { root, scope } => {
+                self.roots.insert(root, scope);
+            }
+            Event::RootClosed { root } => {
+                self.roots.remove(&root);
+                self.labels.remove(&root);
+            }
+            Event::Labelled { root, label } => {
+                self.labels.insert(root, label);
+            }
+            Event::Navigated { scope, navigation } => {
+                if let Some(entry) = self.scopes.get_mut(&scope.get()) {
+                    entry.navigation = Some(navigation);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn under(&self, scope: ScopeId, ancestor: ScopeId) -> bool {
+        let mut cursor = Some(scope);
+        while let Some(id) = cursor {
+            if id == ancestor {
+                return true;
+            }
+            cursor = self.scopes.get(&id.get()).and_then(|entry| entry.parent);
+        }
+        false
+    }
+
+    fn location(&self, scope: ScopeId) -> (Option<u64>, Vec<ScopeId>) {
+        for (&root, &ancestor) in &self.roots {
+            if self.under(scope, ancestor) {
+                let scopes = self
+                    .scopes
+                    .values()
+                    .filter(|entry| self.under(entry.id, ancestor))
+                    .map(|entry| entry.id)
+                    .collect();
+                return (Some(root), scopes);
+            }
+        }
+        (None, Vec::new())
+    }
+
+    fn panels(&self, observed: Observed) -> Vec<Panel> {
+        fn branch(tree: &Tree, entry: &ScopeEntry) -> Node {
+            let mut children: Vec<Node> = entry
+                .segment
+                .reducers
+                .iter()
+                .map(|state| Node {
+                    label: state.type_name.clone(),
+                    kind: "state".into(),
+                    properties: vec![("value".into(), state.state.clone().unwrap_or_default())],
+                    children: Vec::new(),
+                })
+                .collect();
+            children.extend(entry.segment.features.iter().map(|feature| Node {
+                label: feature.name.clone(),
+                kind: "feature".into(),
+                ..Node::default()
+            }));
+            children.extend(
+                tree.scopes
+                    .values()
+                    .filter(|child| child.parent == Some(entry.id))
+                    .map(|child| branch(tree, child)),
+            );
+            let mut properties = vec![
+                ("scope".into(), entry.id.get().to_string()),
+                ("awake".into(), entry.awake.to_string()),
+            ];
+            if let Some(nav) = &entry.navigation {
+                properties.extend([
+                    ("routes".into(), nav.routes.into()),
+                    ("route".into(), nav.route.clone()),
+                    ("failure".into(), nav.failure.clone().unwrap_or_default()),
+                ]);
+            }
+            Node {
+                label: if entry.segment.name.is_empty() {
+                    format!("scope #{}", entry.id.get())
+                } else {
+                    entry.segment.name.clone()
+                },
+                kind: "scope".into(),
+                properties,
+                children,
+            }
+        }
+        let mut panels: Vec<Panel> = observed.panels(None).into_iter().map(panel).collect();
+        panels.push(Panel {
+            id: "guinea.scopes".into(),
+            title: "Scopes".into(),
+            nodes: self
+                .scopes
+                .values()
+                .filter(|entry| entry.parent.is_none())
+                .map(|entry| branch(self, entry))
+                .collect(),
+        });
+        panels
+    }
+
+    pub fn snapshot(&mut self, observed: Observed, started: Instant) -> Snapshot {
+        for (scope, reducers) in std::mem::take(&mut self.states_moved) {
+            let Some(entry) = self.scopes.get_mut(&scope) else {
+                continue;
+            };
+            for reducer in reducers {
+                let Some(state) = observed.state(entry.id, reducer) else {
+                    continue;
+                };
+                let state = ReducerState {
+                    type_name: short(state.type_name),
+                    state: Some(state.state.preview),
+                    feature: state.feature.map(feature_name),
+                    declared: state.declared.map(place),
+                };
+                if let Some(known) = entry
+                    .segment
+                    .reducers
+                    .iter_mut()
+                    .find(|known| known.type_name == state.type_name)
+                {
+                    *known = state;
+                } else {
+                    entry.segment.reducers.push(state);
+                }
+            }
+        }
+        let roots = self
+            .roots
+            .iter()
+            .map(|(&root, &scope)| {
+                let entries: Vec<_> = self
+                    .scopes
+                    .values()
+                    .filter(|entry| self.under(entry.id, scope))
+                    .collect();
+                let navigation = entries.iter().find_map(|entry| entry.navigation.as_ref());
+                Root {
+                    id: root,
+                    label: self.labels.get(&root).cloned(),
+                    route: navigation.map(|nav| nav.route.clone()),
+                    chain: entries.iter().map(|entry| entry.segment.clone()).collect(),
+                    back: navigation.map_or(0, |nav| nav.back),
+                    forward: navigation.map_or(0, |nav| nav.forward),
+                    pending: navigation.and_then(|nav| nav.pending.clone()),
+                    panels: observed.panels(Some(root)).into_iter().map(panel).collect(),
+                    bus: Vec::new(),
+                }
+            })
+            .collect();
+        let actors = self
+            .actors
+            .keys()
+            .filter_map(|id| {
+                let snapshot = observed.actor(*id)?;
+                let (root, scopes) = snapshot
+                    .owner
+                    .scope
+                    .map(|scope| self.location(scope))
+                    .unwrap_or_default();
+                Some(actor(&snapshot, root, &scopes))
+            })
+            .collect();
+        let mut subscriptions: BTreeMap<&str, Vec<BusListener>> = BTreeMap::new();
+        for (event, by, answers) in self.subscriptions.values() {
+            let asleep = match by {
+                Heard::Actor { id, .. } => self
+                    .actors
+                    .get(id)
+                    .and_then(|scope| *scope)
+                    .and_then(|scope| self.scopes.get(&scope.get()))
+                    .is_some_and(|scope| !scope.awake),
+                _ => false,
+            };
+            let by = match by {
+                Heard::Actor { name, id } => HeardBy::Actor {
+                    name: name.to_string(),
+                    id: *id as u64,
+                },
+                Heard::Callback(at) => HeardBy::Callback {
+                    declared: written(at.file(), at.line()),
+                },
+                _ => HeardBy::Unknown,
+            };
+            subscriptions.entry(event).or_default().push(BusListener {
+                by,
+                answers: *answers,
+                asleep,
+            });
+        }
+        let timers = self
+            .sources
+            .values()
+            .map(|source| {
+                let (root, scopes) = self.location(source.scope);
+                Timer {
+                    id: source.id,
+                    name: source.name.map(str::to_string),
+                    declared: Some(written(source.place.file(), source.place.line())),
+                    feature: source.feature.map(feature_name),
+                    period_ms: 0,
+                    root,
+                    segment: scopes.iter().position(|scope| *scope == source.scope),
+                }
+            })
+            .collect();
+        Snapshot {
+            at: since(started),
+            roots,
+            actors,
+            panels: self.panels(observed),
+            global_bus: subscriptions
+                .into_iter()
+                .map(|(event, listeners)| BusSubscription {
+                    event: event.into(),
+                    subscribers: listeners.len(),
+                    listeners,
+                })
+                .collect(),
+            timers,
+        }
+    }
+}
+
+pub fn since(started: Instant) -> u64 {
+    started.elapsed().as_millis() as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use guinea::prelude::*;
 
-    #[test]
-    fn a_type_keeps_its_module_and_loses_the_crate() {
-        assert_eq!(
-            short("processes_core::metrics::contracts::Metrics"),
-            "contracts::Metrics"
-        );
-        assert_eq!(short("tabs::Tabs"), "tabs::Tabs");
-        assert_eq!(short("Plain"), "Plain");
-        assert_eq!(short("a::b::List<c::Recent>"), "b::List<c::Recent>");
+    #[derive(Clone, Default, Debug, PartialEq)]
+    pub struct Counter(pub u32);
+
+    #[guinea::reducer]
+    fn counter(this: &mut Counter, value: u32) {
+        this.0 = value;
     }
 
-    fn collected() -> std::rc::Rc<std::cell::RefCell<Traces>> {
-        let traces = std::rc::Rc::new(std::cell::RefCell::new(Traces::default()));
-        let sink = traces.clone();
-        trace::observe(move |record| sink.borrow_mut().push(record));
-        traces
-    }
-
-    #[test]
-    fn an_ended_point_carries_its_duration() {
-        let traces = collected();
-        {
-            let _action = trace::enter(|| Point::Action { message: "Kill" });
-            trace::mark(|| Point::Push { reducer: "Theirs" });
+    guinea::plugin! {
+        Probe {
+            exports { Counter }
+            provides { Observed }
         }
-        trace::stop_observing();
-
-        let batch = traces.borrow_mut().take();
-        let kinds: Vec<&str> = batch.spans.iter().map(|span| span.point.kind()).collect();
-        assert_eq!(kinds, ["action", "push"]);
-        assert!(
-            batch.spans[0].took.is_some(),
-            "the action ended inside the batch"
-        );
-        assert_eq!(batch.spans[1].parent, Some(batch.spans[0].id));
     }
 
-    #[test]
-    fn what_waits_for_a_batch_stays_bounded_however_much_is_recorded() {
-        let traces = collected();
-        for _ in 0..PENDING * 3 {
-            let _work = trace::enter(|| Point::Action { message: "Tick" });
-        }
-        trace::stop_observing();
-
-        let batch = traces.borrow_mut().take();
-        assert_eq!(
-            (
-                batch.spans.len(),
-                batch.spans.iter().all(|span| span.took.is_some()),
-                batch.ends.len() <= PENDING,
-                batch.dropped
-            ),
-            (PENDING, true, true, 2 * PENDING as u64)
-        );
+    #[guinea::builds]
+    fn probe(app: &mut PluginBuilder) -> anyhow::Result<Probe> {
+        Ok(Probe(app.state::<Counter>().plain(), app.observed()))
     }
 
-    #[test]
-    fn a_span_says_its_level() {
-        let sent = point(&Point::Span {
-            name: "scan",
-            target: "app",
-            file: None,
-            line: None,
-            module: None,
-            fields: String::new(),
-            level: tracing::Level::WARN,
-        });
-
-        match sent {
-            TracePoint::Span { level, .. } => assert_eq!(level, "WARN"),
-            other => panic!("a span, not {other:?}"),
+    fn absorb(tree: &mut Tree, watching: &guinea::observability::Watching) {
+        for event in watching.take().events {
+            tree.apply(event);
         }
     }
 
     #[test]
-    fn a_pull_says_which_source_makes_what() {
-        let sent = point(&Point::Pull {
-            actor: "a::Agent",
-            actor_id: 3,
-            output: "a::Streamed",
-            source: 9,
-        });
-
-        assert_eq!(
-            sent,
-            TracePoint::Pull {
-                actor: "a::Agent".into(),
-                actor_id: 3,
-                output: "a::Streamed".into(),
-                source: 9,
-            }
-        );
-    }
-
-    #[test]
-    fn what_another_thread_records_comes_with_that_thread() {
-        let traces = collected();
-        let worker = std::thread::spawn(|| {
-            trace::mark(|| Point::Note("on a worker".into()));
-            trace::thread_id()
-        })
-        .join()
-        .map_err(|_| "the worker panicked");
-
-        traces.borrow_mut().take_elsewhere();
-        trace::stop_observing();
-        let batch = traces.borrow_mut().take();
-
-        let notes: Vec<u32> = batch
-            .spans
+    fn reconnect_replays_the_tree_and_application_state_and_teardown_removes_it() {
+        let mut app = guinea::app::TestApp::new();
+        let Probe(counter, observed) = app.plugin::<Probe>(()).unwrap();
+        let watching = observed.watch(|| {}).unwrap();
+        let mut tree = Tree::default();
+        absorb(&mut tree, &watching);
+        counter.push(7);
+        absorb(&mut tree, &watching);
+        let started = Instant::now();
+        let snapshot = tree.snapshot(observed, started);
+        let scopes = snapshot
+            .panels
             .iter()
-            .filter(
-                |span| matches!(&span.point, TracePoint::Note { text } if text == "on a worker"),
-            )
-            .map(|span| span.thread)
-            .collect();
-        assert_eq!(worker.map(|worker| vec![worker]), Ok(notes));
-    }
-
-    #[test]
-    fn a_bus_says_who_hears_each_event_and_where_a_callback_was_subscribed() {
-        use guinea_core::actor::event_bus::Listener as Subscriber;
-
-        let at = std::panic::Location::caller();
-        let sent = heard(&[Listening {
-            event: "a::Refresh",
-            listeners: vec![
-                Subscriber {
-                    by: Heard::Actor {
-                        name: "a::Agent",
-                        id: 3,
-                    },
-                    answers: true,
-                    asleep: false,
-                },
-                Subscriber {
-                    by: Heard::Callback(at),
-                    answers: false,
-                    asleep: true,
-                },
-                Subscriber {
-                    by: Heard::Unknown,
-                    answers: false,
-                    asleep: false,
-                },
-            ],
-        }]);
-
-        assert_eq!(
-            sent,
-            [BusSubscription {
-                event: "a::Refresh".into(),
-                subscribers: 3,
-                listeners: vec![
-                    BusListener {
-                        by: HeardBy::Actor {
-                            name: "a::Agent".into(),
-                            id: 3,
-                        },
-                        answers: true,
-                        asleep: false,
-                    },
-                    BusListener {
-                        by: HeardBy::Callback {
-                            declared: Declared {
-                                file: at.file().into(),
-                                line: at.line(),
-                                column: at.column(),
-                                found: false,
-                            },
-                        },
-                        answers: false,
-                        asleep: true,
-                    },
-                    BusListener {
-                        by: HeardBy::Unknown,
-                        answers: false,
-                        asleep: false,
-                    },
-                ],
-            }]
+            .find(|panel| panel.id == "guinea.scopes")
+            .unwrap();
+        assert!(
+            scopes.nodes[0]
+                .children
+                .iter()
+                .any(|node| node.kind == "state"
+                    && node.properties.iter().any(|(_, value)| value.contains('7')))
         );
+        drop(watching);
+        let watching = observed.watch(|| {}).unwrap();
+        let mut reconnected = Tree::default();
+        absorb(&mut reconnected, &watching);
+        assert_eq!(
+            reconnected.snapshot(observed, started).panels,
+            snapshot.panels
+        );
+        drop(app);
+        absorb(&mut reconnected, &watching);
+        assert!(reconnected.scopes.is_empty());
     }
 
     #[test]
-    fn a_tick_says_whose_timer_it_is_by_name_and_place() {
-        let sent = point(&Point::Tick {
-            timer: 43,
-            name: Some("activity-flush"),
-            file: "src/pages/activity.rs",
-            line: 7,
-        });
-
-        assert_eq!(
-            sent,
-            TracePoint::Tick {
-                timer: Some(43),
-                name: Some("activity-flush".into()),
-                declared: Some(Declared {
-                    file: "src/pages/activity.rs".into(),
-                    line: 7,
-                    column: 1,
-                    found: false,
-                }),
+    fn retained_trace_records_stay_bounded_and_keep_completed_durations() {
+        let mut app = guinea::app::TestApp::new();
+        let Probe(_, observed) = app.plugin::<Probe>(()).unwrap();
+        let watching = observed.watch(|| {}).unwrap();
+        watching.take();
+        let mut traces = Traces::default();
+        for index in 0..PENDING + 5 {
+            {
+                let _work =
+                    guinea::observability::trace::enter(|| Point::Action { message: "Tick" });
             }
-        );
-    }
-
-    #[test]
-    fn records_past_the_limit_are_counted_rather_than_kept() {
-        let traces = collected();
-        for _ in 0..PENDING + 5 {
-            trace::mark(|| Point::Tick {
-                timer: 1,
-                name: None,
-                file: "src/tick.rs",
-                line: 1,
-            });
+            if index.is_multiple_of(512) {
+                for (thread, record) in watching.take().trace {
+                    traces.push_on(thread, &record);
+                }
+            }
         }
-        trace::stop_observing();
-
-        let batch = traces.borrow_mut().take();
+        for (thread, record) in watching.take().trace {
+            traces.push_on(thread, &record);
+        }
+        let batch = traces.take();
         assert_eq!(batch.spans.len(), PENDING);
         assert_eq!(batch.dropped, 5);
-        assert_eq!(traces.borrow_mut().take().dropped, 0);
+        assert!(batch.spans.iter().all(|span| span.took.is_some()));
+        assert!(traces.take().spans.is_empty());
+    }
+
+    #[test]
+    fn trace_conversion_keeps_source_identity_and_lane_outcomes() {
+        assert!(matches!(
+            point(&Point::Pull {
+                source: 9,
+                to: "Agent",
+                output: "Record"
+            }),
+            TracePoint::Pull { source: 9, .. }
+        ));
+        assert!(matches!(
+            point(&Point::Superseded {
+                actor: "Agent",
+                actor_id: 3,
+                output: "Reply",
+                took_us: 4
+            }),
+            TracePoint::Superseded {
+                actor_id: 3,
+                took_us: 4,
+                ..
+            }
+        ));
+        assert!(matches!(
+            point(&Point::Skipped {
+                actor: "Agent",
+                actor_id: 3,
+                output: "Reply"
+            }),
+            TracePoint::Skipped { actor_id: 3, .. }
+        ));
     }
 }

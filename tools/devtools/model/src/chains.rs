@@ -433,6 +433,15 @@ fn key(point: &TracePoint, timers: &Timers) -> u64 {
         TracePoint::Log { level, target, .. } => ("log", level, target).hash(h),
         TracePoint::Note { text } => ("note", text).hash(h),
         TracePoint::Span { name, target, .. } => ("span", name, target).hash(h),
+        TracePoint::Plugin { name, fields } => {
+            let path = fields
+                .iter()
+                .find(|(key, _)| key == "path")
+                .map(|(_, value)| value);
+            ("plugin", name, path).hash(h);
+        }
+        TracePoint::Superseded { actor, output, .. } => ("superseded", actor, output).hash(h),
+        TracePoint::Skipped { actor, output, .. } => ("skipped", actor, output).hash(h),
         TracePoint::Unknown => "unknown".hash(h),
     }
 
@@ -451,6 +460,7 @@ fn stream_of(span: &Span, timers: &Timers) -> Stream {
         TracePoint::Action { message } => Stream::Action(message.clone()),
         TracePoint::Navigate { .. } => Stream::Navigation,
         TracePoint::Store { .. } => Stream::Store,
+        TracePoint::Plugin { name, .. } if name.starts_with("store.") => Stream::Store,
         TracePoint::Log { .. } | TracePoint::Note { .. } if span.parent.is_none() => Stream::Log,
         _ => Stream::Loose,
     }

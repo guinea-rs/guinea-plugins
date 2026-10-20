@@ -27,11 +27,10 @@ pub struct Canvas {
 #[page]
 impl Page for Canvas {
     type Params = ();
-    type Installs = ();
     type Message = Pointer;
 
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
+    fn install(_cx: &Install) -> anyhow::Result<Self> {
+        Ok(Self::default())
     }
 
     fn update(&mut self, pointer: Pointer, _cx: &mut UpdateCx<'_, Self>) {

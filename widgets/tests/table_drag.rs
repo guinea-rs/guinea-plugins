@@ -56,11 +56,10 @@ pub enum Changed {
 #[page]
 impl Page for Columns {
     type Params = ();
-    type Installs = ();
     type Message = Changed;
 
-    fn install(_ctx: &FeatureInitContext, _params: &()) -> anyhow::Result<()> {
-        Ok(())
+    fn install(_cx: &Install) -> anyhow::Result<Self> {
+        Ok(Self::default())
     }
 
     fn update(&mut self, message: Changed, _cx: &mut UpdateCx<'_, Self>) {

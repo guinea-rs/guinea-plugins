@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use guinea_core::feature::Dispatch;
+use guinea::prelude::Dispatch;
 use guinea_devtools_model::native::NativeTree;
 use guinea_devtools_model::properties::{self, Cluster};
 use guinea_devtools_protocol::Command;

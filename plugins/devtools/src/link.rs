@@ -73,7 +73,7 @@ impl Inbound {
             return;
         };
 
-        guinea_core::actor::invoke_on_ui(move || {
+        guinea::ui_thread::invoke_on_ui(move || {
             let answer = match act() {
                 Ok(cause) => Answer::Acted { cause },
                 Err(reason) => Answer::Refused { reason },
@@ -111,14 +111,18 @@ impl peer::Server for Inbound {
                 action,
                 payload,
             } => self.on_ui(request, move || {
-                guinea::observability::act(root, &action, &payload)
+                crate::live::observed()
+                    .ok_or_else(|| "application is gone".to_string())?
+                    .act(root, &action, &payload)
             }),
             Command::Publish {
                 request,
                 event,
                 payload,
             } => self.on_ui(request, move || {
-                guinea_core::remote::publish(&event, &payload)
+                crate::live::observed()
+                    .ok_or_else(|| "application is gone".to_string())?
+                    .publish(&event, &payload)
             }),
             other => {
                 tracing::debug!(
@@ -179,7 +183,7 @@ async fn run(
         let takes_changes = session
             .peer_version()
             .is_some_and(guinea_devtools_protocol::takes_changes);
-        guinea_core::actor::invoke_on_ui(move || crate::live::connected(current, takes_changes));
+        guinea::ui_thread::invoke_on_ui(move || crate::live::connected(current, takes_changes));
 
         let remote = session.remote();
         let mut announced = AppInfo::default();
@@ -209,7 +213,7 @@ async fn run(
         }
 
         crate::profiler::stop();
-        guinea_core::actor::invoke_on_ui(move || crate::live::disconnected(current));
+        guinea::ui_thread::invoke_on_ui(move || crate::live::disconnected(current));
     }
 }
 

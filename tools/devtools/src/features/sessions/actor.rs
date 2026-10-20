@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use guinea_core::actor::Cx;
-use guinea_core::feature::Push;
+use guinea::prelude::In;
+use guinea::prelude::Push;
+use guinea::{actor, handler};
 use guinea_devtools_hub::Hub;
-use guinea_macros::{actor, handler};
 use tokio::sync::Mutex;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
@@ -30,14 +30,14 @@ impl SessionsActor {
 actor! {
     SessionsActor {
         handlers {
-            Listen => { bg Changed },
-            Changed => { bg Changed loop },
+            Listen => { task Changed },
+            Changed => { task Changed loop },
         }
     }
 }
 
 #[handler]
-fn listen(this: &mut SessionsActor, _: Listen, cx: Cx) {
+fn listen(In(this, _, cx): In<SessionsActor, Listen>) {
     if this.changes.is_some() {
         return;
     }
@@ -56,15 +56,15 @@ fn listen(this: &mut SessionsActor, _: Listen, cx: Cx) {
 
     let changes = Arc::new(Mutex::new(changes));
     this.changes = Some(changes.clone());
-    cx.spawn_bg::<Changed, _>(wait(changes));
+    cx.task().spawn(wait(changes));
 }
 
 #[handler]
-fn changed(this: &mut SessionsActor, _: Changed, cx: Cx) {
+fn changed(In(this, _, cx): In<SessionsActor, Changed>) {
     this.push.send(Change::Changed);
 
     if let Some(changes) = this.changes.clone() {
-        cx.spawn_bg::<Changed, _>(wait(changes));
+        cx.task().spawn(wait(changes));
     }
 }
 

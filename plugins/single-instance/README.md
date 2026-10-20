@@ -3,9 +3,10 @@
 Keeps one copy of a guinea application running per user.
 
 ```rust
-guinea::app::GuineaApp::new()
-    .meta(guinea::app::AppMeta::new("app", "dev.example.app", "0.1.0", "example"))
-    .plugin(guinea_plugin_single_instance::SingleInstancePlugin::new())
+use guinea_plugin_single_instance::{SingleInstanceConfig, SingleInstancePlugin};
+
+let meta = guinea::app::AppMeta::new("app", "dev.example.app", "0.1.0", "example");
+app.plugin::<SingleInstancePlugin>(SingleInstanceConfig::new(&meta))?;
 ```
 
 The first copy holds a lock on a file named after the application's
@@ -15,7 +16,7 @@ returns `Stop`, the plugins installed before it are cleaned up again, and
 `run` returns `Ok`. The operating system drops the lock when the holder exits,
 however it exits, so a crash leaves nothing to clean up.
 
-The identifier is the one in the application's `AppMeta`; `.named(..)` locks
+The identifier is the one in the application's `AppMeta`; `SingleInstanceConfig::named(..)` locks
 under another.
 
 Another program can ask whether the application is up - to start it only

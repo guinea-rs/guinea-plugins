@@ -8,7 +8,7 @@
 #[cfg(windows)]
 use std::time::{Duration, Instant};
 
-use guinea_core::feature::Dispatch;
+use guinea::prelude::Dispatch;
 use guinea_devtools_model::native::NativeTree;
 use guinea_devtools_model::sessions::{Session, Sessions};
 use guinea_devtools_protocol::native::Frame;

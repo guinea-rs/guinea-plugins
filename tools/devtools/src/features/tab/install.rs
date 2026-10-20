@@ -1,6 +1,6 @@
-use guinea::feature::FeatureInitContext;
-use guinea_macros::{feature, installs};
-use guinea_plugin_store::StoreAccess;
+use guinea::feature::Install;
+use guinea::{feature, installs};
+use guinea_plugin_store::{Store, StoreAccess};
 
 use super::actor::LastTabActor;
 use super::contracts::LastTab;
@@ -13,8 +13,8 @@ feature! {
 }
 
 #[installs]
-fn last_tab(cx: &FeatureInitContext) -> anyhow::Result<LastTabFeature> {
-    let settings = cx.try_settings::<TabSettings>()?;
+fn last_tab(cx: &Install, store: Store) -> anyhow::Result<LastTabFeature> {
+    let settings = store.try_settings::<TabSettings>()?;
     let seed = LastTab(settings.tab().get());
 
     let (tab, _) = cx

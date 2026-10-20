@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, FontId, Rect, Sense, Stroke, pos2, vec2};
 use guinea::eframe::{Page, PageCx};
-use guinea::feature::FeatureInitContext;
+use guinea::feature::Install;
 use guinea_devtools_model::native::NativeTree;
 use guinea_devtools_model::profile::{BUDGET_US, Frame, Profile, Second};
 use guinea_devtools_model::protocol::Span;
@@ -49,12 +49,12 @@ pub struct Profiler {
     attach_error: Option<String>,
 }
 
+#[guinea::eframe::page]
 impl Page for Profiler {
-    type Params = crate::routes::ProfilerParams;
-    type Installs = ();
+    type Params = ();
 
-    fn install(_ctx: &FeatureInitContext, _params: &Self::Params) -> anyhow::Result<()> {
-        Ok(())
+    fn install(_cx: &Install) -> anyhow::Result<Self> {
+        Ok(Self::default())
     }
 
     fn render(&mut self, cx: &mut PageCx<'_, Self>) {

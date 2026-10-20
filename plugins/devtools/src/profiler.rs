@@ -34,14 +34,14 @@ pub fn start() -> anyhow::Result<String> {
     let at = server.at.clone();
     *running = Some(server);
 
-    guinea_core::observability::profiling::record(true);
+    puffin_record(true);
     Ok(at)
 }
 
 /// Stops recording and takes the server down. Also when devtools go away:
 /// the server has no authentication of its own, and nobody is reading it.
 pub fn stop() {
-    guinea_core::observability::profiling::record(false);
+    puffin_record(false);
     let _ = RUNNING
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -70,4 +70,11 @@ fn listen() -> anyhow::Result<Server> {
 #[cfg(not(feature = "profiling"))]
 fn listen() -> anyhow::Result<Server> {
     anyhow::bail!("this application was built without the profiler")
+}
+
+fn puffin_record(on: bool) {
+    #[cfg(feature = "profiling")]
+    puffin::set_scopes_on(on);
+    #[cfg(not(feature = "profiling"))]
+    let _ = on;
 }

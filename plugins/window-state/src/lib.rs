@@ -1,11 +1,14 @@
 //! Remembers where an application's windows were, and opens them there again.
 //!
 //! ```no_run
-//! # use guinea_plugin_window_state::WindowStatePlugin;
-//! guinea::app::GuineaApp::new()
-//!     .plugin(guinea_plugin_store::StorePlugin::for_app("app", "settings"))
-//!     .plugin(WindowStatePlugin::new())
-//!     # ;
+//! use guinea_plugin_store::{StoreConfig, StorePlugin};
+//! use guinea_plugin_window_state::{WindowStateConfig, WindowStatePlugin};
+//! fn app(app: &mut guinea::app::FeatureBuilder) -> anyhow::Result<()> {
+//!     let StorePlugin(store, _) = app.plugin::<StorePlugin>(StoreConfig::for_app("app", "settings"))?;
+//!     let WindowStatePlugin(saved) = app.plugin::<WindowStatePlugin>(WindowStateConfig::new(store))?;
+//!     let _saved = saved;
+//!     Ok(())
+//! }
 //! ```
 //!
 //! Two halves, going opposite ways. Writing is a subscription: the shell
@@ -14,7 +17,7 @@
 //! window, because a size applied afterwards is a visible jump - so here the
 //! plugin is asked rather than telling.
 //!
-//! Windows are keyed by their [label](guinea::app::roots::label), not by
+//! Windows are keyed by their label, not by
 //! `RootId`: ids last one run, and the whole point is to answer for the next
 //! one.
 
@@ -22,9 +25,8 @@ mod geometry;
 
 use std::sync::Arc;
 
-use guinea::app::roots;
+use guinea::app::PluginBuilder;
 use guinea::app::windows::{Geometry, RestoreGeometry, SavedGeometry, WindowChanged};
-use guinea::app::{Plugin, PluginBuilder};
 use guinea_plugin_store::Store;
 
 use geometry::Saved;
@@ -33,19 +35,15 @@ use geometry::Saved;
 /// window label.
 const PREFIX: &str = "window";
 
-pub struct WindowStatePlugin {
+pub struct WindowStateConfig {
+    store: Store,
     prefix: String,
 }
 
-impl Default for WindowStatePlugin {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl WindowStatePlugin {
-    pub fn new() -> Self {
+impl WindowStateConfig {
+    pub fn new(store: Store) -> Self {
         Self {
+            store,
             prefix: PREFIX.to_string(),
         }
     }
@@ -58,36 +56,38 @@ impl WindowStatePlugin {
     }
 }
 
-impl Plugin for WindowStatePlugin {
-    const ID: &'static str = "guinea.window-state";
-    type Exports = ();
+guinea::plugin! {
+    pub WindowStatePlugin { provides { SavedGeometry } }
+}
 
-    fn build(self, app: &mut PluginBuilder) -> anyhow::Result<()> {
-        let store = app.require::<Store>()?;
-        let memory = Arc::new(Memory {
-            store,
-            prefix: self.prefix,
-        });
+#[guinea::builds]
+fn window_state(
+    app: &mut PluginBuilder,
+    config: WindowStateConfig,
+) -> anyhow::Result<WindowStatePlugin> {
+    let memory = Arc::new(Memory {
+        store: config.store,
+        prefix: config.prefix,
+    });
 
-        // Asked by the shell, before a window is on screen.
-        app.provide(SavedGeometry::from_arc(Arc::clone(&memory) as Arc<_>));
+    // Asked by the shell, before a window is on screen.
+    let saved = SavedGeometry::from_arc(Arc::clone(&memory) as Arc<_>);
 
-        // Told by the shell, every time one moves.
-        app.subscribe_global::<WindowChanged>(move |changed| {
-            let Some(label) = roots::label(changed.root) else {
-                // A window nobody named is a window nobody can ask about
-                // later, so there is nothing worth writing down.
-                return;
-            };
-            memory.remember(&label, changed.geometry);
-        });
+    // Told by the shell, every time one moves.
+    app.subscribe(move |changed: WindowChanged| {
+        let Some(label) = changed.label else {
+            // A window nobody named is a window nobody can ask about
+            // later, so there is nothing worth writing down.
+            return;
+        };
+        memory.remember(&label, changed.geometry);
+    });
 
-        Ok(())
-    }
+    Ok(WindowStatePlugin(saved))
 }
 
 struct Memory {
-    store: Arc<Store>,
+    store: Store,
     prefix: String,
 }
 
@@ -124,5 +124,51 @@ impl Memory {
 impl RestoreGeometry for Memory {
     fn for_label(&self, label: &str) -> Option<Geometry> {
         self.read(label).map(Saved::geometry)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use guinea::app::Harness;
+    use guinea::app::roots::Root;
+    use guinea::app::windows::{Position, Size};
+    use guinea_plugin_store::{StoreConfig, StorePlugin};
+
+    #[test]
+    fn labelled_geometry_is_written_to_the_selected_store_and_returned_to_the_shell() {
+        let mut harness = Harness::new(1);
+        let StorePlugin(store, _) = harness
+            .plugin::<StorePlugin>(StoreConfig::in_memory())
+            .unwrap();
+        let WindowStatePlugin(saved) = harness
+            .plugin::<WindowStatePlugin>(WindowStateConfig::new(store.clone()).under("placement"))
+            .unwrap();
+        let root = Root::under(&harness.application());
+        let geometry = Geometry {
+            size: Some(Size {
+                width: 800.0,
+                height: 600.0,
+            }),
+            position: Some(Position { x: 10.0, y: 20.0 }),
+            ..Geometry::default()
+        };
+        harness.bus().publish(WindowChanged {
+            root: root.id(),
+            label: Some("main".into()),
+            geometry,
+        });
+        harness.settled();
+        assert_eq!(saved.for_label("main"), Some(geometry));
+        assert!(store.get::<Saved>(["placement", "main"]).unwrap().is_some());
+        assert!(store.get::<Saved>(["window", "main"]).unwrap().is_none());
+        harness.bus().publish(WindowChanged {
+            root: root.id(),
+            label: None,
+            geometry,
+        });
+        harness.settled();
+        assert!(saved.for_label("unnamed").is_none());
+        drop(root);
     }
 }

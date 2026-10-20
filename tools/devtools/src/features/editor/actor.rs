@@ -1,5 +1,6 @@
-use guinea_core::feature::Push;
-use guinea_macros::{actor, handler};
+use guinea::prelude::In;
+use guinea::prelude::Push;
+use guinea::{actor, handler};
 
 use super::contracts::{EditorChoice, PickEditor};
 use super::settings::EditorSettings;
@@ -23,7 +24,7 @@ actor! {
 }
 
 #[handler]
-fn pick_editor(this: &mut EditorActor, PickEditor(picked): PickEditor) {
+fn pick_editor(In(this, PickEditor(picked), _): In<EditorActor, PickEditor>) {
     this.settings.editor().set(picked.key().to_string());
     this.push.send(picked);
 }

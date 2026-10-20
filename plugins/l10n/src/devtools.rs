@@ -6,20 +6,24 @@
 //! (`languages`, `language`); each message carries its text under every
 //! language's tag, so devtools can show any of them beside its name.
 
-use guinea_core::observability::panels::{self, Panel, PanelGuard, PanelNode};
-use guinea_core::scope::Scope;
+use guinea::feature::ScopeContext;
+use guinea::observability::panels::{self, Panel, PanelGuard, PanelNode};
 
 use crate::store::{Key, Language, Localization};
 
 /// The panel, for as long as the guard is held. `scope` is the application's,
 /// which holds the language shown.
-pub(crate) fn watch<S: Localization>(scope: Scope) -> PanelGuard {
+pub(crate) fn watch<S: Localization>(scope: ScopeContext) -> PanelGuard {
     panels::contribute_to_app(move || {
         let keys = S::keys();
         if keys.is_empty() {
             return None;
         }
-        let showing = scope.state::<Language<S>>().borrow().strings().tag();
+        let showing = scope
+            .read::<Language<S>>()
+            .expect("installed language")
+            .strings()
+            .tag();
 
         Some(Panel {
             id: "guinea.l10n",
