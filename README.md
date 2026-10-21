@@ -82,7 +82,7 @@ with `windows-window-pre` 0.104.0.
 Consumers must use the same guinea and reactor types; depending on an older
 plugin tag alongside guinea 0.32 creates incompatible copies.
 
-The store re-exports amethystate 0.28 and has its own package version, 0.28.0.
+The store re-exports amethystate 0.29 and has its own package version, 0.29.0.
 The other workspace packages use version 0.32.0. Plugins are distributed by
 repository git tags, not through crates.io:
 

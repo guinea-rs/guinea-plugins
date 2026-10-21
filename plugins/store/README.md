@@ -1,6 +1,6 @@
 # guinea-plugin-store
 
-Persistent storage for guinea 0.32, backed by amethystate 0.28.0.
+Persistent storage for guinea 0.32, backed by amethystate 0.29.0.
 The plugin's own version follows amethystate because it re-exports its public types.
 
 ## Installation
@@ -12,7 +12,7 @@ guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag
 ```
 
 Plugins are distributed by repository git tag, not through crates.io. The store
-package has version 0.28.0; its version follows amethystate, not the repository's
+package has version 0.29.0; its version follows amethystate, not the repository's
 tag. The older repository tag `v0.31.0` targets guinea 0.31 and requires manual
 service publication, which guinea 0.32 no longer supports.
 
@@ -106,8 +106,9 @@ with both the guinea and amethystate versions in the application.
 
 If an application also depends directly on amethystate or its guinea adapter, use
 the same amethystate line as the store: types from different minor versions are distinct.
-The published adapter 0.28 targets guinea 0.31, not 0.32; do not mix that adapter
-with this migration. The coordinated adapter and store dependency upgrade is separate.
+Use amethystate and `amethystate-guinea` 0.29 with this store. The adapter accepts
+guinea `>=0.32`; this plugin version is checked with guinea 0.32. The older
+adapter 0.28 targets guinea 0.31 and must not be mixed with this stack.
 
 ## Shutdown
 
