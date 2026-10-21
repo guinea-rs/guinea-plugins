@@ -39,14 +39,33 @@ Only one copy runs per user.
 
 This workspace uses the repository's pinned Rust 1.99.1 toolchain. Its declared
 MSRV remains 1.95. Ordinary dev, test, release and bench builds disable debug
-information, including PDB generation from Rust debug information on Windows.
+information. Windows CI also passes `-C link-arg=/DEBUG:NONE`, because `debug = 0`
+alone does not stop the MSVC linker from writing a PDB.
 
 Two Windows sampler tests check resolution of private function names and need
 symbols. They are ignored in the ordinary test profile and run explicitly in
-Windows CI with the `sampling` profile. Only `guinea-xaml-tap` enables limited
-debug information in that profile; its dependencies stay at `debug = 0`:
+Windows CI with the `sampling` profile and `-C link-arg=/DEBUG`. Only
+`guinea-xaml-tap` enables limited debug information in that profile; its
+dependencies stay at `debug = 0`:
 
 ```sh
 cargo test --workspace --locked
-cargo test -p guinea-xaml-tap --profile sampling --locked --lib -- --ignored --test-threads=1
 ```
+
+For the symbol tests on Windows, override the normal linker flags for that
+invocation. This PowerShell example preserves any existing flags and restores
+the environment afterwards:
+
+```powershell
+$previousFlags = $env:RUSTFLAGS
+try {
+    $env:RUSTFLAGS = "$previousFlags -C link-arg=/DEBUG"
+    cargo test -p guinea-xaml-tap --profile sampling --locked --lib -- --ignored --test-threads=1
+} finally {
+    $env:RUSTFLAGS = $previousFlags
+}
+```
+
+An environment `RUSTFLAGS` replaces Cargo's configured rustflags. If your Cargo
+configuration supplies additional required flags, include those in the opt-in
+invocation too.

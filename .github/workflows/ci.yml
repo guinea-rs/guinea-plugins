@@ -21,6 +21,8 @@ env:
 jobs:
   windows:
     runs-on: windows-2025
+    env:
+      RUSTFLAGS: "-C link-arg=/DEBUG:NONE"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -51,6 +53,8 @@ jobs:
 
       - name: sampling symbols
         working-directory: tools/devtools
+        env:
+          RUSTFLAGS: "-C link-arg=/DEBUG"
         run: cargo test -p guinea-xaml-tap --profile sampling --locked --lib -- --ignored --test-threads=1
 
   linux:
