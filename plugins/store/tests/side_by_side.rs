@@ -26,11 +26,12 @@ fn stores_in_memory_are_open_side_by_side_and_keep_to_themselves() {
 #[test]
 fn stores_on_disk_are_open_side_by_side() {
     let dir = tempfile::tempdir().unwrap();
-    let mut app = TestApp::new();
-    let StorePlugin(first, _) = app
+    let mut first_app = TestApp::new();
+    let StorePlugin(first, _) = first_app
         .plugin::<StorePlugin>(StoreConfig::at(dir.path().join("first")).backend(Backend::Json))
         .unwrap();
-    let StorePlugin(second, _) = app
+    let mut second_app = TestApp::new();
+    let StorePlugin(second, _) = second_app
         .plugin::<StorePlugin>(StoreConfig::at(dir.path().join("second")).backend(Backend::Json))
         .unwrap();
     first.set(["settings", "name"], &"first").unwrap();

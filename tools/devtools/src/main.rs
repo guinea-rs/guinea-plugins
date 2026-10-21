@@ -70,13 +70,10 @@ fn main() -> anyhow::Result<()> {
             "uniproc",
         );
         app.plugin::<SingleInstancePlugin>(SingleInstanceConfig::new(&meta))?;
-        let guinea_plugin_store::StorePlugin(store, _) = app
-            .plugin::<guinea_plugin_store::StorePlugin>(
-                guinea_plugin_store::StoreConfig::for_app("guinea-devtools", "settings")
-                    .backend(amethystate::store::builder::Backend::Json),
-            )?;
-        app.provide(store);
-        app.provide(meta);
+        app.plugin::<guinea_plugin_store::StorePlugin>(
+            guinea_plugin_store::StoreConfig::for_app("guinea-devtools", "settings")
+                .backend(amethystate::store::builder::Backend::Json),
+        )?;
         Ok(Window::of::<layouts::shell::Shell>()
             .title("guinea devtools")
             .options(options)

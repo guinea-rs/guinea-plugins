@@ -1,20 +1,20 @@
 # guinea-plugin-store
 
-Persistent storage for guinea 0.31, backed by amethystate 0.28.0.
+Persistent storage for guinea 0.32, backed by amethystate 0.28.0.
 The plugin's own version follows amethystate because it re-exports its public types.
 
 ## Installation
 
 ```toml
 [dependencies]
-guinea = "0.31.1"
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.31.0" }
+guinea = "0.32.0"
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.32.0" }
 ```
 
 Plugins are distributed by repository git tag, not through crates.io. The store
 package has version 0.28.0; its version follows amethystate, not the repository's
-tag. The older repository tag `v0.30.2` targets guinea 0.29 and does not contain
-this API.
+tag. The older repository tag `v0.31.0` targets guinea 0.31 and requires manual
+service publication, which guinea 0.32 no longer supports.
 
 ## Application setup
 
@@ -23,13 +23,9 @@ use guinea::app::FeatureBuilder;
 use guinea_plugin_store::{StoreConfig, StorePlugin};
 
 fn app(app: &mut FeatureBuilder) -> anyhow::Result<()> {
-    let StorePlugin(store, persistence) = app.plugin::<StorePlugin>(
+    app.plugin::<StorePlugin>(
         StoreConfig::for_app("my-app", "settings").or_in_memory()
     )?;
-    app.provide(store);
-    if let Some(persistence) = persistence {
-        app.provide(persistence);
-    }
     Ok(())
 }
 ```
@@ -56,9 +52,11 @@ non-persistent fallback. A failure to find a configuration directory or construc
 custom builder still returns an error.
 
 The returned `Option<Arc<Persistence>>` is present when fallback was enabled and describes
-the chosen storage. The application decides whether to publish it.
-Each plugin call opens an independent store. There is no process-wide store and no
-automatic publication.
+the chosen storage.
+Guinea automatically publishes both declared outputs after installation succeeds.
+Install one `StorePlugin` per application tree. Independent stores can be installed
+in separate applications; the same service cannot be published twice on one branch.
+There is no process-wide store.
 
 ## Typed settings
 
@@ -84,8 +82,8 @@ fn change_port(store: &Store) -> anyhow::Result<()> {
 `StoreAccess` extends `Store`, not guinea contexts:
 `store.settings::<S>()` opens an amethystate struct over that store;
 `store.try_settings::<S>()` returns opening errors instead of panicking.
-To use it in a feature, provide the store in application setup and declare it
-after the installation context:
+To use it in a feature, install `StorePlugin` in application setup and declare the
+store after the installation context:
 
 ```rust
 use guinea::app::Install;
@@ -102,11 +100,14 @@ fn preferences(_cx: &Install, store: Store) -> anyhow::Result<Preferences> {
 ```
 
 Here `GeneralSettings` is the declaration above. `#[installs]` injects a clone of
-the explicitly provided store. Opening settings does not itself subscribe a feature
-to changes; use `amethystate-guinea` 0.28 for guinea sources over reactive fields.
+the store published by `StorePlugin`. Opening settings does not itself subscribe a feature
+to changes. Reactive field sources require an `amethystate-guinea` release compatible
+with both the guinea and amethystate versions in the application.
 
 If an application also depends directly on amethystate or its guinea adapter, use
-the compatible 0.28 line, not 0.25 or 0.27: types from those versions are distinct.
+the same amethystate line as the store: types from different minor versions are distinct.
+The published adapter 0.28 targets guinea 0.31, not 0.32; do not mix that adapter
+with this migration. The coordinated adapter and store dependency upgrade is separate.
 
 ## Shutdown
 

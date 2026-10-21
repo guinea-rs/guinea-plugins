@@ -1,6 +1,6 @@
 ![guinea-plugins](https://raw.githubusercontent.com/guinea-rs/guinea-plugins/master/assets/banners/guinea-plugins.png)
 
-Plugins for [guinea](https://github.com/guinea-rs/guinea) 0.31 applications.
+Plugins for [guinea](https://github.com/guinea-rs/guinea) 0.32 applications.
 
 | Crate | Purpose |
 |---|---|
@@ -23,20 +23,18 @@ use guinea_plugin_store::{StoreConfig, StorePlugin};
 use guinea_plugin_l10n::{L10nConfig, L10nPlugin};
 
 fn app(app: &mut FeatureBuilder) -> anyhow::Result<guinea::winui::Window> {
-    let StorePlugin(store, persistence) =
+    let StorePlugin(store, _) =
         app.plugin::<StorePlugin>(StoreConfig::for_app("my-app", "settings").or_in_memory())?;
     app.plugin::<L10nPlugin<L10n>>(L10nConfig::new("en").remembered_in(store.clone()))?;
-    app.provide(store);
-    if let Some(persistence) = persistence {
-        app.provide(persistence);
-    }
     Ok(guinea::winui::Window::of::<Shell>().title("My app"))
 }
 ```
 
-The application selects the instances and the order. Every call builds a new plugin.
-A returned service is not provided automatically: pass it in another plugin's
-configuration, or call `app.provide` so feature installation can inject it.
+The application selects the instances and the order. After a successful installation,
+guinea automatically publishes the values declared in `provides`. Installers receive
+them as arguments; another plugin can also take a returned value in its configuration.
+One provider of each service type is allowed on a scope branch. Independent stores
+belong to separate application trees, not repeated `StorePlugin` calls in one application.
 Reducer exports, such as `Language<L10n>`, are published by the plugin declaration.
 
 Configuration is separate from the installed value: `StoreConfig`, `L10nConfig`,
@@ -78,23 +76,22 @@ drop(app);
 
 ## Compatibility
 
-Dependencies use guinea 0.31.1 or a compatible patch release. The WinUI stack is
+Dependencies use guinea 0.32.0 or a compatible patch release. The WinUI stack is
 `windows-reactor-pre` 0.105.0 and `windows-canvas-pre` 0.105.0,
 with `windows-window-pre` 0.104.0.
 Consumers must use the same guinea and reactor types; depending on an older
-plugin tag alongside guinea 0.31 creates incompatible copies.
+plugin tag alongside guinea 0.32 creates incompatible copies.
 
 The store re-exports amethystate 0.28 and has its own package version, 0.28.0.
-The other workspace packages use version 0.31.0. Plugins are distributed by
+The other workspace packages use version 0.32.0. Plugins are distributed by
 repository git tags, not through crates.io:
 
 ```toml
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.31.0" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.32.0" }
 ```
 
-The older `v0.30.2` tag targets guinea 0.29 and must not be used for the API
-shown here. The devtools JSON protocol is 3.9; rebuild the inspector to display
-the source and actor trace points introduced with this migration.
+The older `v0.31.0` tag targets guinea 0.31 and uses manual service publication;
+it must not be mixed with guinea 0.32. The devtools JSON protocol remains 3.9.
 
 ## Checks
 

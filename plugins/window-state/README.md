@@ -29,5 +29,5 @@ The geometries live under `window` in the store, one entry per label;
 `window` for something of its own.
 
 Pass the returned `SavedGeometry` to the Slint window's `remembered_by(saved)`
-before running it. Returning the value does not register it as a service. In guinea
-0.31, WinUI does not consume this contract; this migration does not add that backend.
+before running it. Guinea also publishes this declared output for installers. In guinea
+0.32, WinUI does not consume this contract; this migration does not add that backend.

@@ -3,12 +3,7 @@
 //! ```no_run
 //! use guinea_plugin_store::{StoreConfig, StorePlugin};
 //! fn app(app: &mut guinea::app::FeatureBuilder) -> anyhow::Result<()> {
-//!     let StorePlugin(store, persistence) =
-//!         app.plugin::<StorePlugin>(StoreConfig::for_app("my-app", "settings"))?;
-//!     app.provide(store);
-//!     if let Some(persistence) = persistence {
-//!         app.provide(persistence);
-//!     }
+//!     app.plugin::<StorePlugin>(StoreConfig::for_app("my-app", "settings"))?;
 //!     Ok(())
 //! }
 //! ```
@@ -59,7 +54,7 @@ enum Open {
 /// value and closes it on shutdown.
 ///
 /// The returned store is independent of amethystate's process-wide store.
-/// Pass it explicitly or publish it through the application's `provide`.
+/// Guinea automatically publishes its declared outputs after installation succeeds.
 pub struct StoreConfig {
     open: Open,
     backend: Option<Backend>,
