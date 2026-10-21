@@ -11,6 +11,22 @@ publish = false
 members = ["model", "api", "hub", "mcp", "xaml-tap"]
 
 [profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.release]
+debug = 0
+
+[profile.bench]
+debug = 0
+
+[profile.sampling]
+inherits = "dev"
+debug = 0
+
+[profile.sampling.package.guinea-xaml-tap]
 debug = 1
 
 [dependencies]

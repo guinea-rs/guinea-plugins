@@ -34,3 +34,19 @@ tool per route, proxying to a running devtools - window or headless - found
 through the access file they write at startup.
 
 Only one copy runs per user.
+
+## Checks and debug symbols
+
+This workspace uses the repository's pinned Rust 1.99.1 toolchain. Its declared
+MSRV remains 1.95. Ordinary dev, test, release and bench builds disable debug
+information, including PDB generation from Rust debug information on Windows.
+
+Two Windows sampler tests check resolution of private function names and need
+symbols. They are ignored in the ordinary test profile and run explicitly in
+Windows CI with the `sampling` profile. Only `guinea-xaml-tap` enables limited
+debug information in that profile; its dependencies stay at `debug = 0`:
+
+```sh
+cargo test --workspace --locked
+cargo test -p guinea-xaml-tap --profile sampling --locked --lib -- --ignored --test-threads=1
+```

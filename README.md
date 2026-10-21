@@ -95,6 +95,12 @@ it must not be mixed with guinea 0.32. The devtools JSON protocol remains 3.9.
 
 ## Checks
 
+Normal local and CI builds use Rust 1.99.1, including the standalone workspace
+in `tools/devtools`. The declared MSRV remains 1.95. Ordinary dev, test, release
+and bench profiles disable debug information; optimisation levels are unchanged.
+Windows sampler symbol tests use the opt-in profile described in the
+[inspector README](tools/devtools#checks-and-debug-symbols).
+
 ```sh
 cargo fmt --check
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings

@@ -885,6 +885,7 @@ mod tests {
     static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
 
     #[test]
+    #[ignore = "requires the sampling profile with XAML tap debug symbols"]
     fn a_busy_thread_is_seen_in_the_function_it_is_busy_in() {
         let _alone = lock(&ONE_AT_A_TIME);
         let done = Arc::new(AtomicBool::new(false));
@@ -981,6 +982,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires the sampling profile with XAML tap debug symbols"]
     fn every_thread_that_runs_is_sampled_under_its_name_and_one_that_waits_is_not() {
         let _alone = lock(&ONE_AT_A_TIME);
         take();

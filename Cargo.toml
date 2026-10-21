@@ -24,8 +24,17 @@ tracing = "0.1.44"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 
 [profile.dev]
-debug = 1
+debug = 0
 incremental = true
 
 [profile.dev.package."*"]
+debug = 0
+
+[profile.test]
+debug = 0
+
+[profile.release]
+debug = 0
+
+[profile.bench]
 debug = 0
