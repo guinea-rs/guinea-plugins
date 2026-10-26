@@ -23,9 +23,9 @@ guinea-plugin-store = { path = "../../plugins/store" }
 guinea-plugin-single-instance = { path = "../../plugins/single-instance" }
 amethystate = { version = "0.28.0", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
-eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
-egui = "0.36"
-egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
+egui = "0.37"
+egui_extras = { version = "0.37", default-features = false, features = ["svg"] }
 guicons = { version = "0.14.1", default-features = false, features = ["macros", "egui"] }
 anyhow = "1.0"
 clap = { version = "4.6", features = ["derive"] }
