@@ -1,14 +1,14 @@
 # guinea-plugin-store
 
-Persistent storage for guinea 0.32, backed by amethystate 0.29.0.
+Persistent storage for guinea 0.33, backed by amethystate 0.29.0.
 The plugin's own version follows amethystate because it re-exports its public types.
 
 ## Installation
 
 ```toml
 [dependencies]
-guinea = "0.32.0"
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.32.0" }
+guinea = "0.33.0"
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.33.0" }
 ```
 
 Plugins are distributed by repository git tag, not through crates.io. The store
@@ -107,7 +107,7 @@ with both the guinea and amethystate versions in the application.
 If an application also depends directly on amethystate or its guinea adapter, use
 the same amethystate line as the store: types from different minor versions are distinct.
 Use amethystate and `amethystate-guinea` 0.29 with this store. The adapter accepts
-guinea `>=0.32`; this plugin version is checked with guinea 0.32. The older
+guinea `>=0.32`; this plugin version targets guinea 0.33. The older
 adapter 0.28 targets guinea 0.31 and must not be mixed with this stack.
 
 ## Shutdown

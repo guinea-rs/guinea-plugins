@@ -30,4 +30,4 @@ The geometries live under `window` in the store, one entry per label;
 
 Pass the returned `SavedGeometry` to the Slint window's `remembered_by(saved)`
 before running it. Guinea also publishes this declared output for installers. In guinea
-0.32, WinUI does not consume this contract; this migration does not add that backend.
+0.33, WinUI does not consume this contract; this migration does not add that backend.
