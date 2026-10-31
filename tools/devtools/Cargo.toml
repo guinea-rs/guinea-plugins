@@ -33,7 +33,7 @@ debug = 1
 guinea-devtools-model = { path = "model" }
 guinea-devtools-api = { path = "api" }
 guinea-devtools-hub = { path = "hub" }
-guinea = { version = "0.33.0", default-features = false, features = ["eframe"] }
+guinea = { version = "0.34.0", default-features = false, features = ["eframe"] }
 guinea-devtools-protocol = { path = "../../plugins/devtools-protocol" }
 guinea-plugin-store = { path = "../../plugins/store" }
 guinea-plugin-single-instance = { path = "../../plugins/single-instance" }

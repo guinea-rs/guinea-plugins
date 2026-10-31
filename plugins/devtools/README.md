@@ -32,7 +32,7 @@ shipped to users should not listen for that because a line was left in.
 
 What goes over the wire is [`guinea-devtools-protocol`](../devtools-protocol).
 
-The plugin observes guinea 0.33 through the application's `Observed` handle.
+The plugin observes guinea 0.34 through the application's `Observed` handle.
 It rebuilds its view on reconnect and sends changes after the initial snapshot.
 The optional `profiling` feature serves explicit puffin instrumentation; guinea's
 old core puffin zones no longer exist. Native backend profiling remains separate.
