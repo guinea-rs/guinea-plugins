@@ -1,0 +1,541 @@
+diff --git a/widgets/src/chart/paint.rs b/widgets/src/chart/paint.rs
+index 7e96651..248b6ef 100644
+--- a/widgets/src/chart/paint.rs
++++ b/widgets/src/chart/paint.rs
+@@ -26,6 +26,96 @@ const LINE_WIDTH: f32 = 1.0;
+ const GRID_LEAST_SPACING: f32 = 4.0;
+ pub(super) const BACKGROUND_TOP: ColorF = hex(0x1c1e26);
+ 
++#[derive(Default)]
++pub(super) struct Cache(Option<Prepared>);
++
++struct Prepared {
++    device: GpuDevice,
++    metrics: Metrics,
++    frame: Frame,
++    paths: Vec<PreparedSeries>,
++}
++
++struct PreparedSeries {
++    stroke: Path,
++    brush: Brush,
++    fill: Option<(Path, Brush)>,
++}
++
++impl Cache {
++    #[cfg(test)]
++    pub fn ready(&self) -> bool {
++        self.0.is_some()
++    }
++
++    pub fn clear(&mut self) {
++        self.0 = None;
++    }
++
++    fn draw(
++        &mut self,
++        draw: &DrawingSession<'_>,
++        device: &GpuDevice,
++        metrics: Metrics,
++        frame: Frame,
++        series: &[Series],
++    ) -> CanvasResult<()> {
++        let reusable = self.0.as_ref().is_some_and(|prepared| {
++            prepared.device.d2d_device().as_raw() == device.d2d_device().as_raw()
++                && prepared.metrics == metrics
++                && prepared.frame.to - prepared.frame.from == frame.to - frame.from
++                && prepared.frame.min_v == frame.min_v
++                && prepared.frame.max_v == frame.max_v
++        });
++        tracing::trace!(target: "guinea_widgets::chart::cache", hit = reusable, "paths");
++        if !reusable {
++            let mut paths = Vec::new();
++            let to_screen = |time, value| Vector2 {
++                x: frame.x(time, metrics.width),
++                y: frame.y(value, metrics.height),
++            };
++            for line in series.iter().filter(|line| line.points.len() >= 2) {
++                let stroke = build_path(device, line, &to_screen, metrics.height, false)?;
++                let brush = draw.create_solid_brush(line.color)?;
++                let fill = line
++                    .fill
++                    .map(|color| -> CanvasResult<(Path, Brush)> {
++                        Ok((
++                            build_path(device, line, &to_screen, metrics.height, true)?,
++                            draw.create_solid_brush(color)?,
++                        ))
++                    })
++                    .transpose()?;
++                paths.push(PreparedSeries {
++                    stroke,
++                    brush,
++                    fill,
++                });
++            }
++            self.0 = Some(Prepared {
++                device: device.clone(),
++                metrics,
++                frame,
++                paths,
++            });
++        }
++        if let Some(prepared) = &self.0 {
++            let offset = ((prepared.frame.from - frame.from) / (frame.to - frame.from)) as f32
++                * metrics.width;
++            let transform = Matrix3x2::translation(offset, 0.0) * draw.transform();
++            draw.with_transform(&transform, || {
++                for line in &prepared.paths {
++                    if let Some((path, brush)) = &line.fill {
++                        draw.fill_path(path, brush);
++                    }
++                    draw.draw_path(&line.stroke, &line.brush, LINE_WIDTH);
++                }
++            });
++        }
++        Ok(())
++    }
++}
++
+ /// Draws the chart, its time axis ending at `end` when a live chart's clock
+ /// says where that is.
+ pub(super) fn render(
+@@ -35,6 +125,7 @@ pub(super) fn render(
+     series: &[Series],
+     options: &LineChartOptions,
+     end: Option<f64>,
++    cache: &mut Cache,
+ ) {
+     let Metrics { width, height, .. } = metrics;
+     if width <= 0.0 || height <= 0.0 {
+@@ -48,9 +139,9 @@ pub(super) fn render(
+ 
+     match options.corner_radius.filter(|radius| *radius > 0.0) {
+         Some(radius) => clipped(draw, width, height, radius, || {
+-            content(draw, device, metrics, series, options, end)
++            content(draw, device, metrics, series, options, end, cache)
+         }),
+-        None => content(draw, device, metrics, series, options, end),
++        None => content(draw, device, metrics, series, options, end, cache),
+     }
+ }
+ 
+@@ -119,6 +210,7 @@ fn content(
+     series: &[Series],
+     options: &LineChartOptions,
+     end: Option<f64>,
++    cache: &mut Cache,
+ ) {
+     let Metrics { width, height, .. } = metrics;
+     let pixel = Pixel::of(metrics);
+@@ -147,6 +239,18 @@ fn content(
+         return;
+     };
+ 
++    if options.live.is_some() && options.x_window.is_some() && options.y_range.is_some() {
++        match cache.draw(draw, device, metrics, frame, series) {
++            Ok(()) => return,
++            Err(error) => {
++                cache.clear();
++                tracing::warn!(%error, "line_chart: cached paths unavailable");
++            }
++        }
++    } else {
++        cache.clear();
++    }
++
+     let to_screen = move |t: u64, v: f32| -> Vector2 {
+         Vector2 {
+             x: frame.x(t, width),
+@@ -372,6 +476,277 @@ fn build_path(
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    #[ignore = "manual WARP attribution; reports CPU cycles, not GPU timestamps"]
++    fn attribute_path_build_and_translation_cost() {
++        #[link(name = "kernel32")]
++        unsafe extern "system" {
++            fn GetCurrentThread() -> *mut std::ffi::c_void;
++            fn QueryThreadCycleTime(thread: *mut std::ffi::c_void, cycles: *mut u64) -> i32;
++        }
++        let cycles = || {
++            let mut measured = 0;
++            assert_ne!(
++                unsafe { QueryThreadCycleTime(GetCurrentThread(), &mut measured) },
++                0
++            );
++            measured
++        };
++        let device = GpuDevice::new_warp().unwrap();
++        let target = device.create_render_target(200, 48).unwrap();
++        let metrics = Metrics {
++            width: 200.0,
++            height: 48.0,
++            scale: 1.0,
++        };
++        let line = Series {
++            color: ColorF::WHITE,
++            fill: Some(ColorF {
++                a: 0.25,
++                ..ColorF::WHITE
++            }),
++            interpolation: Interpolation::Linear,
++            points: (0..600)
++                .map(|index| (index * 100, (index % 40) as f32 + 30.0))
++                .collect(),
++        };
++        let anchor = Frame {
++            from: 0.0,
++            to: 60_000.0,
++            min_v: 0.0,
++            max_v: 100.0,
++        };
++        for mode in [
++            "rebuild",
++            "translate-rebuild",
++            "reuse",
++            "reuse",
++            "translate-rebuild",
++            "rebuild",
++        ] {
++            let mut cache = Cache::default();
++            let mut preparation = 0;
++            let mut submission = 0;
++            let started = cycles();
++            for frame_index in 0..300 {
++                let offset = frame_index as f64 * 100.0;
++                let frame = Frame {
++                    from: offset,
++                    to: offset + 60_000.0,
++                    ..anchor
++                };
++                target
++                    .draw(|draw| {
++                        draw.clear(ColorF::TRANSPARENT);
++                        if mode == "reuse" {
++                            let before = cycles();
++                            cache.draw(
++                                draw,
++                                &device,
++                                metrics,
++                                frame,
++                                std::slice::from_ref(&line),
++                            )?;
++                            submission += cycles() - before;
++                        } else {
++                            let before = cycles();
++                            let prepared = if mode == "rebuild" { frame } else { anchor };
++                            let project = |time, value| Vector2 {
++                                x: prepared.x(time, 200.0),
++                                y: prepared.y(value, 48.0),
++                            };
++                            let stroke = build_path(&device, &line, &project, 48.0, false)?;
++                            let fill = build_path(&device, &line, &project, 48.0, true)?;
++                            let brush = draw.create_solid_brush(line.color)?;
++                            let fill_brush = draw.create_solid_brush(line.fill.unwrap())?;
++                            preparation += cycles() - before;
++                            let before = cycles();
++                            let paint = || {
++                                draw.fill_path(&fill, &fill_brush);
++                                draw.draw_path(&stroke, &brush, LINE_WIDTH);
++                            };
++                            if mode == "translate-rebuild" {
++                                let transform = Matrix3x2::translation(
++                                    (-offset / 60_000.0 * 200.0) as f32,
++                                    0.0,
++                                ) * draw.transform();
++                                draw.with_transform(&transform, paint);
++                            } else {
++                                paint();
++                            }
++                            submission += cycles() - before;
++                        }
++                        Ok(())
++                    })
++                    .unwrap();
++            }
++            println!(
++                "{mode}: paints=300 total_cycles={} explicit_prepare_cycles={preparation} submit_or_cache_cycles={submission}",
++                cycles() - started
++            );
++        }
++    }
++
++    #[test]
++    fn cached_live_paths_match_rebuilt_paths_across_frames() {
++        let device = GpuDevice::new_warp().unwrap();
++        let cached = device.create_render_target(200, 48).unwrap();
++        let reference = device.create_render_target(200, 48).unwrap();
++        let metrics = Metrics {
++            width: 200.0,
++            height: 48.0,
++            scale: 1.0,
++        };
++        for (interpolation, light) in [
++            Interpolation::Linear,
++            Interpolation::Step,
++            Interpolation::Smooth,
++        ]
++        .into_iter()
++        .flat_map(|interpolation| [false, true].map(|light| (interpolation, light)))
++        {
++            let color = if light { ColorF::BLACK } else { ColorF::WHITE };
++            let series = vec![Series {
++                color,
++                fill: Some(ColorF { a: 0.25, ..color }),
++                interpolation,
++                points: (0..600)
++                    .map(|index| (index * 100, (index % 40) as f32 + 30.0))
++                    .collect(),
++            }];
++            let options = LineChartOptions {
++                background: Some(if light { ColorF::WHITE } else { ColorF::BLACK }),
++                border: Some(color),
++                corner_radius: Some(6.0),
++                grid: Some(ChartGrid {
++                    every_t: Some(10_000),
++                    at_v: vec![50.0],
++                    color,
++                }),
++                x_window: Some(60_000),
++                y_range: Some((0.0, 100.0)),
++                live: Some(super::super::model::Live {
++                    per_second: 1000.0,
++                    lag: 1000,
++                }),
++            };
++            let mut cache = Cache::default();
++            let mut original = None;
++            for end in [60_000.0, 60_100.0, 61_000.0] {
++                cached
++                    .draw(|draw| {
++                        draw.clear(ColorF::TRANSPARENT);
++                        let transform = Matrix3x2::translation(3.0, 2.0);
++                        draw.set_transform(&transform);
++                        render(
++                            draw,
++                            &device,
++                            metrics,
++                            &series,
++                            &options,
++                            Some(end),
++                            &mut cache,
++                        );
++                        assert_eq!(draw.transform(), transform);
++                        Ok(())
++                    })
++                    .unwrap();
++                let path = cache.0.as_ref().unwrap().paths[0].stroke.raw().as_raw();
++                if let Some(original) = original {
++                    assert_eq!(path, original);
++                }
++                original = Some(path);
++                let plain = LineChartOptions {
++                    live: None,
++                    ..options.clone()
++                };
++                reference
++                    .draw(|draw| {
++                        draw.clear(ColorF::TRANSPARENT);
++                        draw.set_transform(&Matrix3x2::translation(3.0, 2.0));
++                        render(
++                            draw,
++                            &device,
++                            metrics,
++                            &series,
++                            &plain,
++                            Some(end),
++                            &mut Cache::default(),
++                        );
++                        Ok(())
++                    })
++                    .unwrap();
++                let actual = cached.read_pixels().unwrap();
++                let expected = reference.read_pixels().unwrap();
++                let worst = actual
++                    .iter()
++                    .zip(&expected)
++                    .map(|(actual, expected)| actual.abs_diff(*expected))
++                    .max()
++                    .unwrap();
++                let total: u64 = actual
++                    .iter()
++                    .zip(&expected)
++                    .map(|(actual, expected)| u64::from(actual.abs_diff(*expected)))
++                    .sum();
++                let mean = total as f64 / actual.len() as f64;
++                assert!(
++                    worst <= 4 && mean <= 0.01,
++                    "{interpolation:?} end={end}: worst={worst}, mean={mean}"
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn cached_paths_are_rebuilt_for_device_metrics_and_range_changes() {
++        let device = GpuDevice::new_warp().unwrap();
++        let replacement = GpuDevice::new_warp().unwrap();
++        let target = device.create_render_target(200, 48).unwrap();
++        let other_target = replacement.create_render_target(200, 48).unwrap();
++        let series = vec![Series {
++            color: ColorF::WHITE,
++            fill: None,
++            interpolation: Interpolation::Linear,
++            points: vec![(0, 30.0), (60_000, 70.0)],
++        }];
++        let mut cache = Cache::default();
++        let mut previous: Option<Path> = None;
++        for (device, target, width, scale, max_v) in [
++            (&device, &target, 200.0, 1.0, 100.0),
++            (&device, &target, 180.0, 1.0, 100.0),
++            (&device, &target, 180.0, 1.25, 100.0),
++            (&device, &target, 180.0, 1.25, 200.0),
++            (&replacement, &other_target, 180.0, 1.25, 200.0),
++        ] {
++            target
++                .draw(|draw| {
++                    cache.draw(
++                        draw,
++                        device,
++                        Metrics {
++                            width,
++                            height: 48.0,
++                            scale,
++                        },
++                        Frame {
++                            from: 0.0,
++                            to: 60_000.0,
++                            min_v: 0.0,
++                            max_v,
++                        },
++                        &series,
++                    )
++                })
++                .unwrap();
++            let path = cache.0.as_ref().unwrap().paths[0].stroke.clone();
++            if let Some(previous) = previous {
++                assert_ne!(path.raw().as_raw(), previous.raw().as_raw());
++            }
++            previous = Some(path);
++        }
++    }
++
+     fn at(scale: f32) -> Pixel {
+         Pixel::of(Metrics {
+             width: 100.0,
+diff --git a/widgets/src/chart/ui.rs b/widgets/src/chart/ui.rs
+index bbcfea0..239232a 100644
+--- a/widgets/src/chart/ui.rs
++++ b/widgets/src/chart/ui.rs
+@@ -27,13 +27,23 @@ struct Drawing {
+     series: RefCell<Vec<Series>>,
+     options: RefCell<LineChartOptions>,
+     clock: Cell<Clock>,
++    cache: RefCell<paint::Cache>,
+ }
+ 
+ impl Paint for Drawing {
+     fn paint(&self, session: &DrawingSession<'_>, device: &GpuDevice, metrics: Metrics) {
++        tracing::trace!(target: "guinea_widgets::chart::frame", "paint");
+         let end = self.end(Instant::now());
+         let (series, options) = (self.series.borrow(), self.options.borrow());
+-        paint::render(session, device, metrics, &series, &options, end);
++        paint::render(
++            session,
++            device,
++            metrics,
++            &series,
++            &options,
++            end,
++            &mut self.cache.borrow_mut(),
++        );
+     }
+ 
+     fn moving(&self) -> bool {
+@@ -142,6 +152,10 @@ impl Chart {
+         let restyled = *drawing.options.borrow() != options;
+         let moved = *drawing.series.borrow() != series;
+ 
++        if restyled || moved {
++            drawing.cache.borrow_mut().clear();
++        }
++
+         *drawing.series.borrow_mut() = series;
+         *drawing.options.borrow_mut() = options;
+         drawing.saw_newest();
+@@ -166,6 +180,7 @@ impl Chart {
+                 return;
+             };
+             line.points.push(point);
++            drawing.cache.borrow_mut().clear();
+ 
+             let options = drawing.options.borrow();
+             if let Some(window) = options.x_window {
+@@ -183,6 +198,9 @@ impl Chart {
+     pub fn restyle(&self, options: LineChartOptions) {
+         let drawing = self.drawing();
+         let restyled = *drawing.options.borrow() != options;
++        if restyled {
++            drawing.cache.borrow_mut().clear();
++        }
+         *drawing.options.borrow_mut() = options;
+         drawing.saw_newest();
+ 
+@@ -235,6 +253,56 @@ mod tests {
+     use super::super::model::Interpolation;
+     use super::*;
+ 
++    #[test]
++    fn data_and_style_changes_invalidate_paths_but_identical_publish_does_not() {
++        let device = GpuDevice::new_warp().unwrap();
++        let target = device.create_render_target(200, 48).unwrap();
++        let chart = Chart::new();
++        let mut options = windowed(60_000);
++        options.y_range = Some((0.0, 100.0));
++        options.live = Some(super::super::model::Live {
++            per_second: 1000.0,
++            lag: 1000,
++        });
++        let mut data = vec![series(&[(0, 10.0), (30_000, 20.0), (60_000, 30.0)])];
++        let warm = || {
++            target
++                .draw(|draw| {
++                    chart.drawing().paint(
++                        draw,
++                        &device,
++                        Metrics {
++                            width: 200.0,
++                            height: 48.0,
++                            scale: 1.0,
++                        },
++                    );
++                    Ok(())
++                })
++                .unwrap();
++        };
++        chart.publish(data.clone(), options.clone());
++        warm();
++        assert!(chart.drawing().cache.borrow().ready());
++        chart.publish(data.clone(), options.clone());
++        assert!(chart.drawing().cache.borrow().ready());
++        data[0].points[1].1 = 80.0;
++        chart.publish(data, options.clone());
++        assert!(!chart.drawing().cache.borrow().ready());
++        warm();
++        chart.push(0, (61_000, 40.0));
++        assert!(!chart.drawing().cache.borrow().ready());
++        warm();
++        options.border = None;
++        chart.restyle(options.clone());
++        assert!(!chart.drawing().cache.borrow().ready());
++        warm();
++        options.y_range = None;
++        chart.restyle(options);
++        warm();
++        assert!(!chart.drawing().cache.borrow().ready());
++    }
++
+     fn series(points: &[(u64, f32)]) -> Series {
+         Series {
+             color: windows_canvas::ColorF {

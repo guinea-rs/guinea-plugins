@@ -1,0 +1,7 @@
+mode,paints,total_thread_cycles,explicit_prepare_cycles,submit_or_cache_cycles
+rebuild,300,145292353,65826423,1451126
+translate-rebuild,300,158583358,72145513,2029881
+reuse,300,73157566,0,1963680
+reuse,300,82384148,0,2156504
+translate-rebuild,300,145526409,66444964,1929122
+rebuild,300,141096342,65585967,1429649

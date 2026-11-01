@@ -1,0 +1,66 @@
+Sidebar chart cache investigation, 2026-11-01
+
+Status: experimental candidate, NOT a production optimization or release.
+The shipped Chart implementation is unchanged. candidate.patch is an overlay
+against v0.34.0 (770c8bb3c0dca1253e9365aa0c53f14dbd8617ad), not applied by builds.
+Use it only in an isolated source checkout: git apply --check candidate.patch,
+then git apply candidate.patch. Do not overwrite an unrelated dirty checkout.
+
+Candidate
+Fixed-y-range Live charts cache native fill/stroke Path and series brushes.
+Each live redraw translates the data geometry; cadence, grid, background,
+border, hover and auto-range policy are unchanged. Data, options, metrics and
+D2D-device changes invalidate the cache. No new public API was introduced.
+Native test coverage includes device/metrics/scale/range invalidation, identical
+publish, changed middle values, push, restyle and auto-range fallback.
+Raster comparison covers Linear/Step/Smooth, both themes, grid, rounded clip,
+caller translation and restoration. Native AA is not bit-identical: maximum
+channel difference 4/255 and mean <=0.01 on the tested images. This is bounded
+evidence, not a universal proof of visual equivalence or real device recovery.
+Candidate checks: 57 library tests passed, 1 manual attribution test ignored;
+strict widgets all-targets clippy passed. The manual attribution test also ran.
+
+Native WARP attribution
+Run the ignored attribute_path_build_and_translation_cost test from the overlay.
+There are 300 draws per pass, 600 linear points with fill, a 200x48 offscreen
+RenderTarget and two reverse-order repetitions. QueryThreadCycleTime measures
+actual cycles on the calling drawing thread, NOT GPU timestamps, elapsed wall
+time or aggregate process CPU including WARP workers. See attribution.csv.
+explicit_prepare_cycles covers path/brush preparation in the rebuild branches.
+submit_or_cache_cycles in reuse INCLUDES the first cache preparation. A zero
+explicit_prepare_cycles in reuse therefore does not mean no preparation.
+total_cycles also includes Begin/EndDraw, clear and surrounding host work.
+This probe isolates preparation savings but omits CanvasImageSource/compositor.
+It cannot establish a native sidebar improvement.
+
+Uniproc measurements, reported by the owning chat
+600 points, 60-second window, five 200x48 charts. Process CPU percentages below
+are fractions of ONE core over seconds 3..13; shared-machine variance is large.
+The original counter runs count the entire approximately 16-second lifetime,
+NOT the CPU sampling window. Do not normalize these CPU values by those counts.
+1000 ms snapshots: frozen 1.72 -> 2.50, live 2.97 -> 1.56, stepped 1.25 -> 0.94.
+100 ms snapshots: frozen 2.81 -> 3.43, live 7.64 -> 5.31, stepped 4.53 -> 5.77.
+Frozen ABBA repeat without trace: baseline 1.5605, cached 3.2766,
+cached 1.7181, baseline 1.4047 percent of one core. General benefit NOT confirmed.
+Whole-run paint counts baseline/cached:
+1000 ms: frozen 245/245 (240 hits, 5 misses), live 320/320 (240/80), stepped 80/80.
+100 ms: frozen 245/245 (240/5), live 955/950 (240/710), stepped 705/710.
+Small count differences at the 16-second cutoff are not exact cadence equality.
+The first blank-chart 20.4% CPU observation did not reproduce (later 0%) and
+was withdrawn as a diagnosis.
+
+External raw consumer evidence is in D:/projects/uniproc/diagnostics/sidebar-charts/
+results/{cache-pairs.csv,frozen-repeat.csv,paint-counts.csv}. Those files are owned
+by Uniproc and are not copied into or edited by this repository.
+Bench-only source snapshots were supplied under the explicitly agreed paths
+D:/projects/uniproc/target/sidebar-count/{baseline,cached}/, without build targets.
+Baseline is v0.34 plus one frame TRACE event; cached adds cache hit TRACE events.
+TRACE is disabled for CPU runs and enabled only for independent counter runs.
+
+Decision and follow-up
+Do not integrate or tag this candidate on the basis of the live-only wins.
+Frozen native process CPU did not pass the acceptance gate. A next investigation
+must align paint counters and cumulative process CPU to the SAME time interval,
+then attribute native CanvasImageSource/EndDraw/compositor costs separately from
+CPU path preparation and translation. Do not disable Live or alter frame policy
+to manufacture a win. No GUI process was stopped and no backend/vendor API changed.
