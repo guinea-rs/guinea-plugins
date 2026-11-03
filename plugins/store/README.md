@@ -8,7 +8,7 @@ The plugin's own version follows amethystate because it re-exports its public ty
 ```toml
 [dependencies]
 guinea = "0.35.0"
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.35.0" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.35.1" }
 ```
 
 Plugins are distributed by repository git tag, not through crates.io. The store

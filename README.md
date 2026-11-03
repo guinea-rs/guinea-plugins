@@ -83,11 +83,11 @@ Consumers must use the same guinea and reactor types; depending on an older
 plugin tag alongside guinea 0.35 creates incompatible copies.
 
 The store re-exports amethystate 0.29 and has its own package version, 0.29.0.
-The other workspace packages use version 0.35.0. Plugins are distributed by
+The other workspace packages use version 0.35.1. Plugins are distributed by
 repository git tags, not through crates.io:
 
 ```toml
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.35.0" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.35.1" }
 ```
 
 The older `v0.31.0` tag targets guinea 0.31 and uses manual service publication;
