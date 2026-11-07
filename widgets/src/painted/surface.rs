@@ -10,8 +10,9 @@
 //! the next one straight away; the others notice their surface belongs to the
 //! old device the next time they draw, and build a new one.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
+use std::time::{Duration, Instant};
 
 use windows_canvas::{CanvasImageSource, ColorF, DrawingSession, GpuDevice, Result};
 use windows_reactor::{ElementRef, Image};
@@ -49,6 +50,20 @@ pub struct Metrics {
     pub width: f32,
     pub height: f32,
     pub scale: f32,
+}
+
+/// CPU wall times of one surface attempt; finish includes native EndDraw.
+/// A successful pass is not a display/presentation completion notification.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SurfaceTiming {
+    pub device: Duration,
+    pub surface: Duration,
+    pub prepare: Duration,
+    pub begin: Duration,
+    pub paint: Duration,
+    pub finish: Duration,
+    pub attach: Duration,
+    pub painted: bool,
 }
 
 impl Metrics {
@@ -115,24 +130,33 @@ impl Surface {
 
     /// Draws with `paint`, handed the session, the device, and the size in
     /// DIPs with the pixels per DIP. Does nothing until the image has a size.
-    pub fn draw(&mut self, paint: impl Fn(&DrawingSession<'_>, &GpuDevice, Metrics)) {
-        let Some(metrics) = self.metrics else {
-            return;
-        };
+    pub fn draw(
+        &mut self,
+        prepare: impl Fn(&GpuDevice, Metrics) -> windows_canvas::Result<bool>,
+        paint: impl Fn(&DrawingSession<'_>, &GpuDevice, Metrics),
+    ) -> Option<SurfaceTiming> {
+        let metrics = self.metrics?;
         if metrics.width <= 0.0 || metrics.height <= 0.0 {
-            return;
+            return None;
         }
 
+        let mut timing = SurfaceTiming::default();
         for _ in 0..2 {
+            let started = Instant::now();
             let device = match shared() {
                 Ok(device) => device,
-                Err(error) => return tracing::warn!(%error, "painted: no graphics device"),
+                Err(error) => {
+                    tracing::warn!(%error, "painted: no graphics device");
+                    return None;
+                }
             };
+            timing.device += started.elapsed();
 
             let current = self.drawn.as_ref().is_some_and(|drawn| {
                 Rc::ptr_eq(&drawn.device, &device) && drawn.metrics == metrics
             });
             if !current {
+                let started = Instant::now();
                 match CanvasImageSource::new(&device, metrics.width, metrics.height, metrics.scale)
                 {
                     Ok(source) => {
@@ -143,19 +167,53 @@ impl Surface {
                             attached: false,
                         });
                     }
-                    Err(error) => return tracing::warn!(%error, "painted: no surface"),
+                    Err(error) => {
+                        tracing::warn!(%error, "painted: no surface");
+                        return None;
+                    }
                 }
+                timing.surface += started.elapsed();
             }
 
-            let Some(drawn) = self.drawn.as_mut() else {
-                return;
-            };
+            let drawn = self.drawn.as_mut()?;
 
+            let started = Instant::now();
+            let ready = match prepare(&drawn.device, metrics) {
+                Ok(ready) => ready,
+                Err(error) if windows_canvas::is_device_lost(error.code()) => {
+                    lost(&device);
+                    self.drawn = None;
+                    continue;
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "painted: preparation failed");
+                    return None;
+                }
+            };
+            timing.prepare += started.elapsed();
+            if !ready {
+                return Some(timing);
+            }
+            let started = Instant::now();
+            let painted_at = Cell::new(None);
+            let began_after = Cell::new(Duration::ZERO);
+            let paint_time = Cell::new(Duration::ZERO);
             match drawn.source.draw(ColorF::TRANSPARENT, |session| {
+                began_after.set(started.elapsed());
+                let started = Instant::now();
                 paint(session, &drawn.device, metrics);
+                paint_time.set(started.elapsed());
+                painted_at.set(Some(Instant::now()));
                 Ok(())
             }) {
                 Ok(true) => {
+                    timing.begin += began_after.get();
+                    timing.paint += paint_time.get();
+                    timing.finish += painted_at
+                        .get()
+                        .map_or(started.elapsed(), |at| at.elapsed());
+                    timing.painted = true;
+                    let started = Instant::now();
                     if !drawn.attached {
                         drawn.attached = drawn.source.attach_result(&self.image, |result| {
                             if let Err(error) = result {
@@ -163,14 +221,19 @@ impl Surface {
                             }
                         });
                     }
-                    return;
+                    timing.attach += started.elapsed();
+                    return Some(timing);
                 }
                 Ok(false) => {
                     lost(&drawn.device);
                     self.drawn = None;
                 }
-                Err(error) => return tracing::warn!(%error, "painted: drawing failed"),
+                Err(error) => {
+                    tracing::warn!(%error, "painted: drawing failed");
+                    return None;
+                }
             }
         }
+        None
     }
 }

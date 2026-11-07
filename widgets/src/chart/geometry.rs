@@ -255,7 +255,7 @@ mod tests {
     fn a_frame_that_ends_before_zero_has_no_multiples_in_view() {
         let early = Frame::of(&[series(&[(0, 0.0)])], Some(2_000), None, Some(-500.0)).unwrap();
 
-        assert_eq!(early.multiples(1_000).collect::<Vec<_>>(), []);
+        assert!(early.multiples(1_000).next().is_none());
     }
 
     #[test]

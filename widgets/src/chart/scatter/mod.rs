@@ -6,10 +6,12 @@ mod gesture;
 mod model;
 mod paint;
 mod plot;
+mod progressive;
 mod ui;
 
 pub use model::{
-    Area, Hit, IntoScatterData, Key, Level, Marker, Scale, ScatterData, ScatterEvent,
-    ScatterOptions, ScatterPoint, ScatterSeries, SeriesStyle,
+    Area, Hit, IntoScatterData, Key, Level, Marker, Scale, ScatterCursor, ScatterData,
+    ScatterEvent, ScatterOptions, ScatterPoint, ScatterSeries, SeriesStyle,
 };
+pub use progressive::ScatterRenderStats;
 pub use ui::Scatter;

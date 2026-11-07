@@ -14,7 +14,8 @@ use super::model::{
 };
 use super::paint::{self, Labels, Pointing};
 use super::plot::Plot;
-use crate::painted::{Metrics, Paint, Painted, Pointer};
+use super::progressive::{ScatterRenderStats, State};
+use crate::painted::{Metrics, Paint, Painted, Pointer, SurfaceTiming};
 
 /// The span `x` has moved on to `since` after it was published, at
 /// `per_second` units a second; where it was, for a chart that is not live.
@@ -35,6 +36,10 @@ struct Plotting<K> {
     /// When the span shown was last handed over.
     anchored: Cell<Option<Instant>>,
     labels: RefCell<Option<Option<Labels>>>,
+    budget: Cell<Option<Duration>>,
+    revision: Cell<u64>,
+    progressive: RefCell<State<K>>,
+    overlay_dirty: Cell<bool>,
 }
 
 impl<K: Key> Plotting<K> {
@@ -45,6 +50,10 @@ impl<K: Key> Plotting<K> {
             gesture: RefCell::new(Gesture::default()),
             anchored: Cell::new(None),
             labels: RefCell::new(None),
+            budget: Cell::new(None),
+            revision: Cell::new(0),
+            progressive: RefCell::new(State::default()),
+            overlay_dirty: Cell::new(false),
         }
     }
 
@@ -63,9 +72,61 @@ impl<K: Key> Plotting<K> {
             },
         )
     }
+
+    fn interaction(&self, metrics: Metrics) -> Option<(Rc<dyn ScatterData<K>>, Plot, f32)> {
+        if self.budget.get().is_some() {
+            let state = self.progressive.borrow();
+            if !state.eager() {
+                return state
+                    .front
+                    .as_ref()
+                    .map(|front| (front.data.clone(), front.plot.clone(), front.options.reach));
+            }
+        }
+        Some((
+            self.series.borrow().clone(),
+            self.plot(metrics.width, metrics.height, Instant::now()),
+            self.options.borrow().reach,
+        ))
+    }
 }
 
 impl<K: Key> Paint for Plotting<K> {
+    fn frame_driven(&self) -> bool {
+        self.budget.get().is_some()
+    }
+    fn frame_pending(&self) -> bool {
+        self.progressive.borrow().pending()
+    }
+    fn released(&self) {
+        self.progressive.borrow_mut().release();
+        *self.gesture.borrow_mut() = Gesture::default();
+    }
+    fn surface_timing(&self, timing: SurfaceTiming) {
+        self.progressive.borrow_mut().surface_timing(timing);
+    }
+    fn prepare(&self, device: &GpuDevice, metrics: Metrics) -> windows_canvas::Result<bool> {
+        let Some(budget) = self.budget.get() else {
+            return Ok(true);
+        };
+        let mut options = self.options.borrow().clone();
+        options.x = self.plot(metrics.width, metrics.height, Instant::now()).x;
+        self.progressive.borrow_mut().hold_front = self.gesture.borrow().brush().is_some();
+        let (ready, swapped) = self.progressive.borrow_mut().prepare(
+            device,
+            metrics,
+            self.series.borrow().clone(),
+            options,
+            self.revision.get(),
+            budget,
+        )?;
+        if swapped {
+            *self.gesture.borrow_mut() = Gesture::default();
+        }
+        let overlay = self.overlay_dirty.replace(false);
+        Ok(ready || overlay)
+    }
+
     fn paint(&self, session: &DrawingSession<'_>, _device: &GpuDevice, metrics: Metrics) {
         let plot = self.plot(metrics.width, metrics.height, Instant::now());
         let gesture = self.gesture.borrow();
@@ -75,6 +136,42 @@ impl<K: Key> Paint for Plotting<K> {
         };
         let mut labels = self.labels.borrow_mut();
         let labels = labels.get_or_insert_with(Labels::new).as_ref();
+
+        if self.budget.get().is_some() && !self.progressive.borrow().eager() {
+            let copy = {
+                let state = self.progressive.borrow();
+                match state.front.as_ref() {
+                    Some(front) => {
+                        let mut options = front.options.clone();
+                        options.selection = self.options.borrow().selection;
+                        paint::render_bitmap(
+                            session,
+                            metrics,
+                            &front.plot,
+                            (&*front.data, Some(&front.bitmap)),
+                            &options,
+                            &pointing,
+                            labels,
+                        )
+                    }
+                    None => paint::render_bitmap(
+                        session,
+                        metrics,
+                        &plot,
+                        (&**self.series.borrow(), None),
+                        &self.options.borrow(),
+                        &Pointing {
+                            brush: None,
+                            hovered: None,
+                        },
+                        labels,
+                    ),
+                }
+            };
+            let mut state = self.progressive.borrow_mut();
+            state.stats.max_copy = state.stats.max_copy.max(copy);
+            return;
+        }
 
         paint::render(
             session,
@@ -126,6 +223,25 @@ impl<K: Key> Scatter<K> {
         self.painted.painter()
     }
 
+    /// Opt-in progressive rendering for data providing ScatterData::cursor.
+    /// Work is submitted on WinUI Rendering, with a soft per-pass CPU budget.
+    /// Native EndDraw/final copy can exceed it; inspect render_stats(). None or
+    /// zero disables this mode. Providers without a cursor keep eager rendering.
+    pub fn set_frame_budget(&self, budget: Option<Duration>) {
+        let budget = budget.filter(|budget| !budget.is_zero());
+        if self.plotting().budget.replace(budget) != budget {
+            self.plotting().progressive.borrow_mut().release();
+            self.painted.redraw();
+        }
+    }
+
+    /// Diagnostics of this chart's progressive jobs and surface passes.
+    pub fn render_stats(&self) -> ScatterRenderStats {
+        let mut stats = self.plotting().progressive.borrow().stats;
+        stats.requested_revision = self.plotting().revision.get();
+        stats
+    }
+
     /// Hands the chart the page's data and options; redraws only when either
     /// changed.
     ///
@@ -149,6 +265,9 @@ impl<K: Key> Scatter<K> {
         *plotting.options.borrow_mut() = options;
 
         if changed {
+            plotting
+                .revision
+                .set(plotting.revision.get().wrapping_add(1));
             self.painted.redraw();
         }
     }
@@ -166,10 +285,7 @@ impl<K: Key> Scatter<K> {
     pub fn hovered(&self) -> Option<Hit<K>> {
         let hit = self.plotting().gesture.borrow().hovered()?.clone();
         let metrics = self.painted.metrics()?;
-        let plot = self
-            .plotting()
-            .plot(metrics.width, metrics.height, Instant::now());
-        let series = self.plotting().series.borrow().clone();
+        let (series, plot, _) = self.plotting().interaction(metrics)?;
         if hit.series >= series.series() {
             return None;
         }
@@ -197,14 +313,15 @@ impl<K: Key> Scatter<K> {
                 return;
             };
             let plotting = painted.painter();
-            let plot = plotting.plot(metrics.width, metrics.height, Instant::now());
-            let reach = plotting.options.borrow().reach;
-            let series = plotting.series.borrow().clone();
+            let Some((series, plot, reach)) = plotting.interaction(metrics) else {
+                return;
+            };
             let took = plotting
                 .gesture
                 .borrow_mut()
                 .take(&pointer, &plot, &*series, reach);
             if took.redraw {
+                plotting.overlay_dirty.set(true);
                 painted.redraw();
             }
             for event in took.events {
@@ -217,6 +334,77 @@ impl<K: Key> Scatter<K> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hit_testing_uses_completed_front_until_the_next_snapshot_is_swapped() {
+        use super::super::model::{Level, Marker, ScatterCursor, ScatterPoint, SeriesStyle};
+        struct Data(u64);
+        impl ScatterData<u64> for Data {
+            fn series(&self) -> usize {
+                1
+            }
+            fn style(&self, _: usize) -> SeriesStyle {
+                SeriesStyle {
+                    color: windows_canvas::ColorF::TRANSPARENT,
+                    marker: Marker::Dot,
+                    size: 4.0,
+                }
+            }
+            fn points(&self, _: usize, each: &mut dyn FnMut(&ScatterPoint<u64>)) {
+                for i in 0..512 {
+                    each(&ScatterPoint {
+                        key: self.0 + i,
+                        at: 50,
+                        value: Level::Value(0.5),
+                    });
+                }
+            }
+            fn cursor(self: Rc<Self>, _: u64, _: u64) -> Option<ScatterCursor<u64>> {
+                Some(Box::new((0..512).map(move |i| {
+                    (
+                        0,
+                        ScatterPoint {
+                            key: self.0 + i,
+                            at: 50,
+                            value: Level::Value(0.5),
+                        },
+                    )
+                })))
+            }
+        }
+        let device = GpuDevice::new_warp().unwrap();
+        let metrics = Metrics::new(100.0, 60.0, 1.0);
+        let plotting = Plotting::new();
+        plotting.budget.set(Some(Duration::from_nanos(1)));
+        plotting.options.borrow_mut().x = (0, 100);
+        *plotting.series.borrow_mut() = Rc::new(Data(1));
+        plotting.revision.set(1);
+        while plotting.progressive.borrow().stats.completed == 0 {
+            plotting.prepare(&device, metrics).unwrap();
+        }
+        *plotting.series.borrow_mut() = Rc::new(Data(1000));
+        plotting.revision.set(2);
+        plotting.prepare(&device, metrics).unwrap();
+        let (data, plot, reach) = plotting.interaction(metrics).unwrap();
+        let hit = plot
+            .nearest(&*data, plot.x(50), plot.y(Level::Value(0.5)), reach)
+            .unwrap();
+        assert!(
+            hit.key < 1000,
+            "pending data must not replace hit-test data"
+        );
+        while plotting.progressive.borrow().stats.completed < 2 {
+            plotting.prepare(&device, metrics).unwrap();
+        }
+        let (data, plot, reach) = plotting.interaction(metrics).unwrap();
+        let hit = plot
+            .nearest(&*data, plot.x(50), plot.y(Level::Value(0.5)), reach)
+            .unwrap();
+        assert!(
+            hit.key >= 1000,
+            "completed swap changes both image and hit-test data"
+        );
+    }
 
     #[test]
     fn a_live_span_moves_on_with_the_clock() {

@@ -41,10 +41,20 @@ pub struct SeriesStyle {
     pub size: f32,
 }
 
+/// An owned, resumable traversal of one immutable snapshot, in series-major
+/// drawing order. Each next() must do bounded work and must not revisit points.
+pub type ScatterCursor<K> = Box<dyn Iterator<Item = (usize, ScatterPoint<K>)>>;
+
 /// The points a scatter chart draws, kept where the page keeps them: the
 /// chart holds the page's `Rc` and reads through it whenever it draws or the
 /// pointer moves, and keeps no copy.
 pub trait ScatterData<K> {
+    /// Optional progressive rendering. The iterator owns its snapshot; inclusive
+    /// time bounds include the marker's overhang. None retains eager rendering.
+    fn cursor(self: std::rc::Rc<Self>, _from: u64, _to: u64) -> Option<ScatterCursor<K>> {
+        None
+    }
+
     /// How many series there are.
     fn series(&self) -> usize;
 

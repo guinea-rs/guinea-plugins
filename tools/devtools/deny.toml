@@ -5,6 +5,7 @@ all-features = true
 version = 2
 yanked = "deny"
 ignore = [
+    { id = "RUSTSEC-2026-0441", reason = "Temporary maintenance-only exception: pin-utils is used by loom through synchrony target cfg(loom), for model checking, not the normal shipped runtime. No patched pin-utils version exists. Review upstream removal by 2026-11-21; vulnerability advisories remain enforced." },
     { id = "RUSTSEC-2024-0436", reason = "paste is a proc macro of compio-driver, which the hub and ogurpchik run on" },
     { id = "RUSTSEC-2026-0370", reason = "Temporary maintenance-risk exception for zvariant 5.15 via egui 0.36/accesskit/atspi and zbus 5; no patched standalone release exists. Replacing it requires upstream migration to zbus 6, not a lock-only update. Keep Linux accessibility enabled; review by 2026-11-20 or when that upstream stack migrates (https://github.com/z-galaxy/zbus/issues/2043). Vulnerability advisories remain enforced." },
     { id = "RUSTSEC-2026-0371", reason = "Temporary maintenance-risk exception for zbus_names 4.3.4 via egui 0.36/accesskit/atspi and zbus 5; no patched standalone release exists. Replacing it requires upstream migration to zbus 6, not a lock-only update. Keep Linux accessibility enabled; review by 2026-11-20 or when that upstream stack migrates (https://github.com/z-galaxy/zbus/issues/2043). Vulnerability advisories remain enforced." },

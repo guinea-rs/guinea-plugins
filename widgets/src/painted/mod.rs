@@ -7,11 +7,13 @@
 //! itself, whenever it has moved by a device pixel. The pointer over it comes
 //! back in DIPs, so what was drawn can be found again under it.
 
+#[allow(non_snake_case, non_camel_case_types, dead_code, clippy::all)]
+mod frame_bindings;
 mod surface;
 
-pub use surface::Metrics;
+pub use surface::{Metrics, SurfaceTiming};
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -32,6 +34,27 @@ pub trait Paint: 'static {
     /// Draws the picture at `metrics`: its size in DIPs and its pixels per
     /// DIP.
     fn paint(&self, session: &DrawingSession<'_>, device: &GpuDevice, metrics: Metrics);
+
+    /// Optional preparation before a surface pass; false keeps the displayed
+    /// surface untouched. Used for incremental offscreen work.
+    fn prepare(&self, _device: &GpuDevice, _metrics: Metrics) -> windows_canvas::Result<bool> {
+        Ok(true)
+    }
+
+    /// Run requested work on WinUI Rendering, rather than inside publish/resize.
+    fn frame_driven(&self) -> bool {
+        false
+    }
+
+    /// More offscreen work remains after this frame. Idle views unsubscribe.
+    fn frame_pending(&self) -> bool {
+        false
+    }
+
+    fn surface_timing(&self, _timing: SurfaceTiming) {}
+
+    /// Releases device-bound preparation when the mounted surface leaves.
+    fn released(&self) {}
 
     /// Whether the picture moves on by itself, between the draws it is told
     /// to make.
@@ -66,21 +89,57 @@ pub enum Pointer {
 struct Shared<P> {
     painter: P,
     surface: RefCell<Surface>,
+    mounted: Cell<bool>,
+    frame: RefCell<Option<windows_core::EventRevoker>>,
 }
 
 impl<P: Paint> Shared<P> {
     fn draw(&self) {
-        self.surface
-            .borrow_mut()
-            .draw(|session, device, metrics| self.painter.paint(session, device, metrics));
+        let timing = self.surface.borrow_mut().draw(
+            |device, metrics| self.painter.prepare(device, metrics),
+            |session, device, metrics| self.painter.paint(session, device, metrics),
+        );
+        if let Some(timing) = timing {
+            self.painter.surface_timing(timing);
+        }
     }
 
-    fn tick(&self) -> Option<Duration> {
+    fn request(self: &Rc<Self>) {
+        if !self.painter.frame_driven() {
+            self.draw();
+            return;
+        }
+        if !self.mounted.get()
+            || self.surface.borrow().metrics().is_none()
+            || self.frame.borrow().is_some()
+        {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        match frame_bindings::CompositionTarget::Rendering(move |_, _| {
+            if let Some(shared) = weak.upgrade() {
+                if shared.mounted.get() && shared.painter.frame_driven() {
+                    shared.draw();
+                }
+                if !shared.mounted.get()
+                    || !shared.painter.frame_driven()
+                    || !shared.painter.frame_pending()
+                {
+                    shared.frame.borrow_mut().take();
+                }
+            }
+        }) {
+            Ok(frame) => *self.frame.borrow_mut() = Some(frame),
+            Err(error) => tracing::warn!(%error, "painted: could not subscribe to Rendering"),
+        }
+    }
+
+    fn tick(self: &Rc<Self>) -> Option<Duration> {
         if !self.painter.moving() {
             return None;
         }
         let metrics = self.surface.borrow().metrics()?;
-        self.draw();
+        self.request();
         Some(self.painter.next_frame(metrics))
     }
 }
@@ -111,6 +170,8 @@ impl<P: Paint> Painted<P> {
         let shared = Rc::new(Shared {
             painter,
             surface: RefCell::new(Surface::new(image.clone())),
+            mounted: Cell::new(false),
+            frame: RefCell::new(None),
         });
 
         let sized = host.observe_composition_host({
@@ -139,7 +200,7 @@ impl<P: Paint> Painted<P> {
                     surface.resize(metrics) || rebound
                 };
                 if changed {
-                    shared.draw();
+                    shared.request();
                 }
             }
         });
@@ -161,7 +222,7 @@ impl<P: Paint> Painted<P> {
     /// Draws the view again now. Does nothing until it is laid out, and
     /// nothing while it is off screen.
     pub fn redraw(&self) {
-        self.shared.draw();
+        self.shared.request();
     }
 
     /// The size the view is laid out at, while it is on screen.
@@ -321,7 +382,16 @@ impl<P: Paint> Component for Mount<P> {
     fn view(&self, mounted: &Mounted<P>, cx: &mut ViewContext<Self>) -> View {
         let shared = mounted.shared.clone();
         cx.use_effect("surface", (), move || {
-            Some(Box::new(move || shared.surface.borrow_mut().release()))
+            shared.mounted.set(true);
+            if shared.painter.frame_driven() {
+                shared.request();
+            }
+            Some(Box::new(move || {
+                shared.mounted.set(false);
+                shared.frame.borrow_mut().take();
+                shared.surface.borrow_mut().release();
+                shared.painter.released();
+            }))
         });
 
         Grid::new()

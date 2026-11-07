@@ -77,17 +77,17 @@ drop(app);
 ## Compatibility
 
 Dependencies use guinea 0.35.0 or a compatible patch release. The WinUI stack is
-`windows-reactor-pre` 0.107.0 and `windows-canvas-pre` 0.107.0,
+`windows-reactor-pre` 0.107.1 and `windows-canvas-pre` 0.107.0,
 with `windows-window-pre` 0.104.0.
 Consumers must use the same guinea and reactor types; depending on an older
 plugin tag alongside guinea 0.35 creates incompatible copies.
 
 The store re-exports amethystate 0.29 and has its own package version, 0.29.0.
-The other workspace packages use version 0.35.1. Plugins are distributed by
+The other workspace packages use version 0.35.2. Plugins are distributed by
 repository git tags, not through crates.io:
 
 ```toml
-guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.35.1" }
+guinea-plugin-store = { git = "https://github.com/guinea-rs/guinea-plugins", tag = "v0.35.2" }
 ```
 
 The older `v0.31.0` tag targets guinea 0.31 and uses manual service publication;

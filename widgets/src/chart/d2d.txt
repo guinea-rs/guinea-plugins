@@ -1,5 +1,6 @@
 Windows::Win32::ID2D1Resource::GetFactory
 Windows::Win32::ID2D1RenderTarget::PopLayer
+Windows::Win32::ID2D1RenderTarget::SetDpi
 Windows::Win32::ID2D1DeviceContext::PushLayer
 Windows::Win32::ID2D1Factory::CreateRoundedRectangleGeometry
 Windows::Win32::D2D1_LAYER_PARAMETERS1

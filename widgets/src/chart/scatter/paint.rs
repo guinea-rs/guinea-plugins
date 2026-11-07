@@ -1,12 +1,14 @@
 //! Turning a scatter chart into strokes, fills and labels.
 
 use windows_canvas::{
-    Brush, ColorF, DrawingSession, Ellipse, ParagraphAlignment, Rect, TextAlignment, TextFormat,
-    Vector2, WordWrapping,
+    Bitmap, Brush, ColorF, DrawingSession, Ellipse, ParagraphAlignment, Rect, TextAlignment,
+    TextFormat, Vector2, WordWrapping,
 };
 
 use super::super::paint::{Pixel, clipped, draw_backdrop, draw_border};
-use super::model::{Area, Hit, Key, Level, Marker, ScatterData, ScatterOptions};
+use super::model::{
+    Area, Hit, Key, Level, Marker, ScatterData, ScatterOptions, ScatterPoint, SeriesStyle,
+};
 use super::plot::{LABELS_WIDE, Plot};
 use crate::painted::Metrics;
 
@@ -64,6 +66,51 @@ pub(super) fn render<K: Key>(
     pointing: &Pointing<'_, K>,
     labels: Option<&Labels>,
 ) {
+    render_with(draw, metrics, plot, options, pointing, labels, || {
+        draw_points(draw, plot, series, pointing.hovered, options.ink);
+    });
+}
+
+pub(super) fn render_bitmap<K: Key>(
+    draw: &DrawingSession<'_>,
+    metrics: Metrics,
+    plot: &Plot,
+    content: (&dyn ScatterData<K>, Option<&Bitmap>),
+    options: &ScatterOptions,
+    pointing: &Pointing<'_, K>,
+    labels: Option<&Labels>,
+) -> std::time::Duration {
+    let (series, bitmap) = content;
+    let copy = std::cell::Cell::new(std::time::Duration::ZERO);
+    render_with(draw, metrics, plot, options, pointing, labels, || {
+        if let Some(bitmap) = bitmap {
+            let started = std::time::Instant::now();
+            draw.draw_image(bitmap);
+            copy.set(started.elapsed());
+        }
+        if let Some(hit) = pointing.hovered.filter(|hit| hit.series < series.series())
+            && let Some(ink) = brush(draw, options.ink)
+        {
+            let radius = series.style(hit.series).size / 2.0 + HOVER_GAP;
+            draw.draw_ellipse(
+                &Ellipse::new(Vector2 { x: hit.x, y: hit.y }, radius, radius),
+                &ink,
+                RING_WIDTH,
+            );
+        }
+    });
+    copy.get()
+}
+
+fn render_with<K>(
+    draw: &DrawingSession<'_>,
+    metrics: Metrics,
+    plot: &Plot,
+    options: &ScatterOptions,
+    pointing: &Pointing<'_, K>,
+    labels: Option<&Labels>,
+    points: impl Fn(),
+) {
     let Metrics { width, height, .. } = metrics;
     if width <= 0.0 || height <= 0.0 {
         return;
@@ -80,7 +127,7 @@ pub(super) fn render<K: Key>(
         if let Some(area) = options.selection {
             draw_area(draw, plot, area, options.accent, pixel);
         }
-        draw_points(draw, plot, series, pointing.hovered, options.ink);
+        points();
         if let Some((a, b)) = pointing.brush {
             draw_area(draw, plot, plot.area(a, b), options.accent, pixel);
         }
@@ -96,6 +143,38 @@ pub(super) fn render<K: Key>(
         Some(radius) => clipped(draw, width, height, radius, content),
         None => content(),
     }
+}
+
+/// One marker, shared by eager and progressive rendering.
+pub(super) fn point<K>(
+    draw: &DrawingSession<'_>,
+    plot: &Plot,
+    style: SeriesStyle,
+    paint: &Brush,
+    point: &ScatterPoint<K>,
+) -> Option<Vector2> {
+    let half = style.size / 2.0;
+    let x = plot.x(point.at);
+    if x < plot.left - half || x > plot.right + half {
+        return None;
+    }
+    let y = plot.y(point.value);
+    let center = Vector2 { x, y };
+    match style.marker {
+        Marker::Dot => draw.fill_ellipse(&Ellipse::new(center, half, half), paint),
+        Marker::Ring => draw.draw_ellipse(
+            &Ellipse::new(center, half - RING_WIDTH / 2.0, half - RING_WIDTH / 2.0),
+            paint,
+            RING_WIDTH,
+        ),
+        Marker::Tick => draw.draw_line(
+            Vector2 { x, y: y - half },
+            Vector2 { x, y: y + half },
+            paint,
+            RING_WIDTH,
+        ),
+    }
+    Some(center)
 }
 
 fn brush(draw: &DrawingSession<'_>, color: ColorF) -> Option<Brush> {
@@ -185,26 +264,9 @@ fn draw_points<K: Key>(
             (plot.right - plot.left) / 2.0 + half,
         );
         series.points_between(index, from, to, &mut |point| {
-            let x = plot.x(point.at);
-            if x < plot.left - half || x > plot.right + half {
+            let Some(center) = self::point(draw, plot, style, &paint, point) else {
                 return;
-            }
-            let y = plot.y(point.value);
-            let center = Vector2 { x, y };
-            match style.marker {
-                Marker::Dot => draw.fill_ellipse(&Ellipse::new(center, half, half), &paint),
-                Marker::Ring => draw.draw_ellipse(
-                    &Ellipse::new(center, half - RING_WIDTH / 2.0, half - RING_WIDTH / 2.0),
-                    &paint,
-                    RING_WIDTH,
-                ),
-                Marker::Tick => draw.draw_line(
-                    Vector2 { x, y: y - half },
-                    Vector2 { x, y: y + half },
-                    &paint,
-                    RING_WIDTH,
-                ),
-            }
+            };
             if hovered.is_some_and(|hit| hit.series == index && hit.key == point.key) {
                 ring = Some((center, half + HOVER_GAP));
             }

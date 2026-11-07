@@ -235,6 +235,15 @@ impl ID2D1RenderTarget {
             (windows_core::Interface::vtable(self).PopLayer)(windows_core::Interface::as_raw(self));
         }
     }
+    pub unsafe fn SetDpi(&self, dpix: f32, dpiy: f32) {
+        unsafe {
+            (windows_core::Interface::vtable(self).SetDpi)(
+                windows_core::Interface::as_raw(self),
+                dpix,
+                dpiy,
+            );
+        }
+    }
 }
 #[repr(C)]
 pub struct ID2D1RenderTarget_Vtbl {
@@ -286,7 +295,7 @@ pub struct ID2D1RenderTarget_Vtbl {
     BeginDraw: usize,
     EndDraw: usize,
     GetPixelFormat: usize,
-    SetDpi: usize,
+    pub SetDpi: unsafe extern "system" fn(*mut core::ffi::c_void, f32, f32),
     GetDpi: usize,
     GetSize: usize,
     GetPixelSize: usize,

@@ -1,0 +1,2 @@
+rows,visit,rust_view_ms,ui_turn_ms,first_rendered_ms,max_gap_ms,p95_gap_ms,samples,updates,steady_max_ms
+200,0,1.984,102.141,100.867,313.075,212.612,69,13,313.075
