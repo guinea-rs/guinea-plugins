@@ -507,7 +507,7 @@ impl Chart {
             if was_pinned != drawing.selection.borrow().pinned().is_some() {
                 drawing.cache.borrow_mut().invalidate();
             }
-            if selection_event.is_some() || matches!(event, Pointer::Lost) {
+            if selection_event.is_some() || (was_pinned && matches!(event, Pointer::Lost)) {
                 painted.redraw();
             }
             drawing.emit_selection(selection_event);
