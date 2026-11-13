@@ -11,6 +11,8 @@ mod geometry;
 pub use geometry::{bounds, nearest_point};
 
 #[cfg(all(feature = "winui", windows))]
+mod bands;
+#[cfg(all(feature = "winui", windows))]
 mod hover;
 #[cfg(all(feature = "winui", windows))]
 mod live;
@@ -27,8 +29,8 @@ mod ui;
 
 #[cfg(all(feature = "winui", windows))]
 pub use model::{
-    ChartGrid, HoverInfo, Interpolation, LineChartOptions, LineStroke, Live, LiveFps, Series,
-    XSelection, XSelectionEvent, theme_border_color,
+    ChartBand, ChartGrid, HoverInfo, Interpolation, LineChartOptions, LineStroke, Live, LiveFps,
+    Series, XSelection, XSelectionEvent, theme_border_color,
 };
 #[cfg(all(feature = "winui", windows))]
 pub use ui::{Chart, ChartFrameObserver, ChartFrameTiming};

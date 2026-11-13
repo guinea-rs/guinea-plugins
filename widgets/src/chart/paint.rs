@@ -34,6 +34,9 @@ pub(super) struct Cache {
     lines: Vec<CachedLine>,
     pub strokes: Vec<LineStroke>,
     pub builds: u64,
+    pub bands: std::rc::Rc<super::bands::Bands>,
+    pub highlighted: Option<u64>,
+    band_cache: super::bands::Cache,
 }
 
 struct CachedLine {
@@ -47,6 +50,7 @@ impl Cache {
     pub fn invalidate(&mut self) {
         self.frame = None;
         self.lines.clear();
+        self.band_cache.clear();
     }
 }
 
@@ -239,6 +243,14 @@ fn content(
             }
         }
     }
+    cache.band_cache.paint(
+        draw,
+        device,
+        metrics,
+        frame,
+        &cache.bands,
+        cache.highlighted,
+    );
     let anchor = cache.frame.unwrap_or(frame);
     let shift = ((anchor.from - frame.from) / (frame.to - frame.from)) as f32 * width;
     // with_transform retains the surface atlas offset and restores the caller.

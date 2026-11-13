@@ -163,3 +163,14 @@ pub enum XSelectionEvent {
     Cancelled,
     Cleared,
 }
+
+/// An explicit area between lower and upper bounds. IDs are application-owned;
+/// stacking, membership, Others and unattributed residuals are computed upstream.
+#[derive(Clone, PartialEq)]
+pub struct ChartBand {
+    pub id: u64,
+    pub color: ColorF,
+    /// (time, lower, upper), strictly increasing times; adjacent valid samples
+    /// are linearly joined. Invalid samples/intervals create gaps.
+    pub points: Vec<(u64, f32, f32)>,
+}

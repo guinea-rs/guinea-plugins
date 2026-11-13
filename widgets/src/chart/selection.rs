@@ -10,6 +10,8 @@ pub(super) struct Snapshot {
     pub options: Rc<LineChartOptions>,
     pub frame: Frame,
     pub metrics: Metrics,
+    pub bands: Rc<super::bands::Bands>,
+    pub highlighted: Option<u64>,
 }
 
 struct Drag {
@@ -144,6 +146,8 @@ mod tests {
                 max_v: 100.0,
             },
             metrics: Metrics::new(100.0, 40.0, 1.0),
+            bands: Rc::default(),
+            highlighted: None,
         }
     }
     #[test]

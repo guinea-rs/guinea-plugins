@@ -207,3 +207,41 @@ Programmatic ranges are clipped only for painting, not rewritten as time advance
 `set_x_selection_enabled(false)` disables gestures without clearing an existing
 highlight; use `set_x_selection(None)` to clear it explicitly. UI handlers receive
 events outside internal selection borrows and may read/update the selection.
+
+## Explicit stacked areas and linked hover
+
+```rust,ignore
+use guinea_widgets::chart::ChartBand;
+chart.set_bands(vec![ChartBand {
+    id: 42, color, points: vec![(t0, lower0, upper0), (t1, lower1, upper1)],
+}], Some((from, to)));
+chart.set_highlighted_band(Some(42)); // table hover -> layer
+let view = chart.view_with_bands(on_hover, on_selection, |id: Option<u64>| {
+    // layer hover -> table; echoed highlight is optional
+});
+let hovered = chart.hovered_band();
+chart.set_bands(Vec::new(), None); // remove the composition
+```
+
+Each point supplies explicit cumulative lower/upper bounds. Geometry joins adjacent
+valid points linearly, without normalization or smoothing. Membership, fixed top-N,
+Others and positive/negative discrepancies with total belong to the application.
+Values exceeding total remain unchanged. Non-finite values, reversed bounds,
+non-increasing adjacent times and zero-width intervals create gaps. IDs should be
+unique and stable; the last supplied band wins at shared/overlapping hit boundaries.
+
+`Some((from,to))` clips all bands to that temporal range, interpolating endpoint
+values; `None` uses the whole axis. The original Series alone sets the viewport
+and auto-fit Y range: adding bands never rescales or changes total geometry.
+Bands render behind Series. Use `fill: None` for a total line that should not
+cover them; dimming its color is independent of its geometry. The committed brush
+fill is suppressed while bands exist, preserving their colors; active drag still
+shows its brush over the pinned previous image.
+
+Geometry and brushes are cached and translated between live frames. Hit testing
+uses the successfully painted snapshot, temporal clip and rounded viewport clip;
+it does not guess from the newest unpublished frame. Highlight is controlled by ID
+and changes color without changing geometry. Hover callbacks are deduplicated and
+also follow painted updates beneath a stationary pointer. During brushing layer
+hover is None and both band data and highlight remain pinned. Empty bands clear
+composition; unmount clears pointer hover and device resources.

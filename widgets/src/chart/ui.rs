@@ -19,7 +19,8 @@ use super::geometry::Frame;
 use super::hover::hover_at;
 use super::live::{self, Clock};
 use super::model::{
-    HoverInfo, LineChartOptions, LineStroke, LiveFps, Series, XSelection, XSelectionEvent, newest,
+    ChartBand, HoverInfo, LineChartOptions, LineStroke, LiveFps, Series, XSelection,
+    XSelectionEvent, newest,
 };
 use super::paint;
 use super::selection::{Selection, Snapshot};
@@ -58,6 +59,11 @@ struct Drawing {
     selection: RefCell<Selection>,
     selection_listener: RefCell<Option<Callback<XSelectionEvent>>>,
     selection_cancelled: Cell<bool>,
+    bands: RefCell<Rc<super::bands::Bands>>,
+    highlighted: Cell<Option<u64>>,
+    band_pointer: Cell<Option<(f32, f32)>>,
+    last_band_hover: Cell<Option<u64>>,
+    band_listener: RefCell<Option<Callback<Option<u64>>>>,
 }
 
 impl Paint for Drawing {
@@ -88,6 +94,8 @@ impl Paint for Drawing {
                 options,
                 frame,
                 metrics,
+                bands: self.bands.borrow().clone(),
+                highlighted: self.highlighted.get(),
             })
         });
         let (series, options, end) = match &snapshot {
@@ -98,6 +106,11 @@ impl Paint for Drawing {
                 None,
             ),
         };
+        if let Some(s) = &snapshot {
+            let mut cache = self.cache.borrow_mut();
+            cache.bands = s.bands.clone();
+            cache.highlighted = s.highlighted;
+        }
         paint::render(
             session,
             device,
@@ -107,7 +120,9 @@ impl Paint for Drawing {
             end,
             &mut self.cache.borrow_mut(),
         );
-        if let (Some(snapshot), Some(range)) = (&snapshot, self.selection.borrow().range) {
+        if let (Some(snapshot), Some(range)) = (&snapshot, self.selection.borrow().range)
+            && (snapshot.bands.layers.is_empty() || self.selection.borrow().pinned().is_some())
+        {
             let overlay = || {
                 let a = snapshot
                     .frame
@@ -178,6 +193,7 @@ impl Paint for Drawing {
         if cancelled {
             self.emit_selection(Some(XSelectionEvent::Cancelled));
         }
+        self.emit_band_hover();
     }
     fn released(&self) {
         self.frame_clock.set(live::FrameClock::default());
@@ -186,6 +202,8 @@ impl Paint for Drawing {
         self.candidate.borrow_mut().take();
         let cancelled = self.selection.borrow_mut().cancel();
         self.emit_selection(cancelled);
+        self.band_pointer.set(None);
+        self.emit_band_hover();
     }
     fn moving(&self) -> bool {
         self.live_enabled()
@@ -245,6 +263,36 @@ impl Drawing {
             _ => clock.forget(),
         }
         self.clock.set(clock);
+    }
+
+    fn band_hit(&self) -> Option<u64> {
+        if self.selection.borrow().pinned().is_some() {
+            return None;
+        }
+        let (x, y) = self.band_pointer.get()?;
+        let front = self.front.borrow();
+        let s = front.as_ref()?;
+        if let Some(radius) = s
+            .options
+            .corner_radius
+            .filter(|r| r.is_finite() && *r > 0.0)
+        {
+            let radius = radius.min(s.metrics.width.min(s.metrics.height) / 2.0);
+            let cx = x.clamp(radius, s.metrics.width - radius);
+            let cy = y.clamp(radius, s.metrics.height - radius);
+            if (x - cx).powi(2) + (y - cy).powi(2) > radius * radius {
+                return None;
+            }
+        }
+        super::bands::hit(&s.bands, s.frame, s.metrics, x, y)
+    }
+    fn emit_band_hover(&self) {
+        let hit = self.band_hit();
+        let changed = self.last_band_hover.replace(hit) != hit;
+        let listener = self.band_listener.borrow().clone();
+        if changed && let Some(listener) = listener {
+            listener.call(hit);
+        }
     }
 
     fn emit_selection(&self, event: Option<XSelectionEvent>) {
@@ -437,6 +485,40 @@ impl Chart {
         hover(&self.painted, self.pointer.get()?)
     }
 
+    /// Explicit cumulative areas, drawn behind existing total lines. Values
+    /// are never normalized; None clips only to the viewport. Invalid intervals
+    /// are gaps. The total Series determines the viewport and auto Y range.
+    pub fn set_bands(&self, bands: Vec<ChartBand>, clip: Option<XSelection>) {
+        let bands = super::bands::Bands {
+            layers: bands,
+            clip: clip.map(|(a, b)| (a.min(b), a.max(b))),
+        };
+        if **self.drawing().bands.borrow() != bands {
+            *self.drawing().bands.borrow_mut() = Rc::new(bands);
+            self.painted.redraw();
+        }
+    }
+    pub fn set_highlighted_band(&self, id: Option<u64>) {
+        if self.drawing().highlighted.replace(id) != id {
+            self.painted.redraw();
+        }
+    }
+    /// Layer identity under the last pointer position, on the painted snapshot.
+    /// Returns None during a period-selection drag.
+    pub fn hovered_band(&self) -> Option<u64> {
+        self.drawing().band_hit()
+    }
+
+    pub fn view_with_bands(
+        &self,
+        on_hover: impl IntoPayloadCallback<Option<HoverInfo>>,
+        on_selection: impl IntoPayloadCallback<XSelectionEvent>,
+        on_band_hover: impl IntoPayloadCallback<Option<u64>>,
+    ) -> View {
+        *self.drawing().band_listener.borrow_mut() = Some(on_band_hover.into_payload_callback());
+        self.selection_view(on_hover, Some(on_selection.into_payload_callback()))
+    }
+
     /// Enable primary-pointer horizontal brushing (disabled by default).
     pub fn set_x_selection_enabled(&self, enabled: bool) {
         self.drawing().selection.borrow_mut().enabled = enabled;
@@ -474,6 +556,7 @@ impl Chart {
         on_hover: impl IntoPayloadCallback<Option<HoverInfo>>,
         on_selection: impl IntoPayloadCallback<XSelectionEvent>,
     ) -> View {
+        self.drawing().band_listener.borrow_mut().take();
         self.selection_view(on_hover, Some(on_selection.into_payload_callback()))
     }
 
@@ -482,6 +565,7 @@ impl Chart {
     /// `on_hover` takes what every reactor widget takes: a plain closure, or a
     /// `Callback` a segment already made with `cx.on(..)`.
     pub fn view(&self, on_hover: impl IntoPayloadCallback<Option<HoverInfo>>) -> View {
+        self.drawing().band_listener.borrow_mut().take();
         self.selection_view(on_hover, None)
     }
 
@@ -497,6 +581,13 @@ impl Chart {
 
         self.painted.view(move |event: Pointer| {
             let drawing = painted.painter();
+            match &event {
+                Pointer::Moved(info) | Pointer::Pressed(info) | Pointer::Released(info) => drawing
+                    .band_pointer
+                    .set(Some((info.x as f32, info.y as f32))),
+                Pointer::Exited => drawing.band_pointer.set(None),
+                _ => {}
+            }
             let was_pinned = drawing.selection.borrow().pinned().is_some();
             let front = drawing
                 .front
@@ -511,6 +602,7 @@ impl Chart {
                 painted.redraw();
             }
             drawing.emit_selection(selection_event);
+            drawing.emit_band_hover();
             match event {
                 Pointer::Moved(info) => {
                     let at = info.x as f32;
@@ -646,6 +738,125 @@ mod tests {
     }
 
     #[test]
+    fn stationary_band_hover_follows_commits_and_deduplicates_callbacks() {
+        let drawing = Drawing::default();
+        let snapshot = |id| Snapshot {
+            series: Rc::new(vec![series(&[(0, 80.0), (100, 80.0)])]),
+            options: Rc::default(),
+            frame: Frame {
+                from: 0.0,
+                to: 100.0,
+                min_v: 0.0,
+                max_v: 100.0,
+            },
+            metrics: Metrics::new(100.0, 100.0, 1.0),
+            bands: Rc::new(super::super::bands::Bands {
+                layers: vec![ChartBand {
+                    id,
+                    color: crate::color::hex(0xff0000),
+                    points: vec![(0, 0.0, 100.0), (100, 0.0, 100.0)],
+                }],
+                clip: None,
+            }),
+            highlighted: None,
+        };
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let target = heard.clone();
+        *drawing.band_listener.borrow_mut() =
+            Some(Callback::new(move |id| target.borrow_mut().push(id)));
+        drawing.band_pointer.set(Some((50.0, 50.0)));
+        *drawing.front.borrow_mut() = Some(snapshot(1));
+        drawing.emit_band_hover();
+        drawing.emit_band_hover();
+        *drawing.candidate.borrow_mut() = Some(snapshot(2));
+        assert_eq!(drawing.band_hit(), Some(1));
+        drawing.surface_timing(crate::painted::SurfaceTiming {
+            painted: true,
+            ..Default::default()
+        });
+        drawing.released();
+        assert_eq!(*heard.borrow(), vec![Some(1), Some(2), None]);
+    }
+
+    #[test]
+    fn band_front_and_highlight_freeze_during_brush_then_use_latest_identity() {
+        let chart = Chart::new();
+        chart.set_x_selection_enabled(true);
+        chart.publish(
+            vec![series(&[(0, 80.0), (100, 80.0)])],
+            LineChartOptions {
+                y_range: Some((0.0, 100.0)),
+                corner_radius: Some(10.0),
+                ..Default::default()
+            },
+        );
+        let band = |id, lo, hi| ChartBand {
+            id,
+            color: crate::color::hex(0xee5533),
+            points: vec![(0, lo, hi), (100, lo, hi)],
+        };
+        chart.set_bands(vec![band(42, 20.0, 50.0)], Some((25, 75)));
+        chart.set_highlighted_band(Some(42));
+        let device = GpuDevice::new_warp().unwrap();
+        let target = device.create_render_target(100, 100).unwrap();
+        let metrics = Metrics::new(100.0, 100.0, 1.0);
+        let drawing = chart.drawing();
+        let render = || {
+            target
+                .draw(|d| {
+                    d.clear(windows_canvas::ColorF::TRANSPARENT);
+                    drawing.paint(d, &device, metrics);
+                    Ok(())
+                })
+                .unwrap();
+            drawing.surface_timing(crate::painted::SurfaceTiming {
+                painted: true,
+                ..Default::default()
+            });
+            target.read_pixels().unwrap()
+        };
+        let before = render();
+        let front = drawing.front.borrow().clone().unwrap();
+        drawing.selection.borrow_mut().take(
+            &Pointer::Pressed(windows_reactor::PointerEventInfo {
+                x: 20.0,
+                is_left_button_pressed: true,
+                ..Default::default()
+            }),
+            Some(&front),
+        );
+        chart.set_bands(vec![band(99, 60.0, 70.0)], Some((25, 75)));
+        chart.set_highlighted_band(Some(99));
+        drawing.band_pointer.set(Some((50.0, 60.0)));
+        assert_eq!(chart.hovered_band(), None);
+        assert!(render() == before, "frozen band image changed");
+        drawing.selection.borrow_mut().take(
+            &Pointer::Released(windows_reactor::PointerEventInfo {
+                x: 80.0,
+                ..Default::default()
+            }),
+            None,
+        );
+        drawing.cache.borrow_mut().invalidate();
+        assert_ne!(render(), before);
+        drawing.band_pointer.set(Some((50.0, 35.0)));
+        assert_eq!(chart.hovered_band(), Some(99));
+        chart.set_bands(vec![], None);
+        assert_eq!(chart.hovered_band(), Some(99));
+        render();
+        assert_eq!(chart.hovered_band(), None);
+        chart.set_bands(vec![band(99, 0.0, 100.0)], None);
+        render();
+        drawing.band_pointer.set(Some((0.0, 0.0)));
+        assert_eq!(chart.hovered_band(), None);
+        drawing.band_pointer.set(Some((5.0, 5.0)));
+        assert_eq!(chart.hovered_band(), Some(99));
+        drawing.released();
+        assert_eq!(drawing.band_pointer.get(), None);
+        assert_eq!(chart.hovered_band(), None);
+    }
+
+    #[test]
     fn resize_cancels_a_pinned_drag_and_pending_pixels_do_not_commit_without_a_paint() {
         let drawing = Drawing::default();
         let options = Rc::new(LineChartOptions::default());
@@ -656,6 +867,8 @@ mod tests {
             options,
             series,
             metrics,
+            bands: Rc::default(),
+            highlighted: None,
         };
         *drawing.candidate.borrow_mut() = Some(snapshot.clone());
         drawing.surface_timing(crate::painted::SurfaceTiming::default());
