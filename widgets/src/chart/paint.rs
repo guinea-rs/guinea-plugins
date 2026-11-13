@@ -33,6 +33,7 @@ pub(super) struct Cache {
     device: Option<usize>,
     lines: Vec<CachedLine>,
     pub strokes: Vec<LineStroke>,
+    pub series_clips: std::rc::Rc<Vec<Option<super::model::XSelection>>>,
     pub builds: u64,
     pub bands: std::rc::Rc<super::bands::Bands>,
     pub x_range: Option<(f64, f64)>,
@@ -41,6 +42,7 @@ pub(super) struct Cache {
 }
 
 struct CachedLine {
+    index: usize,
     path: Path,
     brush: Brush,
     style: Option<StrokeStyle>,
@@ -93,6 +95,17 @@ pub(super) fn clipped(
     radius: f32,
     inside: impl FnOnce(),
 ) {
+    clipped_rect(draw, 0.0, width, height, radius, inside);
+}
+
+fn clipped_rect(
+    draw: &DrawingSession<'_>,
+    left: f32,
+    right: f32,
+    height: f32,
+    radius: f32,
+    inside: impl FnOnce(),
+) {
     let mask = || -> windows_core::Result<(ID2D1DeviceContext, ID2D1Geometry)> {
         let raw = windows_core::Interface::as_raw(draw.raw());
         let context = unsafe { ID2D1DeviceContext::from_raw_borrowed(&raw) }
@@ -102,9 +115,9 @@ pub(super) fn clipped(
         let geometry = unsafe {
             factory.CreateRoundedRectangleGeometry(&D2D1_ROUNDED_RECT {
                 rect: D2D_RECT_F {
-                    left: 0.0,
+                    left,
                     top: 0.0,
-                    right: width,
+                    right,
                     bottom: height,
                 },
                 radiusX: radius,
@@ -117,16 +130,19 @@ pub(super) fn clipped(
     let (context, geometry) = match mask() {
         Ok(mask) => mask,
         Err(error) => {
-            tracing::warn!(%error, "line_chart: no layer to round the corners with");
-            return inside();
+            tracing::warn!(%error, "line_chart: failed to create clipping layer");
+            if radius > 0.0 {
+                inside();
+            }
+            return;
         }
     };
 
     let layer = D2D1_LAYER_PARAMETERS1 {
         contentBounds: D2D_RECT_F {
-            left: 0.0,
+            left,
             top: 0.0,
-            right: width,
+            right,
             bottom: height,
         },
         geometricMask: ManuallyDrop::new(Some(geometry)),
@@ -228,6 +244,7 @@ fn content(
                         })
                         .transpose()?;
                     Ok(CachedLine {
+                        index,
                         path,
                         brush,
                         style,
@@ -261,16 +278,31 @@ fn content(
             draw.draw_path(&line.path, &line.brush, LINE_WIDTH);
         }
     };
-    draw.with_transform(&transform, || {
-        for line in &cache.lines {
-            if let Some((path, brush)) = &line.fill {
-                draw.fill_path(path, brush);
+    let paint_line = |line: &CachedLine, fill: bool, outline: bool| {
+        let paint = || {
+            draw.with_transform(&transform, || {
+                if fill && let Some((path, brush)) = &line.fill {
+                    draw.fill_path(path, brush);
+                }
+                if outline {
+                    stroke(line);
+                }
+            })
+        };
+        match cache.series_clips.get(line.index).copied().flatten() {
+            Some((from, to)) => {
+                let left = frame.x(from, width).clamp(0.0, width);
+                let right = frame.x(to, width).clamp(0.0, width);
+                if right > left {
+                    clipped_rect(draw, left, right, height, 0.0, paint);
+                }
             }
-            if !has_bands {
-                stroke(line);
-            }
+            None => paint(),
         }
-    });
+    };
+    for line in &cache.lines {
+        paint_line(line, true, !has_bands);
+    }
     if has_bands {
         cache.band_cache.paint(
             draw,
@@ -280,11 +312,9 @@ fn content(
             &cache.bands,
             cache.highlighted,
         );
-        draw.with_transform(&transform, || {
-            for line in &cache.lines {
-                stroke(line);
-            }
-        });
+        for line in &cache.lines {
+            paint_line(line, false, true);
+        }
     }
 }
 
@@ -407,75 +437,79 @@ fn build_path(
         .iter()
         .map(|&(t, v)| to_screen(t, v))
         .collect();
-    let first = screen_points[0];
-
-    let builder = PathBuilder::new(device)?;
-    let mut figure = if filled {
-        builder
-            .begin(Vector2 {
-                x: first.x,
-                y: height,
-            })
-            .line_to(first)
-    } else {
-        builder.begin_hollow(first)
-    };
-
-    let last_idx = screen_points.len() - 1;
-    for i in 0..last_idx {
-        let prev = screen_points[i];
-        let next = screen_points[i + 1];
-        figure = match series.interpolation {
-            Interpolation::Linear => figure.line_to(next),
-            Interpolation::Step => figure
-                .line_to(Vector2 {
-                    x: next.x,
-                    y: prev.y,
+    let mut builder = PathBuilder::new(device)?;
+    for screen_points in screen_points
+        .split(|p| !p.x.is_finite() || !p.y.is_finite())
+        .filter(|run| run.len() >= 2)
+    {
+        let first = screen_points[0];
+        let mut figure = if filled {
+            builder
+                .begin(Vector2 {
+                    x: first.x,
+                    y: height,
                 })
-                .line_to(next),
-            Interpolation::Monotone if next.x <= prev.x => figure.line_to(next),
-            Interpolation::Monotone => {
-                let (c1, c2) = monotone_controls(&screen_points, i);
-                figure.bezier_to(c1, c2, next)
-            }
-            Interpolation::Smooth => {
-                // Catmull-Rom through (before, prev, next, after), converted to a cubic
-                // bezier - control points are derived from the *neighboring* points so
-                // the tangent is continuous across segment boundaries. A per-segment S-curve
-                // (fixed control points at this segment's own midpoint) looks smooth in
-                // isolation but has a slope discontinuity at every sample, which reads as
-                // jagged/zigzaggy once points are dense relative to how fast the series moves.
-                let before = if i == 0 { prev } else { screen_points[i - 1] };
-                let after = if i + 1 == last_idx {
-                    next
-                } else {
-                    screen_points[i + 2]
-                };
-                let c1 = Vector2 {
-                    x: prev.x + (next.x - before.x) / 6.0,
-                    y: prev.y + (next.y - before.y) / 6.0,
-                };
-                let c2 = Vector2 {
-                    x: next.x - (after.x - prev.x) / 6.0,
-                    y: next.y - (after.y - prev.y) / 6.0,
-                };
-                figure.bezier_to(c1, c2, next)
-            }
+                .line_to(first)
+        } else {
+            builder.begin_hollow(first)
+        };
+
+        let last_idx = screen_points.len() - 1;
+        for i in 0..last_idx {
+            let prev = screen_points[i];
+            let next = screen_points[i + 1];
+            figure = match series.interpolation {
+                Interpolation::Linear => figure.line_to(next),
+                Interpolation::Step => figure
+                    .line_to(Vector2 {
+                        x: next.x,
+                        y: prev.y,
+                    })
+                    .line_to(next),
+                Interpolation::Monotone if next.x <= prev.x => figure.line_to(next),
+                Interpolation::Monotone => {
+                    let (c1, c2) = monotone_controls(screen_points, i);
+                    figure.bezier_to(c1, c2, next)
+                }
+                Interpolation::Smooth => {
+                    // Catmull-Rom through (before, prev, next, after), converted to a cubic
+                    // bezier - control points are derived from the *neighboring* points so
+                    // the tangent is continuous across segment boundaries. A per-segment S-curve
+                    // (fixed control points at this segment's own midpoint) looks smooth in
+                    // isolation but has a slope discontinuity at every sample, which reads as
+                    // jagged/zigzaggy once points are dense relative to how fast the series moves.
+                    let before = if i == 0 { prev } else { screen_points[i - 1] };
+                    let after = if i + 1 == last_idx {
+                        next
+                    } else {
+                        screen_points[i + 2]
+                    };
+                    let c1 = Vector2 {
+                        x: prev.x + (next.x - before.x) / 6.0,
+                        y: prev.y + (next.y - before.y) / 6.0,
+                    };
+                    let c2 = Vector2 {
+                        x: next.x - (after.x - prev.x) / 6.0,
+                        y: next.y - (after.y - prev.y) / 6.0,
+                    };
+                    figure.bezier_to(c1, c2, next)
+                }
+            };
+        }
+
+        builder = if filled {
+            let last = *screen_points.last().expect("checked len >= 2 above");
+            figure
+                .line_to(Vector2 {
+                    x: last.x,
+                    y: height,
+                })
+                .close()
+        } else {
+            figure.end_open()
         };
     }
-
-    if filled {
-        let last = *screen_points.last().expect("checked len >= 2 above");
-        figure
-            .line_to(Vector2 {
-                x: last.x,
-                y: height,
-            })
-            .close()
-            .build()
-    } else {
-        figure.end_open().build()
-    }
+    builder.build()
 }
 
 /// A minmod-limited Hermite tangent. Both controls stay within the endpoint
@@ -550,6 +584,131 @@ mod tests {
                 assert!((left - right).abs() < 0.0001);
             }
         }
+    }
+
+    #[test]
+    fn missing_line_samples_split_strokes_and_fills_without_bridging() {
+        let device = GpuDevice::new_warp().unwrap();
+        let metrics = Metrics::new(100.0, 60.0, 1.0);
+        let target = device.create_render_target(100, 60).unwrap();
+        let options = LineChartOptions {
+            x_window: Some(100),
+            y_range: Some((0.0, 100.0)),
+            ..Default::default()
+        };
+        let series = Series {
+            color: hex(0xffffff),
+            fill: Some(hex(0x885533)),
+            interpolation: Interpolation::Monotone,
+            points: vec![
+                (0, f32::NAN),
+                (5, 20.0),
+                (25, 70.0),
+                (50, f32::NAN),
+                (75, 60.0),
+                (95, 30.0),
+                (100, f32::INFINITY),
+            ],
+        };
+        let render_series = |input: &[Series]| {
+            target
+                .draw(|draw| {
+                    draw.clear(ColorF::TRANSPARENT);
+                    render(
+                        draw,
+                        &device,
+                        metrics,
+                        input,
+                        &options,
+                        Some(100.0),
+                        &mut Cache::default(),
+                    );
+                    Ok(())
+                })
+                .unwrap();
+            target.read_pixels().unwrap()
+        };
+        let gapped = render_series(std::slice::from_ref(&series));
+        let mut left = series.clone();
+        left.points = series.points[1..3].to_vec();
+        let mut right = series.clone();
+        right.points = series.points[4..6].to_vec();
+        assert_eq!(gapped, render_series(&[left, right]));
+        let mut missing = series;
+        missing.points = vec![(0, f32::NAN), (50, 50.0), (100, f32::NAN)];
+        assert_eq!(render_series(&[missing]), render_series(&[]));
+    }
+
+    #[test]
+    fn series_clip_preserves_full_curves_and_original_indices_during_live_translation() {
+        let device = GpuDevice::new_warp().unwrap();
+        let metrics = Metrics::new(200.0, 80.0, 1.0);
+        let target = device.create_render_target(200, 80).unwrap();
+        let main = Series {
+            color: hex(0x226688),
+            interpolation: Interpolation::Monotone,
+            fill: Some(hex(0x112233)),
+            points: vec![(0, 20.0), (1000, 80.0), (2000, 40.0), (3000, 60.0)],
+        };
+        let mut overlay = main.clone();
+        overlay.color = hex(0xff8855);
+        overlay.fill = Some(hex(0x663322));
+        let mut empty = main.clone();
+        empty.points.clear();
+        let all = [main.clone(), empty, overlay];
+        let options = LineChartOptions {
+            x_window: Some(3000),
+            y_range: Some((0.0, 100.0)),
+            ..Default::default()
+        };
+        let mut cache = Cache::default();
+        let draw = |cache: &mut Cache, series: &[Series], end| {
+            target
+                .draw(|draw| {
+                    draw.clear(ColorF::TRANSPARENT);
+                    render(draw, &device, metrics, series, &options, Some(end), cache);
+                    Ok(())
+                })
+                .unwrap();
+            target.read_pixels().unwrap()
+        };
+        let complete = draw(&mut cache, &all, 2500.0);
+        cache.series_clips = std::rc::Rc::new(vec![None, None, Some((1000, 2000))]);
+        let limited = draw(&mut cache, &all, 2500.0);
+        assert_eq!(cache.builds, 1, "clip does not rebuild paths or tangents");
+        let mut base_cache = Cache::default();
+        let base = draw(&mut base_cache, &[main], 2500.0);
+        for y in 0..80 {
+            for x in 0..200 {
+                let offset = (y * 200 + x) * 4;
+                if (102..164).contains(&x) {
+                    assert!(
+                        limited[offset..offset + 4]
+                            .iter()
+                            .zip(&complete[offset..offset + 4])
+                            .all(|(a, b)| a.abs_diff(*b) <= 2),
+                        "native layer compositing roundoff"
+                    );
+                } else if !(98..169).contains(&x) {
+                    assert_eq!(&limited[offset..offset + 4], &base[offset..offset + 4]);
+                }
+            }
+        }
+        assert_ne!(limited, base);
+        let translated = draw(&mut cache, &all, 2513.25);
+        assert_eq!(cache.builds, 1);
+        cache.invalidate();
+        let fresh = draw(&mut cache, &all, 2513.25);
+        let mean = translated
+            .iter()
+            .zip(&fresh)
+            .map(|(a, b)| a.abs_diff(*b) as u64)
+            .sum::<u64>() as f64
+            / fresh.len() as f64;
+        assert!(mean < 0.25, "mean difference {mean}");
+        cache.series_clips = std::rc::Rc::new(vec![None, None, Some((1000, 1000))]);
+        let zero = draw(&mut cache, &all, 2500.0);
+        assert_eq!(zero, base, "zero-width clip hides only the indexed overlay");
     }
 
     #[test]

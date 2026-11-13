@@ -314,3 +314,19 @@ Window coordinates are untouched, and the gutter does not provide data/layer
 hover outside the plot. Changing gutter cancels an active drag; repeated equal
 configuration preserves it. Values must be finite and non-negative. No global
 CPU-panel pointer hook, custom surface, renderer or additional controls are needed.
+
+### Clipping individual line series to a period
+
+`chart.set_series_x_clip(index, Some((from, to)))` clips that series' fill and
+stroke to normalized inclusive time bounds. `None` restores its whole axis;
+indices follow publication order and policies persist across publications.
+Keep the main series at `None` and clip additional curves to the selected period.
+Pass all reference points: clipping uses a native drawing mask and preserves the
+original path and interpolation tangents, including at the period boundaries.
+It does not change the viewport or auto-fit range. Equal bounds hide the series.
+During brushing the displayed snapshot's clip policy stays pinned until release.
+Existing `HoverInfo.values` still contains raw nearest values for every series,
+including those hidden by a clip; it is not a per-series visibility/hit result.
+
+Non-finite line samples split the path into separate finite runs; isolated samples
+are not drawn. Tangents and fills do not bridge a missing sample.

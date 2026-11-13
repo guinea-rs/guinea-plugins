@@ -12,6 +12,7 @@ pub(super) struct Snapshot {
     pub metrics: Metrics,
     pub bands: Rc<super::bands::Bands>,
     pub highlighted: Option<u64>,
+    pub series_clips: Rc<Vec<Option<XSelection>>>,
 }
 
 struct Drag {
@@ -148,6 +149,7 @@ mod tests {
             metrics: Metrics::new(100.0, 40.0, 1.0),
             bands: Rc::default(),
             highlighted: None,
+            series_clips: Rc::default(),
         }
     }
     #[test]

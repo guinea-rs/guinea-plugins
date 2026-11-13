@@ -48,6 +48,7 @@ struct Drawing {
     clock: Cell<Clock>,
     fixed_x: Cell<Option<(f64, f64)>>,
     selection_gutter: Cell<f64>,
+    series_clips: RefCell<Rc<Vec<Option<XSelection>>>>,
     cache: RefCell<paint::Cache>,
     smooth_live: Cell<bool>,
     frame_clock: Cell<live::FrameClock>,
@@ -99,6 +100,7 @@ impl Paint for Drawing {
                 metrics,
                 bands: self.bands.borrow().clone(),
                 highlighted: self.highlighted.get(),
+                series_clips: self.series_clips.borrow().clone(),
             })
         });
         let (series, options, end) = match &snapshot {
@@ -114,6 +116,7 @@ impl Paint for Drawing {
             cache.x_range = Some((s.frame.from, s.frame.to));
             cache.bands = s.bands.clone();
             cache.highlighted = s.highlighted;
+            cache.series_clips = s.series_clips.clone();
         }
         paint::render(
             session,
@@ -399,6 +402,23 @@ impl Chart {
     /// Count completed surface draws independently of observer installation.
     pub fn painted_sequence(&self) -> u64 {
         self.drawing().painted_sequence.get()
+    }
+
+    /// Clip an indexed series' fill and stroke to normalized inclusive time bounds.
+    /// None restores the whole axis. Persists across publications; geometry and
+    /// tangents use all original points. Active selection pins the prior policy.
+    /// HoverInfo retains its existing raw nearest-value contract for all series.
+    pub fn set_series_x_clip(&self, index: usize, clip: Option<XSelection>) {
+        let clip = clip.map(|(a, b)| (a.min(b), a.max(b)));
+        let mut clips = self.drawing().series_clips.borrow_mut();
+        if clips.get(index).copied().flatten() == clip {
+            return;
+        }
+        let policy = Rc::make_mut(&mut clips);
+        policy.resize(policy.len().max(index + 1), None);
+        policy[index] = clip;
+        drop(clips);
+        self.painted.redraw();
     }
 
     /// Set the indexed series' stroke without changing Series struct literals.
@@ -761,7 +781,12 @@ mod tests {
         };
         assert!(drawing.front.borrow().is_none());
         assert_eq!(chart.painted_x_range(), None);
+        chart.set_series_x_clip(0, Some((1800, 1200)));
         let before = draw();
+        assert_eq!(
+            drawing.front.borrow().as_ref().unwrap().series_clips[0],
+            Some((1200, 1800))
+        );
         assert_eq!(chart.painted_x_range(), Some((1000.0, 2000.0)));
         let front = drawing.front.borrow().clone().unwrap();
         let pointer = |x| windows_reactor::PointerEventInfo {
@@ -775,6 +800,7 @@ mod tests {
             .take(&Pointer::Pressed(pointer(20.0)), Some(&front));
         chart.set_x_selection(Some((1200, 1200)));
         assert!(drawing.selection.borrow().pinned().is_some());
+        chart.set_series_x_clip(0, None);
         chart.publish(vec![series(&[(9000, 80.0), (10_000, 10.0)])], options);
         assert_eq!(drawing.front.borrow().as_ref().unwrap().frame.to, 2000.0);
         assert_eq!(chart.painted_x_range(), Some((1000.0, 2000.0)));
@@ -901,6 +927,7 @@ mod tests {
                 ..Default::default()
             }),
             highlighted: None,
+            series_clips: Rc::default(),
         };
         let heard = Rc::new(RefCell::new(Vec::new()));
         let target = heard.clone();
@@ -1011,6 +1038,7 @@ mod tests {
             metrics,
             bands: Rc::default(),
             highlighted: None,
+            series_clips: Rc::default(),
         };
         *drawing.candidate.borrow_mut() = Some(snapshot.clone());
         drawing.surface_timing(crate::painted::SurfaceTiming::default());
