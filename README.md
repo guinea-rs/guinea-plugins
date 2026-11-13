@@ -1,6 +1,6 @@
 ![guinea-plugins](https://raw.githubusercontent.com/guinea-rs/guinea-plugins/master/assets/banners/guinea-plugins.png)
 
-Plugins for [guinea](https://github.com/guinea-rs/guinea) 0.35 applications.
+Plugins for [guinea](https://github.com/guinea-rs/guinea) 0.36 applications.
 
 | Crate | Purpose |
 |---|---|
