@@ -1,0 +1,10 @@
+
+running 1 test
+width,height,rebuild,builds,mean_us,p95_us,max_us,finish_p95_us
+800,180,true,660,548.371,958.500,2510.000,923.200
+800,180,false,11,507.566,862.200,1585.400,842.300
+220,52,true,660,188.319,301.300,509.400,286.600
+220,52,false,11,189.752,304.000,564.300,296.200
+test chart::paint::tests::line_cache_diagnostic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 61 filtered out; finished in 1.37s

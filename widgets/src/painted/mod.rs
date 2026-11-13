@@ -15,7 +15,7 @@ pub use surface::{Metrics, SurfaceTiming};
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use windows_canvas::{DrawingSession, GpuDevice};
 use windows_reactor::{
@@ -49,6 +49,12 @@ pub trait Paint: 'static {
     /// More offscreen work remains after this frame. Idle views unsubscribe.
     fn frame_pending(&self) -> bool {
         false
+    }
+
+    /// Gate a native Rendering callback before any surface/device work.
+    /// Returning false skips this callback, without requesting another tick.
+    fn frame_ready(&self, _at: Instant) -> bool {
+        true
     }
 
     fn surface_timing(&self, _timing: SurfaceTiming) {}
@@ -118,7 +124,10 @@ impl<P: Paint> Shared<P> {
         let weak = Rc::downgrade(self);
         match frame_bindings::CompositionTarget::Rendering(move |_, _| {
             if let Some(shared) = weak.upgrade() {
-                if shared.mounted.get() && shared.painter.frame_driven() {
+                if shared.mounted.get()
+                    && shared.painter.frame_driven()
+                    && shared.painter.frame_ready(Instant::now())
+                {
                     shared.draw();
                 }
                 if !shared.mounted.get()

@@ -17,9 +17,23 @@ use windows_reactor::{IntoPayloadCallback, View};
 
 use super::hover::hover_at;
 use super::live::{self, Clock};
-use super::model::{HoverInfo, LineChartOptions, Series, newest};
+use super::model::{HoverInfo, LineChartOptions, LineStroke, LiveFps, Series, newest};
 use super::paint;
 use crate::painted::{Metrics, Paint, Painted, Pointer};
+
+/// One completed surface draw, including CPU wall time through native EndDraw.
+/// This is not a notification of GPU completion or physical presentation.
+#[derive(Clone, Copy, Debug)]
+pub struct ChartFrameTiming {
+    /// Starts at one and increases for each painted surface attempt, even when
+    /// no observer is installed. Does not reset on pause, unmount or remount.
+    pub sequence: u64,
+    pub timing: crate::painted::SurfaceTiming,
+}
+
+/// Synchronous UI-thread observer. Keep it short; buffer samples rather than
+/// performing I/O or requesting further rendering inside the callback.
+pub type ChartFrameObserver = Rc<dyn Fn(ChartFrameTiming)>;
 
 /// What a chart draws with.
 #[derive(Default)]
@@ -27,18 +41,70 @@ struct Drawing {
     series: RefCell<Vec<Series>>,
     options: RefCell<LineChartOptions>,
     clock: Cell<Clock>,
+    cache: RefCell<paint::Cache>,
+    smooth_live: Cell<bool>,
+    frame_clock: Cell<live::FrameClock>,
+    live_fps: Cell<LiveFps>,
+    suspended: Cell<bool>,
+    timing: Cell<crate::painted::SurfaceTiming>,
+    painted_sequence: Cell<u64>,
+    frame_observer: RefCell<Option<ChartFrameObserver>>,
 }
 
 impl Paint for Drawing {
+    fn prepare(&self, _device: &GpuDevice, _metrics: Metrics) -> windows_canvas::Result<bool> {
+        Ok(!self.suspended.get())
+    }
     fn paint(&self, session: &DrawingSession<'_>, device: &GpuDevice, metrics: Metrics) {
         let end = self.end(Instant::now());
         let (series, options) = (self.series.borrow(), self.options.borrow());
-        paint::render(session, device, metrics, &series, &options, end);
+        paint::render(
+            session,
+            device,
+            metrics,
+            &series,
+            &options,
+            end,
+            &mut self.cache.borrow_mut(),
+        );
     }
 
+    fn frame_driven(&self) -> bool {
+        self.smooth_live.get()
+    }
+    fn frame_pending(&self) -> bool {
+        self.animating()
+    }
+    fn frame_ready(&self, at: Instant) -> bool {
+        if self.suspended.get() {
+            return false;
+        }
+        if !self.animating() {
+            return true;
+        }
+        let mut clock = self.frame_clock.get();
+        let ready = clock.ready(at, self.live_fps.get());
+        self.frame_clock.set(clock);
+        ready
+    }
+    fn surface_timing(&self, timing: crate::painted::SurfaceTiming) {
+        self.timing.set(timing);
+        if !timing.painted {
+            return;
+        }
+        let sequence = self.painted_sequence.get().saturating_add(1);
+        self.painted_sequence.set(sequence);
+        let observer = self.frame_observer.borrow().clone();
+        if let Some(observer) = observer {
+            observer(ChartFrameTiming { sequence, timing });
+        }
+    }
+    fn released(&self) {
+        self.frame_clock.set(live::FrameClock::default());
+        self.cache.borrow_mut().invalidate();
+    }
     fn moving(&self) -> bool {
-        let options = self.options.borrow();
-        options.live.is_some() && options.x_window.is_some()
+        self.animating()
     }
 
     fn next_frame(&self, metrics: Metrics) -> Duration {
@@ -53,6 +119,14 @@ impl Paint for Drawing {
 }
 
 impl Drawing {
+    fn animating(&self) -> bool {
+        let options = self.options.borrow();
+        !self.suspended.get()
+            && options.live.is_some()
+            && options.x_window.is_some()
+            && self.series.borrow().iter().any(|s| !s.points.is_empty())
+    }
+
     /// Where a live chart's time axis ends at `at`; `None` for a chart that is
     /// not live, which ends at its newest sample.
     fn end(&self, at: Instant) -> Option<f64> {
@@ -128,6 +202,68 @@ impl Chart {
         self.painted.painter()
     }
 
+    /// Opt into subpixel scrolling on WinUI Rendering. Geometry is cached
+    /// between publishes; surface drawing and EndDraw still run each frame.
+    pub fn set_smooth_live(&self, enabled: bool) {
+        if self.drawing().smooth_live.replace(enabled) != enabled {
+            self.drawing().frame_clock.set(live::FrameClock::default());
+        }
+        self.painted.redraw();
+    }
+
+    /// Set the smooth-live draw limit at runtime (default 60 FPS). Changing
+    /// this resets only the draw deadline, not the data or elapsed-time clock.
+    /// Legacy pixel scrolling is unaffected; enable smooth mode separately.
+    pub fn set_live_fps(&self, fps: LiveFps) {
+        if self.drawing().live_fps.replace(fps) != fps {
+            self.drawing().frame_clock.set(live::FrameClock::default());
+            self.painted.redraw();
+        }
+    }
+
+    /// Pause animation when the containing page/window sleeps or is hidden.
+    /// Unmount also stops frames automatically. Resuming follows the live clock.
+    pub fn set_active(&self, active: bool) {
+        let suspended = !active;
+        if self.drawing().suspended.replace(suspended) != suspended {
+            self.drawing().frame_clock.set(live::FrameClock::default());
+        }
+        self.painted.redraw();
+    }
+
+    /// Geometry build count and the latest native surface CPU wall timings.
+    /// `finish` includes EndDraw; neither value measures physical presentation.
+    pub fn render_stats(&self) -> (u64, crate::painted::SurfaceTiming) {
+        (
+            self.drawing().cache.borrow().builds,
+            self.drawing().timing.get(),
+        )
+    }
+
+    /// Observe every completed surface draw after timing has been recorded.
+    /// Replaces the previous observer; `None` disables it. No samples are kept
+    /// or replayed by the chart. Callback time is excluded from SurfaceTiming.
+    pub fn set_frame_observer(&self, observer: Option<ChartFrameObserver>) {
+        *self.drawing().frame_observer.borrow_mut() = observer;
+    }
+
+    /// Count completed surface draws independently of observer installation.
+    pub fn painted_sequence(&self) -> u64 {
+        self.drawing().painted_sequence.get()
+    }
+
+    /// Set the indexed series' stroke without changing Series struct literals.
+    pub fn set_series_stroke(&self, index: usize, stroke: LineStroke) {
+        let mut cache = self.drawing().cache.borrow_mut();
+        if cache.strokes.len() <= index {
+            cache.strokes.resize(index + 1, LineStroke::Solid);
+        }
+        cache.strokes[index] = stroke;
+        cache.invalidate();
+        drop(cache);
+        self.painted.redraw();
+    }
+
     /// Hands the chart new data.
     ///
     /// A redraw is asked for only when the data or the options actually
@@ -147,6 +283,7 @@ impl Chart {
         drawing.saw_newest();
 
         if first || restyled || moved {
+            drawing.cache.borrow_mut().invalidate();
             self.painted.redraw();
         }
     }
@@ -176,6 +313,7 @@ impl Chart {
             }
         }
         drawing.saw_newest();
+        drawing.cache.borrow_mut().invalidate();
         self.painted.redraw();
     }
 
@@ -187,6 +325,7 @@ impl Chart {
         drawing.saw_newest();
 
         if restyled {
+            drawing.cache.borrow_mut().invalidate();
             self.painted.redraw();
         }
     }
@@ -235,6 +374,36 @@ mod tests {
     use super::super::model::Interpolation;
     use super::*;
 
+    #[test]
+    fn frame_observer_reports_each_painted_attempt_and_can_remove_itself() {
+        let drawing = Rc::new(Drawing::default());
+        let painted = crate::painted::SurfaceTiming {
+            painted: true,
+            finish: Duration::from_micros(42),
+            ..Default::default()
+        };
+        drawing.surface_timing(painted);
+        let samples = Rc::new(RefCell::new(Vec::new()));
+        let weak = Rc::downgrade(&drawing);
+        let received = samples.clone();
+        *drawing.frame_observer.borrow_mut() = Some(Rc::new(move |frame| {
+            received.borrow_mut().push(frame);
+            // Observer is invoked outside the observer RefCell borrow.
+            weak.upgrade().unwrap().frame_observer.borrow_mut().take();
+        }));
+        drawing.surface_timing(crate::painted::SurfaceTiming::default());
+        assert_eq!(drawing.painted_sequence.get(), 1);
+        assert!(samples.borrow().is_empty());
+        drawing.surface_timing(painted);
+        drawing.surface_timing(painted);
+        drawing.released();
+        assert_eq!(drawing.painted_sequence.get(), 3);
+        let samples = samples.borrow();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].sequence, 2);
+        assert_eq!(samples[0].timing.finish, Duration::from_micros(42));
+    }
+
     fn series(points: &[(u64, f32)]) -> Series {
         Series {
             color: windows_canvas::ColorF {
@@ -258,6 +427,82 @@ mod tests {
 
     fn points(chart: &Chart) -> Vec<(u64, f32)> {
         chart.drawing().series.borrow()[0].points.clone()
+    }
+
+    #[test]
+    fn paused_live_chart_stops_frames_and_preserves_stroke_indices() {
+        let chart = Chart::new();
+        chart.set_smooth_live(true);
+        chart.publish(
+            vec![series(&[(0, 1.0), (1000, 2.0)])],
+            LineChartOptions {
+                x_window: Some(60_000),
+                live: Some(super::super::Live {
+                    per_second: 1000.0,
+                    lag: 1000,
+                }),
+                ..Default::default()
+            },
+        );
+        chart.set_series_stroke(1, LineStroke::Dash);
+        chart.set_series_stroke(0, LineStroke::Dot);
+        assert_eq!(
+            chart.drawing().cache.borrow().strokes,
+            [LineStroke::Dot, LineStroke::Dash]
+        );
+        assert!(chart.drawing().frame_pending());
+        let at = Instant::now();
+        assert!(chart.drawing().frame_ready(at));
+        chart.set_active(true);
+        chart.set_smooth_live(true);
+        assert!(!chart.drawing().frame_ready(at + Duration::from_millis(1)));
+        chart.set_active(false);
+        assert!(!chart.drawing().moving());
+        assert!(!chart.drawing().frame_pending());
+        assert!(!chart.drawing().frame_ready(at + Duration::from_secs(1)));
+        let device = GpuDevice::new_warp().unwrap();
+        assert!(
+            !chart
+                .drawing()
+                .prepare(&device, Metrics::new(100.0, 40.0, 1.0))
+                .unwrap()
+        );
+        chart.set_active(true);
+        assert!(chart.drawing().frame_pending());
+        assert!(chart.drawing().frame_ready(at + Duration::from_secs(1)));
+        assert!(!chart.drawing().frame_ready(at + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn changing_live_fps_resets_only_deadline_not_data_clock() {
+        let chart = Chart::new();
+        chart.set_smooth_live(true);
+        chart.publish(
+            vec![series(&[(0, 1.0), (1000, 2.0)])],
+            LineChartOptions {
+                x_window: Some(60_000),
+                live: Some(super::super::Live {
+                    per_second: 1000.0,
+                    lag: 1000,
+                }),
+                ..Default::default()
+            },
+        );
+        let at = Instant::now();
+        let clock = chart.drawing().clock.get();
+        assert_eq!(chart.drawing().live_fps.get(), LiveFps::Fps60);
+        assert!(chart.drawing().frame_ready(at));
+        chart.set_live_fps(LiveFps::Fps30);
+        assert!(chart.drawing().frame_ready(at));
+        chart.set_live_fps(LiveFps::Fps30);
+        assert!(!chart.drawing().frame_ready(at + Duration::from_millis(20)));
+        assert!(chart.drawing().frame_ready(at + Duration::from_millis(34)));
+        chart.set_live_fps(LiveFps::Fps60);
+        assert!(chart.drawing().frame_ready(at + Duration::from_millis(34)));
+        assert!(!chart.drawing().frame_ready(at + Duration::from_millis(35)));
+        assert!(chart.drawing().frame_ready(at + Duration::from_millis(51)));
+        assert_eq!(chart.drawing().clock.get(), clock);
+        assert_eq!(points(&chart), [(0, 1.0), (1000, 2.0)]);
     }
 
     #[test]

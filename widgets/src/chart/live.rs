@@ -1,5 +1,6 @@
 //! Where now is on a live chart's time axis, between the samples that say.
 
+use super::model::LiveFps;
 use std::time::{Duration, Instant};
 
 /// The fastest a live chart redraws, whatever its width.
@@ -8,6 +9,29 @@ const FASTEST: Duration = Duration::from_micros(16_667);
 /// The slowest: a chart whose pixels are seconds apart still looks in on its
 /// clock now and then.
 const SLOWEST: Duration = Duration::from_secs(1);
+
+/// Admit at most one draw per selected-rate deadline slot. Deadlines remain
+/// anchored rather than restarting at each delayed vsync, retaining the error
+/// remainder on e.g. 144 Hz. Missed slots are discarded in constant time.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct FrameClock {
+    epoch: Option<Instant>,
+    next_slot: u128,
+}
+
+impl FrameClock {
+    pub fn ready(&mut self, at: Instant, fps: LiveFps) -> bool {
+        let epoch = *self.epoch.get_or_insert(at);
+        // Each rational deadline is rounded down to the nearest nanosecond.
+        let hz = fps.hz();
+        let slot = (at.saturating_duration_since(epoch).as_nanos() * hz + hz - 1) / 1_000_000_000;
+        if slot < self.next_slot {
+            return false;
+        }
+        self.next_slot = slot + 1;
+        true
+    }
+}
 
 /// Now on the time axis: a sample's time and the instant it was taken for,
 /// moved on by the clock since.
@@ -59,6 +83,48 @@ pub(super) fn step(window: u64, per_second: f64, pixels: f32) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smooth_frame_deadlines_preserve_sixty_hz_without_catchup() {
+        let start = Instant::now();
+        for fps in [LiveFps::Fps30, LiveFps::Fps60] {
+            for refresh in [24u64, 30, 60, 144, 240] {
+                let mut clock = FrameClock::default();
+                let count = (0..refresh * 12)
+                    .filter(|&i| {
+                        clock.ready(
+                            start + Duration::from_nanos(i * 1_000_000_000 / refresh),
+                            fps,
+                        )
+                    })
+                    .count();
+                assert_eq!(
+                    count,
+                    refresh.min(fps.hz() as u64) as usize * 12,
+                    "{refresh} Hz {fps:?}"
+                );
+            }
+        }
+        let mut clock = FrameClock::default();
+        assert!(clock.ready(start, LiveFps::Fps60));
+        assert!(!clock.ready(start, LiveFps::Fps60));
+        assert!(!clock.ready(start + Duration::from_millis(1), LiveFps::Fps60));
+        let resumed = start + Duration::from_secs(3600);
+        assert!(clock.ready(resumed, LiveFps::Fps60));
+        assert!(!clock.ready(resumed, LiveFps::Fps60));
+        assert!(!clock.ready(resumed + Duration::from_millis(1), LiveFps::Fps60));
+        assert!(clock.ready(resumed + Duration::from_millis(17), LiveFps::Fps60));
+    }
+
+    #[test]
+    fn late_vsync_keeps_the_original_deadline_instead_of_restarting_the_period() {
+        let start = Instant::now();
+        let mut clock = FrameClock::default();
+        assert!(clock.ready(start, LiveFps::Fps60));
+        assert!(clock.ready(start + Duration::from_millis(21), LiveFps::Fps60));
+        assert!(!clock.ready(start + Duration::from_millis(28), LiveFps::Fps60));
+        assert!(clock.ready(start + Duration::from_millis(35), LiveFps::Fps60));
+    }
 
     #[test]
     fn the_clock_moves_on_from_the_sample_that_set_it() {

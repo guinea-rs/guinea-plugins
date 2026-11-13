@@ -1,0 +1,5 @@
+phase,main_frames,mini1_frames,mini2_frames,sequence_gaps,overflow,heartbeat_p95_ms,heartbeat_max_ms
+pixel,147,50,50,0,0,32.107,423.217
+smooth,721,721,721,0,0,32.153,35.787
+paused,0,0,0,0,0,32.060,45.889
+unmounted,0,0,0,0,0,32.101,44.273

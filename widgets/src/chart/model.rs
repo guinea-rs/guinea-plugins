@@ -11,6 +11,37 @@ pub enum Interpolation {
     Linear,
     Step,
     Smooth,
+    /// Cubic interpolation with continuous tangents and no overshoot between
+    /// finite samples with strictly increasing times. Duplicate/reversed times
+    /// fall back to straight segments. Unlike `Smooth`, preserves local extrema.
+    Monotone,
+}
+
+/// Stroke pattern for a line, independent of its interpolation and fill.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LineStroke {
+    #[default]
+    Solid,
+    Dash,
+    Dot,
+}
+
+/// Surface draw limit for opt-in smooth live scrolling; never forces a display
+/// running below this rate to produce extra Rendering events.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LiveFps {
+    Fps30,
+    #[default]
+    Fps60,
+}
+
+impl LiveFps {
+    pub(super) fn hz(self) -> u128 {
+        match self {
+            Self::Fps30 => 30,
+            Self::Fps60 => 60,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq)]
