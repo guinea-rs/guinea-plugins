@@ -245,3 +245,18 @@ and changes color without changing geometry. Hover callbacks are deduplicated an
 also follow painted updates beneath a stationary pointer. During brushing layer
 hover is None and both band data and highlight remain pinned. Empty bands clear
 composition; unmount clears pointer hover and device resources.
+
+### Capturing the painted time context
+
+`chart.painted_x_range() -> Option<(f64, f64)>` returns the effective X bounds of
+the last successful surface paint, including fractional live offset and possible
+padding before zero. It is None before the first paint and after unmount. It does
+not return the newest published/clock window. Selection events are dispatched
+before the widget requests its follow-up repaint, so Began/Ended callbacks can
+read the current front before updating the chart themselves.
+
+Capture these bounds and the corresponding application history snapshot on Began;
+keep them through Ended when composing a fixed period. Do not replace that captured
+context with a later clock/book window. The widget cannot retain the application's
+Book: keep publication-matched history and interpolation boundary samples yourself.
+Convert floating viewport bounds explicitly if domain window types use integer time.

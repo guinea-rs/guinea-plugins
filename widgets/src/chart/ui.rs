@@ -550,6 +550,18 @@ impl Chart {
         self.drawing().selection.borrow().range
     }
 
+    /// Exact X axis of the last successful surface paint, not the latest
+    /// publication/clock. Capture this on Began, alongside application data;
+    /// keep it through Ended. None before first paint or after unmount. The
+    /// floating bounds preserve fractional live time and padding before zero.
+    pub fn painted_x_range(&self) -> Option<(f64, f64)> {
+        self.drawing()
+            .front
+            .borrow()
+            .as_ref()
+            .map(|s| (s.frame.from, s.frame.to))
+    }
+
     /// Hover and horizontal selection events. Configure selection separately.
     pub fn view_with_selection(
         &self,
@@ -598,10 +610,12 @@ impl Chart {
             if was_pinned != drawing.selection.borrow().pinned().is_some() {
                 drawing.cache.borrow_mut().invalidate();
             }
+            // Give the consumer a chance to capture the actual front window
+            // before a synchronous legacy repaint can advance it after Ended.
+            drawing.emit_selection(selection_event);
             if selection_event.is_some() || (was_pinned && matches!(event, Pointer::Lost)) {
                 painted.redraw();
             }
-            drawing.emit_selection(selection_event);
             drawing.emit_band_hover();
             match event {
                 Pointer::Moved(info) => {
@@ -687,7 +701,9 @@ mod tests {
             target.read_pixels().unwrap()
         };
         assert!(drawing.front.borrow().is_none());
+        assert_eq!(chart.painted_x_range(), None);
         let before = draw();
+        assert_eq!(chart.painted_x_range(), Some((1000.0, 2000.0)));
         let front = drawing.front.borrow().clone().unwrap();
         let pointer = |x| windows_reactor::PointerEventInfo {
             x,
@@ -702,6 +718,7 @@ mod tests {
         assert!(drawing.selection.borrow().pinned().is_some());
         chart.publish(vec![series(&[(9000, 80.0), (10_000, 10.0)])], options);
         assert_eq!(drawing.front.borrow().as_ref().unwrap().frame.to, 2000.0);
+        assert_eq!(chart.painted_x_range(), Some((1000.0, 2000.0)));
         assert_eq!(
             draw(),
             before,
@@ -720,6 +737,7 @@ mod tests {
         let after = draw();
         assert_ne!(after, before);
         assert_eq!(drawing.front.borrow().as_ref().unwrap().frame.to, 10_000.0);
+        assert_eq!(chart.painted_x_range(), Some((9000.0, 10_000.0)));
         assert_eq!(drawing.hover(20.0, 100.0).unwrap().x, 9200);
         chart.set_x_selection(Some((9800, 9200)));
         assert_eq!(chart.x_selection(), Some((9200, 9800)));
@@ -735,6 +753,8 @@ mod tests {
             after,
             "clear removes the highlight without a second renderer"
         );
+        drawing.released();
+        assert_eq!(chart.painted_x_range(), None);
     }
 
     #[test]
