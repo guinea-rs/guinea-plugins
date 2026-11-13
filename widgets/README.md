@@ -291,3 +291,26 @@ During an active brush the prior painted snapshot still wins until release.
 Bounds must be finite and strictly increasing; invalid configuration panics.
 For legacy pixel-timer mode, rerender the view when changing fixed/live state,
 as when changing the active/smooth mode. Smooth-live mode resumes on request.
+
+### Starting selection in horizontal gutters
+
+`chart.set_x_selection_gutter(12.0)` adds a transparent selection hit gutter on
+both horizontal sides of the plot. Configure before building/rerendering any of
+the existing Chart views; default zero keeps the original tree and hit bounds.
+The host height is exactly the plot height. Table/info below the chart is not
+inside this host and must not be wrapped by it.
+
+The inner Painted surface has a matching positive horizontal margin. To keep the
+original plot position, width, height, minimum layout contribution and rounded
+frame in an existing card, compensate the returned chart view with a parent
+horizontal margin of `-gutter` (vertical margins remain zero). Otherwise the host
+uses the available width and the plot is narrower by twice the gutter. The setter
+alone does not apply native layout until the view is rerendered.
+
+Host-to-plot coordinate conversion is widget-owned. Presses in a gutter clamp to
+the corresponding axis endpoint; captured moves/releases can leave the host.
+The existing gesture, front pin, cancellation and selection events are reused.
+Window coordinates are untouched, and the gutter does not provide data/layer
+hover outside the plot. Changing gutter cancels an active drag; repeated equal
+configuration preserves it. Values must be finite and non-negative. No global
+CPU-panel pointer hook, custom surface, renderer or additional controls are needed.

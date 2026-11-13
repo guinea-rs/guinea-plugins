@@ -21,7 +21,7 @@ use windows_canvas::{DrawingSession, GpuDevice};
 use windows_reactor::{
     Border, Callback, Color, Component, ComponentContext, ComponentTimer, CompositionHostEvent,
     ElementObservation, ElementRef, Grid, Image, IntoPayloadCallback, PointerEventInfo, Stretch,
-    View, ViewContext,
+    Thickness, View, ViewContext,
 };
 
 use surface::Surface;
@@ -244,6 +244,14 @@ impl<P: Paint> Painted<P> {
     /// `on_pointer` takes what every reactor widget takes: a plain closure,
     /// or a `Callback` a segment already made with `cx.on(..)`.
     pub fn view(&self, on_pointer: impl IntoPayloadCallback<Pointer>) -> View {
+        self.view_with_horizontal_gutter(0.0, on_pointer)
+    }
+
+    pub(crate) fn view_with_horizontal_gutter(
+        &self,
+        gutter: f64,
+        on_pointer: impl IntoPayloadCallback<Pointer>,
+    ) -> View {
         let surface = View::component::<Mount<P>>(Mounted {
             host: self.host.clone(),
             image: self.image.clone(),
@@ -251,7 +259,27 @@ impl<P: Paint> Painted<P> {
             moving: self.shared.painter.moving(),
         });
 
-        *self.listeners.to.borrow_mut() = Some(on_pointer.into_payload_callback());
+        let on_pointer = on_pointer.into_payload_callback();
+        let listener = if gutter == 0.0 {
+            on_pointer
+        } else {
+            let shared = self.shared.clone();
+            Callback::new(move |event: Pointer| {
+                let metrics = shared.surface.borrow().metrics();
+                if let Some(event) = pointer_in_plot(event, gutter, metrics) {
+                    on_pointer.call(event);
+                }
+            })
+        };
+        *self.listeners.to.borrow_mut() = Some(listener);
+        let surface = if gutter == 0.0 {
+            surface
+        } else {
+            Grid::new()
+                .margin(Thickness::new(gutter, 0.0, gutter, 0.0))
+                .children((surface,))
+                .into()
+        };
         let listeners = &self.listeners;
 
         Border::new()
@@ -265,6 +293,32 @@ impl<P: Paint> Painted<P> {
             .content(surface)
             .into()
     }
+}
+
+/// Only the narrow horizontal host owns initial presses. Captured moves and
+/// releases may leave it. Window coordinates remain native/stable.
+pub(crate) fn pointer_in_plot(
+    mut event: Pointer,
+    gutter: f64,
+    metrics: Option<Metrics>,
+) -> Option<Pointer> {
+    if gutter == 0.0 {
+        return Some(event);
+    }
+    if let Pointer::Pressed(info) = &event
+        && let Some(m) = metrics
+        && !(info.x >= 0.0
+            && info.x <= m.width as f64 + 2.0 * gutter
+            && info.y >= 0.0
+            && info.y <= m.height as f64)
+    {
+        return None;
+    }
+    match &mut event {
+        Pointer::Pressed(info) | Pointer::Moved(info) | Pointer::Released(info) => info.x -= gutter,
+        _ => {}
+    }
+    Some(event)
 }
 
 /// The view's pointer handlers, made once, so that a render does not hand

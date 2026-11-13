@@ -151,6 +151,130 @@ mod tests {
         }
     }
     #[test]
+    fn horizontal_gutters_share_the_existing_full_range_gesture() {
+        use crate::painted::pointer_in_plot;
+        let front = snapshot();
+        let g = 12.0;
+        for (start, end) in [(6.0, 118.0), (118.0, 6.0)] {
+            let mut s = Selection {
+                enabled: true,
+                ..Default::default()
+            };
+            let press =
+                pointer_in_plot(Pointer::Pressed(info(start, true)), g, Some(front.metrics))
+                    .unwrap();
+            let began = s.take(&press, Some(&front));
+            assert_eq!(
+                began,
+                Some(XSelectionEvent::Began(if start < g {
+                    (1000, 1000)
+                } else {
+                    (2000, 2000)
+                }))
+            );
+            let moved =
+                pointer_in_plot(Pointer::Moved(info(end, true)), g, Some(front.metrics)).unwrap();
+            assert_eq!(
+                s.take(&moved, None),
+                Some(XSelectionEvent::Changed((1000, 2000)))
+            );
+            let release =
+                pointer_in_plot(Pointer::Released(info(end, false)), g, Some(front.metrics))
+                    .unwrap();
+            assert_eq!(
+                s.take(&release, None),
+                Some(XSelectionEvent::Ended((1000, 2000)))
+            );
+            assert!(s.pinned().is_none());
+        }
+        let mut inside = Selection {
+            enabled: true,
+            ..Default::default()
+        };
+        let mut plain = Selection {
+            enabled: true,
+            ..Default::default()
+        };
+        for (host, plot) in [
+            (
+                Pointer::Pressed(info(62.0, true)),
+                Pointer::Pressed(info(50.0, true)),
+            ),
+            (
+                Pointer::Moved(info(92.0, true)),
+                Pointer::Moved(info(80.0, true)),
+            ),
+            (
+                Pointer::Released(info(92.0, false)),
+                Pointer::Released(info(80.0, false)),
+            ),
+        ] {
+            let normalized = pointer_in_plot(host, g, Some(front.metrics)).unwrap();
+            assert_eq!(
+                inside.take(&normalized, Some(&front)),
+                plain.take(&plot, Some(&front))
+            );
+        }
+    }
+    #[test]
+    fn gutter_host_excludes_vertical_siblings_and_preserves_capture_coordinates() {
+        use crate::painted::pointer_in_plot;
+        let front = snapshot();
+        let table = Pointer::Pressed(windows_reactor::PointerEventInfo {
+            x: 50.0,
+            y: 50.0,
+            is_left_button_pressed: true,
+            ..Default::default()
+        });
+        assert_eq!(pointer_in_plot(table, 12.0, Some(front.metrics)), None);
+        let press = Pointer::Pressed(windows_reactor::PointerEventInfo {
+            x: 6.0,
+            y: 20.0,
+            window_x: 1006.0,
+            is_left_button_pressed: true,
+            ..Default::default()
+        });
+        let normalized = pointer_in_plot(press.clone(), 12.0, Some(front.metrics)).unwrap();
+        if let Pointer::Pressed(p) = &normalized {
+            assert_eq!(p.x, -6.0);
+            assert_eq!(p.window_x, 1006.0);
+            assert_eq!(p.y, 20.0);
+        } else {
+            panic!("pointer variant changed");
+        }
+        assert_eq!(
+            pointer_in_plot(press.clone(), 0.0, Some(front.metrics)),
+            Some(press)
+        );
+        let mut s = Selection {
+            enabled: true,
+            range: Some((1200, 1500)),
+            ..Default::default()
+        };
+        s.take(&normalized, Some(&front));
+        assert!(s.pinned().is_some());
+        s.take(&Pointer::Lost, None);
+        assert_eq!(s.cancel_lost(), Some(XSelectionEvent::Cancelled));
+        assert_eq!(s.range, Some((1200, 1500)));
+        assert!(
+            pointer_in_plot(
+                Pointer::Moved(info(-100.0, true)),
+                12.0,
+                Some(front.metrics)
+            )
+            .is_some()
+        );
+        assert!(
+            pointer_in_plot(
+                Pointer::Released(info(200.0, false)),
+                12.0,
+                Some(front.metrics)
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
     fn reverse_drag_clamps_to_pinned_display_despite_new_epoch() {
         let mut s = Selection {
             enabled: true,

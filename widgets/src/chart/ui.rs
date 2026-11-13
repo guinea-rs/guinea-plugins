@@ -47,6 +47,7 @@ struct Drawing {
     options: RefCell<Rc<LineChartOptions>>,
     clock: Cell<Clock>,
     fixed_x: Cell<Option<(f64, f64)>>,
+    selection_gutter: Cell<f64>,
     cache: RefCell<paint::Cache>,
     smooth_live: Cell<bool>,
     frame_clock: Cell<live::FrameClock>,
@@ -552,6 +553,23 @@ impl Chart {
         self.selection_view(on_hover, Some(on_selection.into_payload_callback()))
     }
 
+    /// Extra horizontal selection hit area on each side, in DIPs. Default zero.
+    /// Rerender the view to apply layout changes. Compensate the wider host with
+    /// a parent negative horizontal margin when the original plot must stay put.
+    /// Changing this cancels a drag; finite non-negative values are required.
+    pub fn set_x_selection_gutter(&self, gutter: f64) {
+        assert!(
+            gutter.is_finite() && gutter >= 0.0,
+            "selection gutter must be finite and non-negative"
+        );
+        if self.drawing().selection_gutter.replace(gutter) != gutter {
+            let cancelled = self.drawing().selection.borrow_mut().cancel();
+            self.drawing().cache.borrow_mut().invalidate();
+            self.drawing().emit_selection(cancelled);
+            self.painted.redraw();
+        }
+    }
+
     /// Enable primary-pointer horizontal brushing (disabled by default).
     pub fn set_x_selection_enabled(&self, enabled: bool) {
         self.drawing().selection.borrow_mut().enabled = enabled;
@@ -624,45 +642,53 @@ impl Chart {
         let painted = self.painted.clone();
         let pointer = self.pointer.clone();
 
-        self.painted.view(move |event: Pointer| {
-            let drawing = painted.painter();
-            match &event {
-                Pointer::Moved(info) | Pointer::Pressed(info) | Pointer::Released(info) => drawing
-                    .band_pointer
-                    .set(Some((info.x as f32, info.y as f32))),
-                Pointer::Exited => drawing.band_pointer.set(None),
-                _ => {}
-            }
-            let was_pinned = drawing.selection.borrow().pinned().is_some();
-            let front = drawing
-                .front
-                .borrow()
-                .clone()
-                .filter(|s| Some(s.metrics) == painted.metrics());
-            let selection_event = drawing.selection.borrow_mut().take(&event, front.as_ref());
-            if was_pinned != drawing.selection.borrow().pinned().is_some() {
-                drawing.cache.borrow_mut().invalidate();
-            }
-            // Give the consumer a chance to capture the actual front window
-            // before a synchronous legacy repaint can advance it after Ended.
-            drawing.emit_selection(selection_event);
-            if selection_event.is_some() || (was_pinned && matches!(event, Pointer::Lost)) {
-                painted.redraw();
-            }
-            drawing.emit_band_hover();
-            match event {
-                Pointer::Moved(info) => {
-                    let at = info.x as f32;
-                    pointer.set(Some(at));
-                    on_hover.call(hover(&painted, at));
+        let gutter = self.drawing().selection_gutter.get();
+        self.painted
+            .view_with_horizontal_gutter(gutter, move |event: Pointer| {
+                let drawing = painted.painter();
+                match &event {
+                    Pointer::Moved(info) | Pointer::Pressed(info) | Pointer::Released(info) => {
+                        drawing
+                            .band_pointer
+                            .set(Some((info.x as f32, info.y as f32)))
+                    }
+                    Pointer::Exited => drawing.band_pointer.set(None),
+                    _ => {}
                 }
-                Pointer::Exited => {
-                    pointer.set(None);
-                    on_hover.call(None);
+                let was_pinned = drawing.selection.borrow().pinned().is_some();
+                let front = drawing
+                    .front
+                    .borrow()
+                    .clone()
+                    .filter(|s| Some(s.metrics) == painted.metrics());
+                let selection_event = drawing.selection.borrow_mut().take(&event, front.as_ref());
+                if was_pinned != drawing.selection.borrow().pinned().is_some() {
+                    drawing.cache.borrow_mut().invalidate();
                 }
-                _ => {}
-            }
-        })
+                // Give the consumer a chance to capture the actual front window
+                // before a synchronous legacy repaint can advance it after Ended.
+                drawing.emit_selection(selection_event);
+                if selection_event.is_some() || (was_pinned && matches!(event, Pointer::Lost)) {
+                    painted.redraw();
+                }
+                drawing.emit_band_hover();
+                match event {
+                    Pointer::Moved(info) => {
+                        let at = info.x as f32;
+                        let outside = gutter > 0.0
+                            && painted.metrics().is_none_or(|m| {
+                                at < 0.0 || at > m.width || info.y < 0.0 || info.y > m.height as f64
+                            });
+                        pointer.set((!outside).then_some(at));
+                        on_hover.call(if outside { None } else { hover(&painted, at) });
+                    }
+                    Pointer::Exited => {
+                        pointer.set(None);
+                        on_hover.call(None);
+                    }
+                    _ => {}
+                }
+            })
     }
 }
 
@@ -835,6 +861,12 @@ mod tests {
         assert!(
             render() == original,
             "frozen axis altered the original total"
+        );
+        assert_eq!(chart.painted_x_range(), Some(window));
+        chart.set_x_selection_gutter(12.0);
+        assert!(
+            render() == original,
+            "gutter must not change painted geometry"
         );
         assert_eq!(chart.painted_x_range(), Some(window));
         chart.set_x_range(Some((-0.25, 0.25)));
