@@ -224,7 +224,13 @@ chart.set_bands(Vec::new(), None); // remove the composition
 ```
 
 Each point supplies explicit cumulative lower/upper bounds. Geometry joins adjacent
-valid points linearly, without normalization or smoothing. Membership, fixed top-N,
+valid points linearly by default, without normalization. Opt into
+`set_band_interpolation(BandInterpolation::Monotone)` to share exactly the same
+limited cubic tangents as `Series::interpolation = Interpolation::Monotone`.
+Supply the same time/value reference points for a matching upper contour.
+Cubic subsegments are clipped without recomputing endpoint tangents. If independent
+boundary curves cross, reversed interpolated areas are gaps in both paint and hit
+testing; no data is rescaled to hide the crossing. Membership, fixed top-N,
 Others and positive/negative discrepancies with total belong to the application.
 Values exceeding total remain unchanged. Non-finite values, reversed bounds,
 non-increasing adjacent times and zero-width intervals create gaps. IDs should be
@@ -233,8 +239,10 @@ unique and stable; the last supplied band wins at shared/overlapping hit boundar
 `Some((from,to))` clips all bands to that temporal range, interpolating endpoint
 values; `None` uses the whole axis. The original Series alone sets the viewport
 and auto-fit Y range: adding bands never rescales or changes total geometry.
-Bands render behind Series. Use `fill: None` for a total line that should not
-cover them; dimming its color is independent of its geometry. The committed brush
+When bands exist, drawing order is Series fills, then bands, then Series strokes.
+Keep the original total fill, color and interpolation unchanged: a clipped band
+composition covers its fill only inside the period, with total stroke on top.
+Without bands the original per-Series draw order is preserved. The committed brush
 fill is suppressed while bands exist, preserving their colors; active drag still
 shows its brush over the pinned previous image.
 
@@ -260,3 +268,26 @@ keep them through Ended when composing a fixed period. Do not replace that captu
 context with a later clock/book window. The widget cannot retain the application's
 Book: keep publication-matched history and interpolation boundary samples yourself.
 Convert floating viewport bounds explicitly if domain window types use integer time.
+
+### Fixing the actual viewport while retaining smooth live configuration
+
+```rust,ignore
+use guinea_widgets::chart::BandInterpolation;
+chart.set_band_interpolation(BandInterpolation::Monotone);
+// Save on Began, along with the matching application history snapshot:
+let painted = chart.painted_x_range();
+// Fix that exact axis for the selected composition:
+chart.set_x_range(painted);
+// Return to normal elapsed-time scrolling when selection is dismissed:
+chart.set_x_range(None);
+```
+
+A fixed X range overrides the live/data-derived axis, retaining fractional bounds
+and padding before zero. It stops automatic scrolling frames, but publications
+and explicit redraws still work. The live clock keeps elapsed time internally;
+clearing the override resumes it without replaying missed frames. The override
+pins only the axis, not data: retain the matching history snapshot in the caller.
+During an active brush the prior painted snapshot still wins until release.
+Bounds must be finite and strictly increasing; invalid configuration panics.
+For legacy pixel-timer mode, rerender the view when changing fixed/live state,
+as when changing the active/smooth mode. Smooth-live mode resumes on request.

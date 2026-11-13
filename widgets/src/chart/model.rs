@@ -171,6 +171,16 @@ pub struct ChartBand {
     pub id: u64,
     pub color: ColorF,
     /// (time, lower, upper), strictly increasing times; adjacent valid samples
-    /// are linearly joined. Invalid samples/intervals create gaps.
+    /// use the configured band interpolation (Linear by default).
+    /// Invalid samples/intervals create gaps.
     pub points: Vec<(u64, f32, f32)>,
+}
+
+/// Interpolation of explicit area boundaries. Monotone shares the line chart's
+/// limited cubic tangents; Linear retains the original band behavior.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BandInterpolation {
+    #[default]
+    Linear,
+    Monotone,
 }

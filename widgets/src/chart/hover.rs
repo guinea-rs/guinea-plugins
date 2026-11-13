@@ -1,16 +1,15 @@
 //! Reading a value off the chart at a horizontal position.
 
 use super::geometry::Frame;
-use super::model::{HoverInfo, LineChartOptions, Series};
+use super::model::{HoverInfo, Series};
 use super::{bounds, nearest_point};
 
 /// The values under `pixel_x`, or `None` when there is nothing to report -
-/// no data, no width yet, or a single instant on the time axis. `end` is
-/// where a live chart's axis ends, as it was drawn.
+/// no data, no width yet, or a single instant on the time axis. Uses the
+/// actual painted frame, including an explicit fixed viewport.
 pub(super) fn hover_at(
     series: &[Series],
-    options: &LineChartOptions,
-    end: Option<f64>,
+    frame: Frame,
     pixel_x: f32,
     width: f32,
 ) -> Option<HoverInfo> {
@@ -19,7 +18,6 @@ pub(super) fn hover_at(
         return None;
     }
 
-    let frame = Frame::of(series, options.x_window, options.y_range, end)?;
     let target = frame.t_at(pixel_x, width);
 
     let mut values = Vec::with_capacity(series.len());

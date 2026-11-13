@@ -15,6 +15,7 @@ tracing.workspace = true
 windows-reactor = { workspace = true, optional = true }
 windows-canvas = { workspace = true, features = ["reactor"], optional = true }
 windows-core = { workspace = true, optional = true }
+kurbo = { version = "0.13.1", optional = true }
 
 # The Direct2D layer a chart clips to its rounded corners with is bound in
 # src/chart/d2d.rs (windows-canvas does not wrap one); its mask transform is a
@@ -31,7 +32,7 @@ default = ["winui"]
 
 # Backends. Without one, what is left is the part that is pure layout and
 # geometry: sort state and ring series.
-winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-core", "dep:windows-numerics"]
+winui = ["dep:windows-reactor", "dep:windows-canvas", "dep:windows-core", "dep:windows-numerics", "dep:kurbo"]
 
 [lints]
 workspace = true

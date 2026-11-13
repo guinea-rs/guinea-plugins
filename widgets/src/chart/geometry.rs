@@ -30,20 +30,31 @@ impl Frame {
     /// The frame for `series`: the last `x_window` of time up to `end`, or up
     /// to the newest sample, or all of it; `y_range`, or the values of the
     /// samples in view. `end` counts only with a window.
+    #[cfg(test)]
     pub fn of(
         series: &[Series],
         x_window: Option<u64>,
         y_range: Option<(f32, f32)>,
         end: Option<f64>,
     ) -> Option<Frame> {
+        Self::of_in(series, x_window, y_range, end, None)
+    }
+
+    pub fn of_in(
+        series: &[Series],
+        x_window: Option<u64>,
+        y_range: Option<(f32, f32)>,
+        end: Option<f64>,
+        fixed: Option<(f64, f64)>,
+    ) -> Option<Frame> {
         let (min_t, max_t, _, _) = bounds(series)?;
-        let (from, to) = match x_window {
+        let (from, to) = fixed.unwrap_or_else(|| match x_window {
             Some(window) => {
                 let to = end.unwrap_or(max_t as f64);
                 (to - window.max(1) as f64, to)
             }
             None => (min_t as f64, max_t as f64),
-        };
+        });
 
         let (min_v, max_v) = y_range.unwrap_or_else(|| {
             let fit = |in_view: bool| {
@@ -62,7 +73,11 @@ impl Frame {
 
         Some(Frame {
             from,
-            to: to.max(from + 1.0),
+            to: if fixed.is_some() {
+                to
+            } else {
+                to.max(from + 1.0)
+            },
             min_v,
             max_v,
         })

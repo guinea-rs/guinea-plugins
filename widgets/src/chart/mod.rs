@@ -29,8 +29,8 @@ mod ui;
 
 #[cfg(all(feature = "winui", windows))]
 pub use model::{
-    ChartBand, ChartGrid, HoverInfo, Interpolation, LineChartOptions, LineStroke, Live, LiveFps,
-    Series, XSelection, XSelectionEvent, theme_border_color,
+    BandInterpolation, ChartBand, ChartGrid, HoverInfo, Interpolation, LineChartOptions,
+    LineStroke, Live, LiveFps, Series, XSelection, XSelectionEvent, theme_border_color,
 };
 #[cfg(all(feature = "winui", windows))]
 pub use ui::{Chart, ChartFrameObserver, ChartFrameTiming};

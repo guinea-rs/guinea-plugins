@@ -19,8 +19,8 @@ use super::geometry::Frame;
 use super::hover::hover_at;
 use super::live::{self, Clock};
 use super::model::{
-    ChartBand, HoverInfo, LineChartOptions, LineStroke, LiveFps, Series, XSelection,
-    XSelectionEvent, newest,
+    BandInterpolation, ChartBand, HoverInfo, LineChartOptions, LineStroke, LiveFps, Series,
+    XSelection, XSelectionEvent, newest,
 };
 use super::paint;
 use super::selection::{Selection, Snapshot};
@@ -46,6 +46,7 @@ struct Drawing {
     series: RefCell<Rc<Vec<Series>>>,
     options: RefCell<Rc<LineChartOptions>>,
     clock: Cell<Clock>,
+    fixed_x: Cell<Option<(f64, f64)>>,
     cache: RefCell<paint::Cache>,
     smooth_live: Cell<bool>,
     frame_clock: Cell<live::FrameClock>,
@@ -83,11 +84,12 @@ impl Paint for Drawing {
     fn paint(&self, session: &DrawingSession<'_>, device: &GpuDevice, metrics: Metrics) {
         let snapshot = self.selection.borrow().pinned().cloned().or_else(|| {
             let (series, options) = (self.series.borrow().clone(), self.options.borrow().clone());
-            let frame = Frame::of(
+            let frame = Frame::of_in(
                 &series,
                 options.x_window,
                 options.y_range,
                 self.end(Instant::now()),
+                self.fixed_x.get(),
             )?;
             Some(Snapshot {
                 series,
@@ -108,6 +110,7 @@ impl Paint for Drawing {
         };
         if let Some(s) = &snapshot {
             let mut cache = self.cache.borrow_mut();
+            cache.x_range = Some((s.frame.from, s.frame.to));
             cache.bands = s.bands.clone();
             cache.highlighted = s.highlighted;
         }
@@ -228,6 +231,7 @@ impl Drawing {
     fn live_enabled(&self) -> bool {
         let options = self.options.borrow();
         !self.suspended.get()
+            && self.fixed_x.get().is_none()
             && options.live.is_some()
             && options.x_window.is_some()
             && self.series.borrow().iter().any(|s| !s.points.is_empty())
@@ -305,7 +309,7 @@ impl Drawing {
     fn hover(&self, at: f32, _width: f32) -> Option<HoverInfo> {
         let front = self.front.borrow();
         let s = front.as_ref()?;
-        hover_at(&s.series, &s.options, Some(s.frame.to), at, s.metrics.width)
+        hover_at(&s.series, s.frame, at, s.metrics.width)
     }
 }
 
@@ -485,13 +489,42 @@ impl Chart {
         hover(&self.painted, self.pointer.get()?)
     }
 
-    /// Explicit cumulative areas, drawn behind existing total lines. Values
+    /// Freeze the viewport independently of live clock/data publication.
+    /// None resumes the normal axis. Capture painted_x_range on Began.
+    /// Panics for non-finite bounds or a non-positive span. Fixed mode keeps
+    /// data-driven redraws but does not request automatic scrolling frames.
+    pub fn set_x_range(&self, range: Option<(f64, f64)>) {
+        assert!(
+            range.is_none_or(|(a, b)| a.is_finite() && b.is_finite() && b > a),
+            "X range must be finite and increasing"
+        );
+        if self.drawing().fixed_x.replace(range) != range {
+            self.drawing().frame_clock.set(live::FrameClock::default());
+            self.drawing().cache.borrow_mut().invalidate();
+            self.painted.redraw();
+        }
+    }
+
+    pub fn set_band_interpolation(&self, interpolation: BandInterpolation) {
+        let mut bands = self.drawing().bands.borrow_mut();
+        if bands.interpolation == interpolation {
+            return;
+        }
+        let mut next = (**bands).clone();
+        next.interpolation = interpolation;
+        *bands = Rc::new(next);
+        drop(bands);
+        self.painted.redraw();
+    }
+
+    /// Explicit cumulative areas, drawn above Series fills and below strokes. Values
     /// are never normalized; None clips only to the viewport. Invalid intervals
     /// are gaps. The total Series determines the viewport and auto Y range.
     pub fn set_bands(&self, bands: Vec<ChartBand>, clip: Option<XSelection>) {
         let bands = super::bands::Bands {
             layers: bands,
             clip: clip.map(|(a, b)| (a.min(b), a.max(b))),
+            interpolation: self.drawing().bands.borrow().interpolation,
         };
         if **self.drawing().bands.borrow() != bands {
             *self.drawing().bands.borrow_mut() = Rc::new(bands);
@@ -758,6 +791,62 @@ mod tests {
     }
 
     #[test]
+    fn fixed_painted_range_preserves_fractional_axis_with_live_clock_running() {
+        let chart = Chart::new();
+        chart.set_smooth_live(true);
+        chart.publish(
+            vec![series(&[(0, 10.0), (30_000, 70.0), (60_000, 20.0)])],
+            LineChartOptions {
+                x_window: Some(60_000),
+                live: Some(super::super::Live {
+                    per_second: 1000.0,
+                    lag: 1000,
+                }),
+                y_range: Some((0.0, 100.0)),
+                ..Default::default()
+            },
+        );
+        let device = GpuDevice::new_warp().unwrap();
+        let target = device.create_render_target(100, 40).unwrap();
+        let metrics = Metrics::new(100.0, 40.0, 1.0);
+        let drawing = chart.drawing();
+        let render = || {
+            target
+                .draw(|d| {
+                    d.clear(windows_canvas::ColorF::TRANSPARENT);
+                    drawing.paint(d, &device, metrics);
+                    Ok(())
+                })
+                .unwrap();
+            drawing.surface_timing(crate::painted::SurfaceTiming {
+                painted: true,
+                ..Default::default()
+            });
+            target.read_pixels().unwrap()
+        };
+        let original = render();
+        let window = chart.painted_x_range().unwrap();
+        chart.set_x_range(Some(window));
+        let mut clock = drawing.clock.get();
+        clock.saw(900_000.0, 60_000.0, 1000.0, Instant::now());
+        drawing.clock.set(clock);
+        assert!(!drawing.frame_pending());
+        assert!(!drawing.moving());
+        assert!(
+            render() == original,
+            "frozen axis altered the original total"
+        );
+        assert_eq!(chart.painted_x_range(), Some(window));
+        chart.set_x_range(Some((-0.25, 0.25)));
+        render();
+        assert_eq!(chart.painted_x_range(), Some((-0.25, 0.25)));
+        chart.set_x_range(None);
+        assert!(drawing.frame_pending());
+        render();
+        assert!(chart.painted_x_range().unwrap().1 > 800_000.0);
+    }
+
+    #[test]
     fn stationary_band_hover_follows_commits_and_deduplicates_callbacks() {
         let drawing = Drawing::default();
         let snapshot = |id| Snapshot {
@@ -777,6 +866,7 @@ mod tests {
                     points: vec![(0, 0.0, 100.0), (100, 0.0, 100.0)],
                 }],
                 clip: None,
+                ..Default::default()
             }),
             highlighted: None,
         };

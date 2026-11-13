@@ -35,6 +35,7 @@ pub(super) struct Cache {
     pub strokes: Vec<LineStroke>,
     pub builds: u64,
     pub bands: std::rc::Rc<super::bands::Bands>,
+    pub x_range: Option<(f64, f64)>,
     pub highlighted: Option<u64>,
     band_cache: super::bands::Cache,
 }
@@ -157,7 +158,13 @@ fn content(
         draw_backdrop(draw, width, height, background);
     }
 
-    let frame = Frame::of(series, options.x_window, options.y_range, end);
+    let frame = Frame::of_in(
+        series,
+        options.x_window,
+        options.y_range,
+        end,
+        cache.x_range,
+    );
     if let (Some(grid), Some(frame)) = (&options.grid, &frame) {
         match draw.create_solid_brush(grid.color) {
             Ok(brush) => draw_grid(draw, &brush, grid, frame, pixel),
@@ -243,38 +250,42 @@ fn content(
             }
         }
     }
-    cache.band_cache.paint(
-        draw,
-        device,
-        metrics,
-        frame,
-        &cache.bands,
-        cache.highlighted,
-    );
     let anchor = cache.frame.unwrap_or(frame);
     let shift = ((anchor.from - frame.from) / (frame.to - frame.from)) as f32 * width;
-    // with_transform retains the surface atlas offset and restores the caller.
-    draw.with_transform(
-        &(Matrix3x2::translation(shift, 0.0) * draw.transform()),
-        || {
-            for CachedLine {
-                path,
-                brush,
-                style,
-                fill,
-            } in &cache.lines
-            {
-                if let Some((path, brush)) = fill {
-                    draw.fill_path(path, brush);
-                }
-                if let Some(style) = style {
-                    draw.draw_path_styled(path, brush, LINE_WIDTH, style);
-                } else {
-                    draw.draw_path(path, brush, LINE_WIDTH);
-                }
+    let transform = Matrix3x2::translation(shift, 0.0) * draw.transform();
+    let has_bands = !cache.bands.layers.is_empty();
+    let stroke = |line: &CachedLine| {
+        if let Some(style) = &line.style {
+            draw.draw_path_styled(&line.path, &line.brush, LINE_WIDTH, style);
+        } else {
+            draw.draw_path(&line.path, &line.brush, LINE_WIDTH);
+        }
+    };
+    draw.with_transform(&transform, || {
+        for line in &cache.lines {
+            if let Some((path, brush)) = &line.fill {
+                draw.fill_path(path, brush);
             }
-        },
-    );
+            if !has_bands {
+                stroke(line);
+            }
+        }
+    });
+    if has_bands {
+        cache.band_cache.paint(
+            draw,
+            device,
+            metrics,
+            frame,
+            &cache.bands,
+            cache.highlighted,
+        );
+        draw.with_transform(&transform, || {
+            for line in &cache.lines {
+                stroke(line);
+            }
+        });
+    }
 }
 
 pub(super) fn draw_backdrop(
@@ -470,7 +481,7 @@ fn build_path(
 /// A minmod-limited Hermite tangent. Both controls stay within the endpoint
 /// rectangle, so the cubic's convex hull cannot introduce a new extremum.
 /// Adjacent segments share the same tangent at every strictly ordered knot.
-fn monotone_controls(points: &[Vector2], i: usize) -> (Vector2, Vector2) {
+pub(super) fn monotone_controls(points: &[Vector2], i: usize) -> (Vector2, Vector2) {
     let slope = |a: usize, b: usize| {
         let dx = points[b].x - points[a].x;
         if dx > 0.0 {
