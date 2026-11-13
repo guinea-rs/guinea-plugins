@@ -13,12 +13,16 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use windows_canvas::{DrawingSession, GpuDevice};
-use windows_reactor::{IntoPayloadCallback, View};
+use windows_reactor::{Callback, IntoPayloadCallback, View};
 
+use super::geometry::Frame;
 use super::hover::hover_at;
 use super::live::{self, Clock};
-use super::model::{HoverInfo, LineChartOptions, LineStroke, LiveFps, Series, newest};
+use super::model::{
+    HoverInfo, LineChartOptions, LineStroke, LiveFps, Series, XSelection, XSelectionEvent, newest,
+};
 use super::paint;
+use super::selection::{Selection, Snapshot};
 use crate::painted::{Metrics, Paint, Painted, Pointer};
 
 /// One completed surface draw, including CPU wall time through native EndDraw.
@@ -38,8 +42,8 @@ pub type ChartFrameObserver = Rc<dyn Fn(ChartFrameTiming)>;
 /// What a chart draws with.
 #[derive(Default)]
 struct Drawing {
-    series: RefCell<Vec<Series>>,
-    options: RefCell<LineChartOptions>,
+    series: RefCell<Rc<Vec<Series>>>,
+    options: RefCell<Rc<LineChartOptions>>,
     clock: Cell<Clock>,
     cache: RefCell<paint::Cache>,
     smooth_live: Cell<bool>,
@@ -49,15 +53,51 @@ struct Drawing {
     timing: Cell<crate::painted::SurfaceTiming>,
     painted_sequence: Cell<u64>,
     frame_observer: RefCell<Option<ChartFrameObserver>>,
+    front: RefCell<Option<Snapshot>>,
+    candidate: RefCell<Option<Snapshot>>,
+    selection: RefCell<Selection>,
+    selection_listener: RefCell<Option<Callback<XSelectionEvent>>>,
+    selection_cancelled: Cell<bool>,
 }
 
 impl Paint for Drawing {
     fn prepare(&self, _device: &GpuDevice, _metrics: Metrics) -> windows_canvas::Result<bool> {
+        let resized = self
+            .selection
+            .borrow()
+            .pinned()
+            .is_some_and(|s| s.metrics != _metrics);
+        if resized {
+            self.selection_cancelled
+                .set(self.selection.borrow_mut().cancel().is_some());
+            self.cache.borrow_mut().invalidate();
+        }
         Ok(!self.suspended.get())
     }
     fn paint(&self, session: &DrawingSession<'_>, device: &GpuDevice, metrics: Metrics) {
-        let end = self.end(Instant::now());
-        let (series, options) = (self.series.borrow(), self.options.borrow());
+        let snapshot = self.selection.borrow().pinned().cloned().or_else(|| {
+            let (series, options) = (self.series.borrow().clone(), self.options.borrow().clone());
+            let frame = Frame::of(
+                &series,
+                options.x_window,
+                options.y_range,
+                self.end(Instant::now()),
+            )?;
+            Some(Snapshot {
+                series,
+                options,
+                frame,
+                metrics,
+            })
+        });
+        let (series, options, end) = match &snapshot {
+            Some(s) => (s.series.clone(), s.options.clone(), Some(s.frame.to)),
+            None => (
+                self.series.borrow().clone(),
+                self.options.borrow().clone(),
+                None,
+            ),
+        };
         paint::render(
             session,
             device,
@@ -67,15 +107,47 @@ impl Paint for Drawing {
             end,
             &mut self.cache.borrow_mut(),
         );
+        if let (Some(snapshot), Some(range)) = (&snapshot, self.selection.borrow().range) {
+            let overlay = || {
+                let a = snapshot
+                    .frame
+                    .x(range.0, metrics.width)
+                    .clamp(0.0, metrics.width);
+                let b = snapshot
+                    .frame
+                    .x(range.1, metrics.width)
+                    .clamp(0.0, metrics.width);
+                if b > a
+                    && let Ok(brush) =
+                        session.create_solid_brush(crate::color::hex_alpha(0x6ea8fe, 60))
+                {
+                    session.fill_rect(
+                        &windows_canvas::Rect::from_xywh(a, 0.0, b - a, metrics.height),
+                        &brush,
+                    );
+                }
+            };
+            if let Some(radius) = options.corner_radius.filter(|r| *r > 0.0) {
+                paint::clipped(session, metrics.width, metrics.height, radius, overlay);
+            } else {
+                overlay();
+            }
+        }
+        *self.candidate.borrow_mut() = snapshot;
     }
 
     fn frame_driven(&self) -> bool {
-        self.smooth_live.get()
+        self.smooth_live.get() || self.selection.borrow().pinned().is_some()
     }
     fn frame_pending(&self) -> bool {
         self.animating()
     }
     fn frame_ready(&self, at: Instant) -> bool {
+        let cancelled = self.selection.borrow_mut().cancel_lost();
+        if cancelled.is_some() {
+            self.cache.borrow_mut().invalidate();
+        }
+        self.emit_selection(cancelled);
         if self.suspended.get() {
             return false;
         }
@@ -89,22 +161,34 @@ impl Paint for Drawing {
     }
     fn surface_timing(&self, timing: crate::painted::SurfaceTiming) {
         self.timing.set(timing);
+        let cancelled = self.selection_cancelled.replace(false);
         if !timing.painted {
+            if cancelled {
+                self.emit_selection(Some(XSelectionEvent::Cancelled));
+            }
             return;
         }
+        *self.front.borrow_mut() = self.candidate.borrow_mut().take();
         let sequence = self.painted_sequence.get().saturating_add(1);
         self.painted_sequence.set(sequence);
         let observer = self.frame_observer.borrow().clone();
         if let Some(observer) = observer {
             observer(ChartFrameTiming { sequence, timing });
         }
+        if cancelled {
+            self.emit_selection(Some(XSelectionEvent::Cancelled));
+        }
     }
     fn released(&self) {
         self.frame_clock.set(live::FrameClock::default());
         self.cache.borrow_mut().invalidate();
+        self.front.borrow_mut().take();
+        self.candidate.borrow_mut().take();
+        let cancelled = self.selection.borrow_mut().cancel();
+        self.emit_selection(cancelled);
     }
     fn moving(&self) -> bool {
-        self.animating()
+        self.live_enabled()
     }
 
     fn next_frame(&self, metrics: Metrics) -> Duration {
@@ -120,6 +204,10 @@ impl Paint for Drawing {
 
 impl Drawing {
     fn animating(&self) -> bool {
+        self.selection.borrow().pinned().is_none() && self.live_enabled()
+    }
+
+    fn live_enabled(&self) -> bool {
         let options = self.options.borrow();
         !self.suspended.get()
             && options.live.is_some()
@@ -159,14 +247,17 @@ impl Drawing {
         self.clock.set(clock);
     }
 
-    fn hover(&self, at: f32, width: f32) -> Option<HoverInfo> {
-        hover_at(
-            &self.series.borrow(),
-            &self.options.borrow(),
-            self.end(Instant::now()),
-            at,
-            width,
-        )
+    fn emit_selection(&self, event: Option<XSelectionEvent>) {
+        let listener = self.selection_listener.borrow().clone();
+        if let (Some(event), Some(listener)) = (event, listener) {
+            listener.call(event);
+        }
+    }
+
+    fn hover(&self, at: f32, _width: f32) -> Option<HoverInfo> {
+        let front = self.front.borrow();
+        let s = front.as_ref()?;
+        hover_at(&s.series, &s.options, Some(s.frame.to), at, s.metrics.width)
     }
 }
 
@@ -224,6 +315,11 @@ impl Chart {
     /// Pause animation when the containing page/window sleeps or is hidden.
     /// Unmount also stops frames automatically. Resuming follows the live clock.
     pub fn set_active(&self, active: bool) {
+        if !active {
+            let event = self.drawing().selection.borrow_mut().cancel();
+            self.drawing().cache.borrow_mut().invalidate();
+            self.drawing().emit_selection(event);
+        }
         let suspended = !active;
         if self.drawing().suspended.replace(suspended) != suspended {
             self.drawing().frame_clock.set(live::FrameClock::default());
@@ -275,11 +371,11 @@ impl Chart {
     pub fn publish(&self, series: Vec<Series>, options: LineChartOptions) {
         let drawing = self.drawing();
         let first = !self.published.replace(true);
-        let restyled = *drawing.options.borrow() != options;
-        let moved = *drawing.series.borrow() != series;
+        let restyled = **drawing.options.borrow() != options;
+        let moved = **drawing.series.borrow() != series;
 
-        *drawing.series.borrow_mut() = series;
-        *drawing.options.borrow_mut() = options;
+        *drawing.series.borrow_mut() = Rc::new(series);
+        *drawing.options.borrow_mut() = Rc::new(options);
         drawing.saw_newest();
 
         if first || restyled || moved {
@@ -299,6 +395,7 @@ impl Chart {
         let drawing = self.drawing();
         {
             let mut all = drawing.series.borrow_mut();
+            let all = Rc::make_mut(&mut all);
             let Some(line) = all.get_mut(series) else {
                 return;
             };
@@ -320,8 +417,8 @@ impl Chart {
     /// New options for the series the chart already has.
     pub fn restyle(&self, options: LineChartOptions) {
         let drawing = self.drawing();
-        let restyled = *drawing.options.borrow() != options;
-        *drawing.options.borrow_mut() = options;
+        let restyled = **drawing.options.borrow() != options;
+        *drawing.options.borrow_mut() = Rc::new(options);
         drawing.saw_newest();
 
         if restyled {
@@ -340,26 +437,92 @@ impl Chart {
         hover(&self.painted, self.pointer.get()?)
     }
 
+    /// Enable primary-pointer horizontal brushing (disabled by default).
+    pub fn set_x_selection_enabled(&self, enabled: bool) {
+        self.drawing().selection.borrow_mut().enabled = enabled;
+        if !enabled {
+            let event = self.drawing().selection.borrow_mut().cancel();
+            self.drawing().cache.borrow_mut().invalidate();
+            self.drawing().emit_selection(event);
+        }
+        self.painted.redraw();
+    }
+
+    /// Set or clear a normalized inclusive time range, without emitting input
+    /// events. A different range ends an active drag; echoing the same range
+    /// preserves it. The range is clipped only when drawn.
+    pub fn set_x_selection(&self, range: Option<XSelection>) {
+        let range = range.map(|(a, b)| (a.min(b), a.max(b)));
+        let mut selection = self.drawing().selection.borrow_mut();
+        if selection.range == range {
+            return;
+        }
+        selection.cancel();
+        selection.range = range;
+        drop(selection);
+        self.drawing().cache.borrow_mut().invalidate();
+        self.painted.redraw();
+    }
+
+    pub fn x_selection(&self) -> Option<XSelection> {
+        self.drawing().selection.borrow().range
+    }
+
+    /// Hover and horizontal selection events. Configure selection separately.
+    pub fn view_with_selection(
+        &self,
+        on_hover: impl IntoPayloadCallback<Option<HoverInfo>>,
+        on_selection: impl IntoPayloadCallback<XSelectionEvent>,
+    ) -> View {
+        self.selection_view(on_hover, Some(on_selection.into_payload_callback()))
+    }
+
     /// The chart, drawn.
     ///
     /// `on_hover` takes what every reactor widget takes: a plain closure, or a
     /// `Callback` a segment already made with `cx.on(..)`.
     pub fn view(&self, on_hover: impl IntoPayloadCallback<Option<HoverInfo>>) -> View {
+        self.selection_view(on_hover, None)
+    }
+
+    fn selection_view(
+        &self,
+        on_hover: impl IntoPayloadCallback<Option<HoverInfo>>,
+        on_selection: Option<Callback<XSelectionEvent>>,
+    ) -> View {
+        *self.drawing().selection_listener.borrow_mut() = on_selection;
         let on_hover = on_hover.into_payload_callback();
         let painted = self.painted.clone();
         let pointer = self.pointer.clone();
 
-        self.painted.view(move |event: Pointer| match event {
-            Pointer::Moved(info) => {
-                let at = info.x as f32;
-                pointer.set(Some(at));
-                on_hover.call(hover(&painted, at));
+        self.painted.view(move |event: Pointer| {
+            let drawing = painted.painter();
+            let was_pinned = drawing.selection.borrow().pinned().is_some();
+            let front = drawing
+                .front
+                .borrow()
+                .clone()
+                .filter(|s| Some(s.metrics) == painted.metrics());
+            let selection_event = drawing.selection.borrow_mut().take(&event, front.as_ref());
+            if was_pinned != drawing.selection.borrow().pinned().is_some() {
+                drawing.cache.borrow_mut().invalidate();
             }
-            Pointer::Exited => {
-                pointer.set(None);
-                on_hover.call(None);
+            if selection_event.is_some() || matches!(event, Pointer::Lost) {
+                painted.redraw();
             }
-            _ => {}
+            drawing.emit_selection(selection_event);
+            match event {
+                Pointer::Moved(info) => {
+                    let at = info.x as f32;
+                    pointer.set(Some(at));
+                    on_hover.call(hover(&painted, at));
+                }
+                Pointer::Exited => {
+                    pointer.set(None);
+                    on_hover.call(None);
+                }
+                _ => {}
+            }
         })
     }
 }
@@ -402,6 +565,126 @@ mod tests {
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].sequence, 2);
         assert_eq!(samples[0].timing.finish, Duration::from_micros(42));
+    }
+
+    #[test]
+    fn drag_uses_committed_image_and_retains_it_across_epoch_publications() {
+        let chart = Chart::new();
+        chart.set_x_selection_enabled(true);
+        let options = LineChartOptions {
+            x_window: Some(1000),
+            y_range: Some((0.0, 100.0)),
+            ..Default::default()
+        };
+        chart.publish(vec![series(&[(1000, 20.0), (2000, 80.0)])], options.clone());
+        let device = GpuDevice::new_warp().unwrap();
+        let target = device.create_render_target(100, 40).unwrap();
+        let metrics = Metrics::new(100.0, 40.0, 1.0);
+        let drawing = chart.drawing();
+        let draw = || {
+            target
+                .draw(|session| {
+                    drawing.paint(session, &device, metrics);
+                    Ok(())
+                })
+                .unwrap();
+            drawing.surface_timing(crate::painted::SurfaceTiming {
+                painted: true,
+                ..Default::default()
+            });
+            target.read_pixels().unwrap()
+        };
+        assert!(drawing.front.borrow().is_none());
+        let before = draw();
+        let front = drawing.front.borrow().clone().unwrap();
+        let pointer = |x| windows_reactor::PointerEventInfo {
+            x,
+            is_left_button_pressed: true,
+            ..Default::default()
+        };
+        drawing
+            .selection
+            .borrow_mut()
+            .take(&Pointer::Pressed(pointer(20.0)), Some(&front));
+        chart.set_x_selection(Some((1200, 1200)));
+        assert!(drawing.selection.borrow().pinned().is_some());
+        chart.publish(vec![series(&[(9000, 80.0), (10_000, 10.0)])], options);
+        assert_eq!(drawing.front.borrow().as_ref().unwrap().frame.to, 2000.0);
+        assert_eq!(
+            draw(),
+            before,
+            "the held image must not pick up a new epoch"
+        );
+        assert_eq!(drawing.hover(20.0, 100.0).unwrap().x, 1200);
+        let event = drawing.selection.borrow_mut().take(
+            &Pointer::Released(windows_reactor::PointerEventInfo {
+                is_left_button_pressed: false,
+                ..pointer(80.0)
+            }),
+            None,
+        );
+        assert_eq!(event, Some(XSelectionEvent::Ended((1200, 1800))));
+        drawing.cache.borrow_mut().invalidate();
+        let after = draw();
+        assert_ne!(after, before);
+        assert_eq!(drawing.front.borrow().as_ref().unwrap().frame.to, 10_000.0);
+        assert_eq!(drawing.hover(20.0, 100.0).unwrap().x, 9200);
+        chart.set_x_selection(Some((9800, 9200)));
+        assert_eq!(chart.x_selection(), Some((9200, 9800)));
+        assert_ne!(
+            draw(),
+            after,
+            "selected period is painted into the existing chart"
+        );
+        chart.set_x_selection(None);
+        assert_eq!(chart.x_selection(), None);
+        assert_eq!(
+            draw(),
+            after,
+            "clear removes the highlight without a second renderer"
+        );
+    }
+
+    #[test]
+    fn resize_cancels_a_pinned_drag_and_pending_pixels_do_not_commit_without_a_paint() {
+        let drawing = Drawing::default();
+        let options = Rc::new(LineChartOptions::default());
+        let series = Rc::new(vec![series(&[(0, 10.0), (1000, 20.0)])]);
+        let metrics = Metrics::new(100.0, 40.0, 1.0);
+        let snapshot = Snapshot {
+            frame: Frame::of(&series, None, None, None).unwrap(),
+            options,
+            series,
+            metrics,
+        };
+        *drawing.candidate.borrow_mut() = Some(snapshot.clone());
+        drawing.surface_timing(crate::painted::SurfaceTiming::default());
+        assert!(drawing.front.borrow().is_none());
+        drawing.surface_timing(crate::painted::SurfaceTiming {
+            painted: true,
+            ..Default::default()
+        });
+        let mut selection = drawing.selection.borrow_mut();
+        selection.enabled = true;
+        selection.range = Some((100, 200));
+        selection.take(
+            &Pointer::Pressed(windows_reactor::PointerEventInfo {
+                x: 30.0,
+                is_left_button_pressed: true,
+                ..Default::default()
+            }),
+            Some(&snapshot),
+        );
+        drop(selection);
+        let device = GpuDevice::new_warp().unwrap();
+        drawing
+            .prepare(&device, Metrics::new(200.0, 40.0, 1.0))
+            .unwrap();
+        assert!(drawing.selection.borrow().pinned().is_none());
+        assert_eq!(drawing.selection.borrow().range, Some((100, 200)));
+        assert!(drawing.selection_cancelled.get());
+        drawing.released();
+        assert!(drawing.front.borrow().is_none());
     }
 
     fn series(points: &[(u64, f32)]) -> Series {

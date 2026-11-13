@@ -2458,7 +2458,7 @@ dependencies = [
 
 [[package]]
 name = "guinea-devtools-protocol"
-version = "0.37.0"
+version = "0.37.1"
 dependencies = [
  "capnp",
  "capnp-rpc",
@@ -2511,7 +2511,7 @@ checksum = "8c12ac67a745ef3a850f95072118e0b6ab4bb47f7c0b1154a45ac33683e5b838"
 
 [[package]]
 name = "guinea-plugin-single-instance"
-version = "0.37.0"
+version = "0.37.1"
 dependencies = [
  "anyhow",
  "guinea",

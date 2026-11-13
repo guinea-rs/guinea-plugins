@@ -150,3 +150,16 @@ pub(super) fn newest(series: &[Series]) -> Option<u64> {
         .map(|&(t, _)| t)
         .max()
 }
+
+/// A normalized inclusive range on the chart's time axis.
+pub type XSelection = (u64, u64);
+
+/// Pointer-driven period selection. Programmatic selection changes are silent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum XSelectionEvent {
+    Began(XSelection),
+    Changed(XSelection),
+    Ended(XSelection),
+    Cancelled,
+    Cleared,
+}

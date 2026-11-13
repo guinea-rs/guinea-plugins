@@ -21,12 +21,14 @@ mod paint;
 #[cfg(all(feature = "winui", windows))]
 pub mod scatter;
 #[cfg(all(feature = "winui", windows))]
+mod selection;
+#[cfg(all(feature = "winui", windows))]
 mod ui;
 
 #[cfg(all(feature = "winui", windows))]
 pub use model::{
     ChartGrid, HoverInfo, Interpolation, LineChartOptions, LineStroke, Live, LiveFps, Series,
-    theme_border_color,
+    XSelection, XSelectionEvent, theme_border_color,
 };
 #[cfg(all(feature = "winui", windows))]
 pub use ui::{Chart, ChartFrameObserver, ChartFrameTiming};

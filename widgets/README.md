@@ -173,3 +173,37 @@ measurements were noisy; they do not establish a general performance guarantee.
 See [methodology and aggregate results](../diagnostics/line-live/RESULTS.md).
 The ignored `line_cache_diagnostic` test separately measures hardware offscreen
 path caching, without opening a window or measuring WinUI/presentation overhead.
+
+## Selecting a period in a line chart
+
+```rust,ignore
+use guinea_widgets::chart::XSelectionEvent;
+chart.set_x_selection_enabled(true); // disabled by default
+let view = chart.view_with_selection(on_hover, |event: XSelectionEvent| {
+    // Began(range), Changed(range), Ended(range), Cancelled or Cleared.
+});
+let period = chart.x_selection(); // Option<(u64, u64)>
+chart.set_x_selection(Some((from, to))); // programmatic, normalized
+chart.set_x_selection(None); // clear the highlight
+```
+
+Primary-pointer drag paints a full-height band directly in the existing chart.
+Ranges are normalized, inclusive and expressed in the same units as Series time;
+pointer coordinates are clamped to the visible axis. A click within four DIPs
+clears the selection. Secondary-button releases do not finish a primary drag.
+The existing `view(on_hover)` remains available, without a selection listener.
+
+Press pins the last successfully painted snapshot, options and time transform.
+Data publications, epoch changes and live time do not move the picture or the
+mapping during the gesture. The latest published data is drawn after release or
+cancellation. Hover also reads the displayed snapshot. Resize/DPI change, pause,
+disabling selection, unmount or unexpected capture loss cancels the gesture and
+restores its previous range. Normal capture-loss-before-release ordering still
+completes the selection. No extra renderer or sliders are introduced.
+
+`set_x_selection` does not emit input events. Echoing the current range preserves
+an active drag; a different programmatic range ends the drag and overrides it.
+Programmatic ranges are clipped only for painting, not rewritten as time advances.
+`set_x_selection_enabled(false)` disables gestures without clearing an existing
+highlight; use `set_x_selection(None)` to clear it explicitly. UI handlers receive
+events outside internal selection borrows and may read/update the selection.

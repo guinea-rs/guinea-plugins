@@ -79,7 +79,7 @@ impl Frame {
 
     /// The time at `x` of `width`, kept within the frame.
     pub fn t_at(&self, x: f32, width: f32) -> u64 {
-        let ratio = (x / width).clamp(0.0, 1.0) as f64;
+        let ratio = (x as f64 / width as f64).clamp(0.0, 1.0);
         (self.from + (self.to - self.from) * ratio).max(0.0) as u64
     }
 
