@@ -369,18 +369,26 @@ impl Chart {
     }
 
     /// Pause animation when the containing page/window sleeps or is hidden.
-    /// Unmount also stops frames automatically. Resuming follows the live clock.
+    /// Retains the displayed front; pause requests no paint and revokes Rendering.
+    /// Repeated state is a no-op. Unmount releases resources. Resume follows the live clock.
     pub fn set_active(&self, active: bool) {
-        if !active {
-            let event = self.drawing().selection.borrow_mut().cancel();
-            self.drawing().cache.borrow_mut().invalidate();
-            self.drawing().emit_selection(event);
+        let drawing = self.drawing();
+        if drawing.suspended.replace(!active) == !active {
+            return;
         }
-        let suspended = !active;
-        if self.drawing().suspended.replace(suspended) != suspended {
-            self.drawing().frame_clock.set(live::FrameClock::default());
+        drawing.frame_clock.set(live::FrameClock::default());
+        if active {
+            self.painted.redraw();
+        } else {
+            self.painted.stop_frames();
+            let event = drawing.selection.borrow_mut().cancel();
+            // A pinned drag may have anchored cached paths to its old snapshot.
+            // Outside a drag the retained geometry remains reusable on resume.
+            if event.is_some() {
+                drawing.cache.borrow_mut().invalidate();
+            }
+            drawing.emit_selection(event);
         }
-        self.painted.redraw();
     }
 
     /// Geometry build count and the latest native surface CPU wall timings.
@@ -1093,6 +1101,60 @@ mod tests {
 
     fn points(chart: &Chart) -> Vec<(u64, f32)> {
         chart.drawing().series.borrow()[0].points.clone()
+    }
+
+    #[test]
+    fn pausing_retains_front_geometry_and_does_not_request_surface_work() {
+        let chart = Chart::new();
+        chart.publish(
+            vec![series(&[(0, 1.0), (1000, 2.0)])],
+            LineChartOptions::default(),
+        );
+        let device = GpuDevice::new_warp().unwrap();
+        let metrics = Metrics::new(100.0, 40.0, 1.0);
+        let target = device.create_render_target(100, 40).unwrap();
+        target
+            .draw(|session| {
+                chart.drawing().paint(session, &device, metrics);
+                Ok(())
+            })
+            .unwrap();
+        chart
+            .drawing()
+            .surface_timing(crate::painted::SurfaceTiming {
+                painted: true,
+                ..Default::default()
+            });
+        let front = chart
+            .drawing()
+            .front
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .series
+            .clone();
+        let builds = chart.render_stats().0;
+        chart.set_active(false);
+        chart.set_active(false);
+        assert_eq!(chart.painted_sequence(), 1);
+        assert!(Rc::ptr_eq(
+            &front,
+            &chart.drawing().front.borrow().as_ref().unwrap().series
+        ));
+        assert_eq!(chart.render_stats().0, builds);
+        assert!(!chart.drawing().prepare(&device, metrics).unwrap());
+        chart.set_active(true);
+        target
+            .draw(|session| {
+                chart.drawing().paint(session, &device, metrics);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            chart.render_stats().0,
+            builds,
+            "resume reuses retained geometry"
+        );
     }
 
     #[test]
