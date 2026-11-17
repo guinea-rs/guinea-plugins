@@ -9,21 +9,18 @@ pub struct Clock {
 }
 
 impl Clock {
-    fn local(self, at: u64) -> Option<chrono::DateTime<chrono::Local>> {
+    fn local(self, at: u64) -> Option<jiff::ZonedDateTime> {
         if self.epoch_ms == 0 {
             return None;
         }
 
-        let epoch = chrono::DateTime::from_timestamp_millis(i64::try_from(self.epoch_ms).ok()?)?;
-        let since = chrono::Duration::microseconds(i64::try_from(at).ok()?);
-        let when = epoch.checked_add_signed(since)?;
-        Some(when.with_timezone(&chrono::Local))
+        local_time(self.epoch_ms, i64::try_from(at).ok()?)
     }
 
     /// Hour and minute, for a list.
     pub fn short(self, at: u64) -> String {
         match self.local(at) {
-            Some(when) => when.format("%H:%M").to_string(),
+            Some(when) => when.strftime("%H:%M").to_string(),
             None => since_start(at),
         }
     }
@@ -33,12 +30,24 @@ impl Clock {
         match self.local(at) {
             Some(when) => format!(
                 "at {} · {} since the application started",
-                when.format("%H:%M:%S%.3f"),
+                when.strftime("%H:%M:%S%.3f"),
                 since_start(at)
             ),
             None => format!("{} since the application started", since_start(at)),
         }
     }
+}
+
+pub(crate) fn local_time(epoch_ms: u64, at_us: i64) -> Option<jiff::ZonedDateTime> {
+    let micros = i64::try_from(epoch_ms)
+        .ok()?
+        .checked_mul(1000)?
+        .checked_add(at_us)?;
+    Some(
+        jiff::Timestamp::from_microsecond(micros)
+            .ok()?
+            .to_zoned_datetime(jiff::tz::TimeZone::system()),
+    )
 }
 
 pub fn since_start(at: u64) -> String {
@@ -60,19 +69,17 @@ mod tests {
 
         let epoch_ms = 1_700_000_000_000;
         let known = Clock { epoch_ms };
-        let expected = chrono::DateTime::from_timestamp_millis(epoch_ms as i64 + 61_000)
-            .expect("in range")
-            .with_timezone(&chrono::Local);
+        let expected = local_time(epoch_ms, 61_000_000).expect("in range");
 
         assert_eq!(
             known.short(61_000_000),
-            expected.format("%H:%M").to_string()
+            expected.strftime("%H:%M").to_string()
         );
         assert_eq!(
             known.long(61_000_000),
             format!(
                 "at {} · 61.000 s since the application started",
-                expected.format("%H:%M:%S%.3f")
+                expected.strftime("%H:%M:%S%.3f")
             )
         );
     }

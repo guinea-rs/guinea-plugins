@@ -327,12 +327,8 @@ impl<'a> Profile<'a> {
     }
 
     fn local(&self, at_us: i64, format: &str) -> String {
-        chrono::DateTime::from_timestamp_micros(self.clock.epoch_ms as i64 * 1_000 + at_us)
-            .map(|when| {
-                when.with_timezone(&chrono::Local)
-                    .format(format)
-                    .to_string()
-            })
+        crate::clock::local_time(self.clock.epoch_ms, at_us)
+            .map(|when| when.strftime(format).to_string())
             .unwrap_or_default()
     }
 
@@ -487,10 +483,9 @@ mod tests {
         let epoch_ms = 1_700_000_000_000;
         let profile = Profile::new(timeline(), Clock { epoch_ms }, &[]);
         let local = |at_us: i64, format: &str| {
-            chrono::DateTime::from_timestamp_micros(epoch_ms as i64 * 1_000 + at_us)
+            crate::clock::local_time(epoch_ms, at_us)
                 .expect("in range")
-                .with_timezone(&chrono::Local)
-                .format(format)
+                .strftime(format)
                 .to_string()
         };
 

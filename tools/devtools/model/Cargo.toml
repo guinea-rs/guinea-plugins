@@ -11,5 +11,5 @@ publish = false
 guinea-devtools-protocol = { path = "../../../plugins/devtools-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+jiff = "1"
 csscolorparser = "0.9"
