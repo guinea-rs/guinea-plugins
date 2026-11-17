@@ -228,6 +228,11 @@ impl<P: Paint> Painted<P> {
         &self.shared.painter
     }
 
+    /// Revoke Rendering without releasing the retained surface.
+    pub(crate) fn stop_frames(&self) {
+        self.shared.frame.borrow_mut().take();
+    }
+
     /// Draws the view again now. Does nothing until it is laid out, and
     /// nothing while it is off screen.
     pub fn redraw(&self) {

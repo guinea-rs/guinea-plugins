@@ -330,3 +330,15 @@ including those hidden by a clip; it is not a per-series visibility/hit result.
 
 Non-finite line samples split the path into separate finite runs; isolated samples
 are not drawn. Tangents and fills do not bridge a missing sample.
+
+### Pausing retained scatter views
+
+`scatter.set_active(false)` stops progressive Rendering and live work without
+unmounting the view or clearing its native image, completed front or back job.
+Publications retain the latest input without drawing while paused. Resume with
+`set_active(true)` to continue the existing job and then process the latest data;
+live time advances by actual elapsed time. Visibility is caller-controlled.
+Pause clears transient gestures. Unmount still releases resources. Rerender the
+view when resuming legacy live mode without a progressive frame budget, so its
+pixel timer is installed again. Configure budget before mounting; changing it
+explicitly releases progressive state, even while paused.

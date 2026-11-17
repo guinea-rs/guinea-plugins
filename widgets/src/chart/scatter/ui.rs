@@ -40,6 +40,7 @@ struct Plotting<K> {
     revision: Cell<u64>,
     progressive: RefCell<State<K>>,
     overlay_dirty: Cell<bool>,
+    suspended: Cell<bool>,
 }
 
 impl<K: Key> Plotting<K> {
@@ -54,6 +55,7 @@ impl<K: Key> Plotting<K> {
             revision: Cell::new(0),
             progressive: RefCell::new(State::default()),
             overlay_dirty: Cell::new(false),
+            suspended: Cell::new(false),
         }
     }
 
@@ -96,7 +98,10 @@ impl<K: Key> Paint for Plotting<K> {
         self.budget.get().is_some()
     }
     fn frame_pending(&self) -> bool {
-        self.progressive.borrow().pending()
+        !self.suspended.get() && self.progressive.borrow().pending()
+    }
+    fn frame_ready(&self, _: Instant) -> bool {
+        !self.suspended.get()
     }
     fn released(&self) {
         self.progressive.borrow_mut().release();
@@ -106,6 +111,9 @@ impl<K: Key> Paint for Plotting<K> {
         self.progressive.borrow_mut().surface_timing(timing);
     }
     fn prepare(&self, device: &GpuDevice, metrics: Metrics) -> windows_canvas::Result<bool> {
+        if self.suspended.get() {
+            return Ok(false);
+        }
         let Some(budget) = self.budget.get() else {
             return Ok(true);
         };
@@ -185,7 +193,7 @@ impl<K: Key> Paint for Plotting<K> {
     }
 
     fn moving(&self) -> bool {
-        self.options.borrow().live.is_some()
+        !self.suspended.get() && self.options.borrow().live.is_some()
     }
 
     fn next_frame(&self, metrics: Metrics) -> Duration {
@@ -221,6 +229,23 @@ impl<K: Key> Scatter<K> {
 
     fn plotting(&self) -> &Plotting<K> {
         self.painted.painter()
+    }
+
+    /// Pause work while retaining the native image, completed front and back job.
+    /// Publications while paused retain only the latest input. Resume continues
+    /// pending work and follows elapsed live time. Does not infer visibility.
+    /// Rerender the view when resuming legacy (non-progressive) live timers.
+    pub fn set_active(&self, active: bool) {
+        if self.plotting().suspended.replace(!active) == !active {
+            return;
+        }
+        if active {
+            self.painted.redraw();
+        } else {
+            *self.plotting().gesture.borrow_mut() = Gesture::default();
+            self.plotting().progressive.borrow_mut().hold_front = false;
+            self.painted.stop_frames();
+        }
     }
 
     /// Opt-in progressive rendering for data providing ScatterData::cursor.
@@ -268,7 +293,9 @@ impl<K: Key> Scatter<K> {
             plotting
                 .revision
                 .set(plotting.revision.get().wrapping_add(1));
-            self.painted.redraw();
+            if !plotting.suspended.get() {
+                self.painted.redraw();
+            }
         }
     }
 
@@ -313,6 +340,9 @@ impl<K: Key> Scatter<K> {
                 return;
             };
             let plotting = painted.painter();
+            if plotting.suspended.get() {
+                return;
+            }
             let Some((series, plot, reach)) = plotting.interaction(metrics) else {
                 return;
             };
@@ -374,9 +404,11 @@ mod tests {
         }
         let device = GpuDevice::new_warp().unwrap();
         let metrics = Metrics::new(100.0, 60.0, 1.0);
-        let plotting = Plotting::new();
+        let scatter = Scatter::<u64>::new();
+        let plotting = scatter.plotting();
         plotting.budget.set(Some(Duration::from_nanos(1)));
         plotting.options.borrow_mut().x = (0, 100);
+        plotting.options.borrow_mut().live = Some(1.0);
         *plotting.series.borrow_mut() = Rc::new(Data(1));
         plotting.revision.set(1);
         while plotting.progressive.borrow().stats.completed == 0 {
@@ -385,6 +417,39 @@ mod tests {
         *plotting.series.borrow_mut() = Rc::new(Data(1000));
         plotting.revision.set(2);
         plotting.prepare(&device, metrics).unwrap();
+        let front = plotting
+            .progressive
+            .borrow()
+            .front
+            .as_ref()
+            .unwrap()
+            .data
+            .clone();
+        let chunks = scatter.render_stats().chunks;
+        scatter.set_active(false);
+        scatter.set_active(false);
+        for _ in 0..64 {
+            assert!(!plotting.frame_ready(Instant::now()));
+            assert!(!plotting.frame_pending());
+            assert!(!plotting.moving());
+            assert!(!plotting.prepare(&device, metrics).unwrap());
+        }
+        assert_eq!(scatter.render_stats().chunks, chunks);
+        assert!(Rc::ptr_eq(
+            &front,
+            &plotting.progressive.borrow().front.as_ref().unwrap().data
+        ));
+        let options = plotting.options.borrow().clone();
+        scatter.publish(Rc::new(Data(2000)), options);
+        assert_eq!(scatter.render_stats().chunks, chunks);
+        assert!(Rc::ptr_eq(
+            &front,
+            &plotting.progressive.borrow().front.as_ref().unwrap().data
+        ));
+        scatter.set_active(true);
+        assert!(plotting.frame_ready(Instant::now()));
+        assert!(plotting.moving());
+
         let (data, plot, reach) = plotting.interaction(metrics).unwrap();
         let hit = plot
             .nearest(&*data, plot.x(50), plot.y(Level::Value(0.5)), reach)
@@ -393,16 +458,17 @@ mod tests {
             hit.key < 1000,
             "pending data must not replace hit-test data"
         );
-        while plotting.progressive.borrow().stats.completed < 2 {
+        while plotting.progressive.borrow().stats.completed < 3 {
             plotting.prepare(&device, metrics).unwrap();
         }
+        assert_eq!(scatter.render_stats().cancelled, 0);
         let (data, plot, reach) = plotting.interaction(metrics).unwrap();
         let hit = plot
             .nearest(&*data, plot.x(50), plot.y(Level::Value(0.5)), reach)
             .unwrap();
         assert!(
-            hit.key >= 1000,
-            "completed swap changes both image and hit-test data"
+            hit.key >= 2000,
+            "resume finishes the existing job then swaps to latest hidden publication"
         );
     }
 
