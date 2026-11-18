@@ -361,3 +361,10 @@ scrolling does not move the gradient. Selection pins the policy with its image.
 Resize/DPI/device changes rebuild native resources. Supply at least two stops,
 ordered positions and finite RGBA components in 0..=1; invalid input panics.
 Repeated positions allow hard transitions. None restores the original fill.
+
+`chart.set_series_fill_gradient_axis(index, Some([(0.0, 0.0), (0.88, 0.97)]))`
+sets a diagonal relative to full plot width/height. None restores the vertical
+axis; setting stops alone preserves any explicitly configured axis. Endpoints
+must be distinct, finite and within 0..=1. The axis stays pinned during selection.
+During diagonal live scrolling a compensated native brush is created per painted
+frame; geometry remains cached and colors remain anchored to the plot.

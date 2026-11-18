@@ -184,3 +184,6 @@ pub enum BandInterpolation {
     Linear,
     Monotone,
 }
+
+/// Two normalized plot endpoints for a series fill gradient.
+pub type GradientAxis = [(f32, f32); 2];

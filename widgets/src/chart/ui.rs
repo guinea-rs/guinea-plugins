@@ -48,6 +48,7 @@ struct Drawing {
     clock: Cell<Clock>,
     fixed_x: Cell<Option<(f64, f64)>>,
     selection_gutter: Cell<f64>,
+    gradient_axes: RefCell<Rc<Vec<Option<super::model::GradientAxis>>>>,
     gradients: RefCell<Rc<Vec<Option<Vec<windows_canvas::GradientStop>>>>>,
     series_clips: RefCell<Rc<Vec<Option<XSelection>>>>,
     cache: RefCell<paint::Cache>,
@@ -103,6 +104,7 @@ impl Paint for Drawing {
                 highlighted: self.highlighted.get(),
                 series_clips: self.series_clips.borrow().clone(),
                 gradients: self.gradients.borrow().clone(),
+                gradient_axes: self.gradient_axes.borrow().clone(),
             })
         });
         let (series, options, end) = match &snapshot {
@@ -120,6 +122,7 @@ impl Paint for Drawing {
             cache.highlighted = s.highlighted;
             cache.series_clips = s.series_clips.clone();
             cache.gradients = s.gradients.clone();
+            cache.gradient_axes = s.gradient_axes.clone();
         }
         paint::render(
             session,
@@ -413,6 +416,34 @@ impl Chart {
     /// Count completed surface draws independently of observer installation.
     pub fn painted_sequence(&self) -> u64 {
         self.drawing().painted_sequence.get()
+    }
+
+    /// Set a plot-normalized gradient axis. None restores vertical (0,0)->(0,1).
+    /// Both endpoints must be finite, in 0..=1 and distinct.
+    pub fn set_series_fill_gradient_axis(
+        &self,
+        index: usize,
+        axis: Option<super::model::GradientAxis>,
+    ) {
+        if let Some(axis) = axis {
+            assert!(
+                axis[0] != axis[1]
+                    && axis.iter().all(|(x, y)| x.is_finite()
+                        && y.is_finite()
+                        && (0.0..=1.0).contains(x)
+                        && (0.0..=1.0).contains(y)),
+                "invalid gradient axis"
+            );
+        }
+        let mut axes = self.drawing().gradient_axes.borrow_mut();
+        if axes.get(index).copied().flatten() == axis {
+            return;
+        }
+        let policy = Rc::make_mut(&mut axes);
+        policy.resize(policy.len().max(index + 1), None);
+        policy[index] = axis;
+        drop(axes);
+        self.painted.redraw();
     }
 
     /// Override the indexed series fill with a vertical full-plot-height gradient.
@@ -979,6 +1010,7 @@ mod tests {
             highlighted: None,
             series_clips: Rc::default(),
             gradients: Rc::default(),
+            gradient_axes: Rc::default(),
         };
         let heard = Rc::new(RefCell::new(Vec::new()));
         let target = heard.clone();
@@ -1091,6 +1123,7 @@ mod tests {
             highlighted: None,
             series_clips: Rc::default(),
             gradients: Rc::default(),
+            gradient_axes: Rc::default(),
         };
         *drawing.candidate.borrow_mut() = Some(snapshot.clone());
         drawing.surface_timing(crate::painted::SurfaceTiming::default());
