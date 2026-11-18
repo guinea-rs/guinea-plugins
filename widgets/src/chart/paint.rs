@@ -4,8 +4,9 @@
 use std::mem::ManuallyDrop;
 
 use windows_canvas::{
-    Brush, ColorF, DashStyle, DrawingSession, GpuDevice, Path, PathBuilder, Rect,
-    Result as CanvasResult, RoundedRect, StrokeStyle, StrokeStyleBuilder, Vector2,
+    Brush, ColorF, DashStyle, DrawingSession, GpuDevice, GradientStop, LinearGradient, Path,
+    PathBuilder, Rect, Result as CanvasResult, RoundedRect, StrokeStyle, StrokeStyleBuilder,
+    Vector2,
 };
 
 use windows_core::{Error, Interface};
@@ -33,6 +34,8 @@ pub(super) struct Cache {
     device: Option<usize>,
     lines: Vec<CachedLine>,
     pub strokes: Vec<LineStroke>,
+    pub gradients: std::rc::Rc<Vec<Option<Vec<GradientStop>>>>,
+    built_gradients: std::rc::Rc<Vec<Option<Vec<GradientStop>>>>,
     pub series_clips: std::rc::Rc<Vec<Option<super::model::XSelection>>>,
     pub builds: u64,
     pub bands: std::rc::Rc<super::bands::Bands>,
@@ -46,7 +49,12 @@ struct CachedLine {
     path: Path,
     brush: Brush,
     style: Option<StrokeStyle>,
-    fill: Option<(Path, Brush)>,
+    fill: Option<(Path, FillPaint)>,
+}
+
+enum FillPaint {
+    Solid(Brush),
+    Gradient(LinearGradient),
 }
 
 impl Cache {
@@ -201,7 +209,8 @@ fn content(
     };
 
     let device_id = device.d2d_device().as_raw() as usize;
-    let valid = cache.device == Some(device_id)
+    let valid = cache.gradients == cache.built_gradients
+        && cache.device == Some(device_id)
         && cache.metrics == Some(metrics)
         && cache.frame.is_some_and(|old| {
             old.to - old.from == frame.to - frame.from
@@ -234,13 +243,22 @@ fn content(
                             ),
                         )?),
                     };
-                    let fill = s
-                        .fill
-                        .map(|color| -> CanvasResult<_> {
-                            Ok((
-                                build_path(device, s, &to_screen, height, true)?,
-                                draw.create_solid_brush(color)?,
-                            ))
+                    let fill_paint =
+                        if let Some(stops) = cache.gradients.get(index).and_then(Option::as_ref) {
+                            Some(FillPaint::Gradient(draw.create_linear_gradient(
+                                Vector2 { x: 0.0, y: 0.0 },
+                                Vector2 { x: 0.0, y: height },
+                                stops,
+                            )?))
+                        } else {
+                            s.fill
+                                .map(|color| draw.create_solid_brush(color).map(FillPaint::Solid))
+                                .transpose()?
+                        };
+                    let fill = fill_paint
+                        .map(|paint| {
+                            build_path(device, s, &to_screen, height, true)
+                                .map(|path| (path, paint))
                         })
                         .transpose()?;
                     Ok(CachedLine {
@@ -256,6 +274,7 @@ fn content(
         match build() {
             Ok(lines) => {
                 cache.lines = lines;
+                cache.built_gradients = cache.gradients.clone();
                 cache.frame = Some(frame);
                 cache.metrics = Some(metrics);
                 cache.device = Some(device_id);
@@ -282,7 +301,10 @@ fn content(
         let paint = || {
             draw.with_transform(&transform, || {
                 if fill && let Some((path, brush)) = &line.fill {
-                    draw.fill_path(path, brush);
+                    match brush {
+                        FillPaint::Solid(brush) => draw.fill_path(path, brush),
+                        FillPaint::Gradient(brush) => draw.fill_path(path, brush),
+                    }
                 }
                 if outline {
                     stroke(line);
@@ -584,6 +606,82 @@ mod tests {
                 assert!((left - right).abs() < 0.0001);
             }
         }
+    }
+
+    #[test]
+    fn vertical_gradient_matches_full_height_brush_and_reuses_live_cache() {
+        let device = GpuDevice::new_warp().unwrap();
+        let metrics = Metrics::new(200.0, 80.0, 1.0);
+        let target = device.create_render_target(200, 80).unwrap();
+        let series = [Series {
+            color: hex(0xffffff),
+            fill: Some(hex(0x123456)),
+            interpolation: Interpolation::Monotone,
+            points: vec![(0, 100.0), (3000, 100.0)],
+        }];
+        let options = LineChartOptions {
+            x_window: Some(1000),
+            y_range: Some((0.0, 100.0)),
+            ..Default::default()
+        };
+        let stops = vec![
+            GradientStop::new(0.0, hex(0xff0000)),
+            GradientStop::new(0.4, hex(0x00ff00)),
+            GradientStop::new(1.0, hex(0x0000ff)),
+        ];
+        let mut cache = Cache {
+            gradients: std::rc::Rc::new(vec![Some(stops.clone())]),
+            ..Default::default()
+        };
+        let draw = |cache: &mut Cache, end| {
+            target
+                .draw(|draw| {
+                    draw.clear(ColorF::TRANSPARENT);
+                    render(draw, &device, metrics, &series, &options, Some(end), cache);
+                    Ok(())
+                })
+                .unwrap();
+            target.read_pixels().unwrap()
+        };
+        let first = draw(&mut cache, 1000.0);
+        let moved = draw(&mut cache, 1013.25);
+        assert_eq!(
+            first, moved,
+            "horizontal live shift does not move vertical gradient"
+        );
+        assert_eq!(cache.builds, 1);
+        target
+            .draw(|draw| {
+                draw.clear(ColorF::TRANSPARENT);
+                let brush = draw.create_linear_gradient(
+                    Vector2 { x: 0.0, y: 0.0 },
+                    Vector2 { x: 0.0, y: 80.0 },
+                    &stops,
+                )?;
+                draw.fill_rect(&Rect::from_xywh(0.0, 0.0, 200.0, 80.0), &brush);
+                Ok(())
+            })
+            .unwrap();
+        let reference = target.read_pixels().unwrap();
+        for y in 2..78 {
+            let at = (y * 200 + 100) * 4;
+            assert!(
+                first[at..at + 4]
+                    .iter()
+                    .zip(&reference[at..at + 4])
+                    .all(|(a, b)| a.abs_diff(*b) <= 2),
+                "native path/rect rasterization roundoff"
+            );
+        }
+        cache.gradients = Default::default();
+        let solid = draw(&mut cache, 1013.25);
+        assert_eq!(cache.builds, 2);
+        assert_ne!(solid, first);
+        assert_eq!(
+            solid,
+            draw(&mut Cache::default(), 1013.25),
+            "None restores original fill"
+        );
     }
 
     #[test]

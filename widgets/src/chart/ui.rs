@@ -48,6 +48,7 @@ struct Drawing {
     clock: Cell<Clock>,
     fixed_x: Cell<Option<(f64, f64)>>,
     selection_gutter: Cell<f64>,
+    gradients: RefCell<Rc<Vec<Option<Vec<windows_canvas::GradientStop>>>>>,
     series_clips: RefCell<Rc<Vec<Option<XSelection>>>>,
     cache: RefCell<paint::Cache>,
     smooth_live: Cell<bool>,
@@ -101,6 +102,7 @@ impl Paint for Drawing {
                 bands: self.bands.borrow().clone(),
                 highlighted: self.highlighted.get(),
                 series_clips: self.series_clips.borrow().clone(),
+                gradients: self.gradients.borrow().clone(),
             })
         });
         let (series, options, end) = match &snapshot {
@@ -117,6 +119,7 @@ impl Paint for Drawing {
             cache.bands = s.bands.clone();
             cache.highlighted = s.highlighted;
             cache.series_clips = s.series_clips.clone();
+            cache.gradients = s.gradients.clone();
         }
         paint::render(
             session,
@@ -410,6 +413,37 @@ impl Chart {
     /// Count completed surface draws independently of observer installation.
     pub fn painted_sequence(&self) -> u64 {
         self.drawing().painted_sequence.get()
+    }
+
+    /// Override the indexed series fill with a vertical full-plot-height gradient.
+    /// Positions run from 0 (top) to 1 (bottom); None restores Series.fill.
+    /// Persists across publications and stays pinned during selection.
+    pub fn set_series_fill_gradient(
+        &self,
+        index: usize,
+        stops: Option<Vec<windows_canvas::GradientStop>>,
+    ) {
+        if let Some(stops) = &stops {
+            assert!(
+                stops.len() >= 2
+                    && stops.iter().all(|s| s.position.is_finite()
+                        && (0.0..=1.0).contains(&s.position)
+                        && [s.color.r, s.color.g, s.color.b, s.color.a]
+                            .iter()
+                            .all(|c| c.is_finite() && (0.0..=1.0).contains(c)))
+                    && stops.windows(2).all(|s| s[0].position <= s[1].position),
+                "gradient stops must be ordered RGBA values in 0..=1 (at least two)"
+            );
+        }
+        let mut gradients = self.drawing().gradients.borrow_mut();
+        if gradients.get(index).cloned().flatten() == stops {
+            return;
+        }
+        let policy = Rc::make_mut(&mut gradients);
+        policy.resize(policy.len().max(index + 1), None);
+        policy[index] = stops;
+        drop(gradients);
+        self.painted.redraw();
     }
 
     /// Clip an indexed series' fill and stroke to normalized inclusive time bounds.
@@ -789,6 +823,13 @@ mod tests {
         };
         assert!(drawing.front.borrow().is_none());
         assert_eq!(chart.painted_x_range(), None);
+        chart.set_series_fill_gradient(
+            0,
+            Some(vec![
+                windows_canvas::GradientStop::new(0.0, crate::color::hex(0xff0000)),
+                windows_canvas::GradientStop::new(1.0, crate::color::hex(0x0000ff)),
+            ]),
+        );
         chart.set_series_x_clip(0, Some((1800, 1200)));
         let before = draw();
         assert_eq!(
@@ -808,6 +849,7 @@ mod tests {
             .take(&Pointer::Pressed(pointer(20.0)), Some(&front));
         chart.set_x_selection(Some((1200, 1200)));
         assert!(drawing.selection.borrow().pinned().is_some());
+        chart.set_series_fill_gradient(0, None);
         chart.set_series_x_clip(0, None);
         chart.publish(vec![series(&[(9000, 80.0), (10_000, 10.0)])], options);
         assert_eq!(drawing.front.borrow().as_ref().unwrap().frame.to, 2000.0);
@@ -936,6 +978,7 @@ mod tests {
             }),
             highlighted: None,
             series_clips: Rc::default(),
+            gradients: Rc::default(),
         };
         let heard = Rc::new(RefCell::new(Vec::new()));
         let target = heard.clone();
@@ -1047,6 +1090,7 @@ mod tests {
             bands: Rc::default(),
             highlighted: None,
             series_clips: Rc::default(),
+            gradients: Rc::default(),
         };
         *drawing.candidate.borrow_mut() = Some(snapshot.clone());
         drawing.surface_timing(crate::painted::SurfaceTiming::default());

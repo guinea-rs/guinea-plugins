@@ -342,3 +342,22 @@ Pause clears transient gestures. Unmount still releases resources. Rerender the
 view when resuming legacy live mode without a progressive frame budget, so its
 pixel timer is installed again. Configure budget before mounting; changing it
 explicitly releases progressive state, even while paused.
+
+### Vertical series fill gradients
+
+```rust,ignore
+use guinea_widgets::chart::GradientStop;
+chart.set_series_fill_gradient(0, Some(vec![
+    GradientStop::new(0.0, top_rgba),
+    GradientStop::new(1.0, bottom_rgba),
+]));
+chart.set_series_fill_gradient(0, None); // restore Series.fill
+```
+
+The indexed policy persists across publications. A gradient overrides `Series.fill`,
+even when that field is None; the stroke and background retain their own solid
+colors. Stops use full plot height, 0 at the top and 1 at the bottom; horizontal
+scrolling does not move the gradient. Selection pins the policy with its image.
+Resize/DPI/device changes rebuild native resources. Supply at least two stops,
+ordered positions and finite RGBA components in 0..=1; invalid input panics.
+Repeated positions allow hard transitions. None restores the original fill.

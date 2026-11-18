@@ -34,3 +34,6 @@ pub use model::{
 };
 #[cfg(all(feature = "winui", windows))]
 pub use ui::{Chart, ChartFrameObserver, ChartFrameTiming};
+
+#[cfg(all(feature = "winui", windows))]
+pub use windows_canvas::GradientStop;

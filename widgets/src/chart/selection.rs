@@ -12,6 +12,7 @@ pub(super) struct Snapshot {
     pub metrics: Metrics,
     pub bands: Rc<super::bands::Bands>,
     pub highlighted: Option<u64>,
+    pub gradients: Rc<Vec<Option<Vec<windows_canvas::GradientStop>>>>,
     pub series_clips: Rc<Vec<Option<XSelection>>>,
 }
 
@@ -150,6 +151,7 @@ mod tests {
             bands: Rc::default(),
             highlighted: None,
             series_clips: Rc::default(),
+            gradients: Rc::default(),
         }
     }
     #[test]
