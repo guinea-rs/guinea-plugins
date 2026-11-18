@@ -368,3 +368,10 @@ axis; setting stops alone preserves any explicitly configured axis. Endpoints
 must be distinct, finite and within 0..=1. The axis stays pinned during selection.
 During diagonal live scrolling a compensated native brush is created per painted
 frame; geometry remains cached and colors remain anchored to the plot.
+
+For a separate gradient on the existing stroke, use
+`chart.set_series_stroke_gradient_with_axis(index, Some((axis, stops)))`.
+The public `StrokeGradient` alias is `(GradientAxis, Vec<GradientStop>)`.
+None restores `Series.color`; width, dashes, interpolation and fill are unchanged.
+Stroke and fill axes/stops are independent, both pinned during selection. The
+same compensated-brush behavior applies to diagonal live stroke gradients.

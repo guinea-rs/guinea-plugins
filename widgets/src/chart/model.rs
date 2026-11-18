@@ -187,3 +187,6 @@ pub enum BandInterpolation {
 
 /// Two normalized plot endpoints for a series fill gradient.
 pub type GradientAxis = [(f32, f32); 2];
+
+/// Independent normalized axis and RGBA stops for a series stroke.
+pub type StrokeGradient = (GradientAxis, Vec<windows_canvas::GradientStop>);

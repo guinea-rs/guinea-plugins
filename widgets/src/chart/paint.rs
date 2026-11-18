@@ -34,6 +34,8 @@ pub(super) struct Cache {
     device: Option<usize>,
     lines: Vec<CachedLine>,
     pub strokes: Vec<LineStroke>,
+    pub stroke_gradients: std::rc::Rc<Vec<Option<super::model::StrokeGradient>>>,
+    built_stroke_gradients: std::rc::Rc<Vec<Option<super::model::StrokeGradient>>>,
     pub gradient_axes: std::rc::Rc<Vec<Option<super::model::GradientAxis>>>,
     built_axes: std::rc::Rc<Vec<Option<super::model::GradientAxis>>>,
     pub gradients: std::rc::Rc<Vec<Option<Vec<GradientStop>>>>,
@@ -50,6 +52,7 @@ struct CachedLine {
     index: usize,
     path: Path,
     brush: Brush,
+    stroke_gradient: Option<FillPaint>,
     style: Option<StrokeStyle>,
     fill: Option<(Path, FillPaint)>,
 }
@@ -211,7 +214,8 @@ fn content(
     };
 
     let device_id = device.d2d_device().as_raw() as usize;
-    let valid = cache.gradient_axes == cache.built_axes
+    let valid = cache.stroke_gradients == cache.built_stroke_gradients
+        && cache.gradient_axes == cache.built_axes
         && cache.gradients == cache.built_gradients
         && cache.device == Some(device_id)
         && cache.metrics == Some(metrics)
@@ -274,7 +278,21 @@ fn content(
                                 .map(|path| (path, paint))
                         })
                         .transpose()?;
+                    let stroke_gradient = cache
+                        .stroke_gradients
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .map(|(axis, stops)| {
+                            let axis = axis.map(|(x, y)| Vector2 {
+                                x: x * width,
+                                y: y * height,
+                            });
+                            draw.create_linear_gradient(axis[0], axis[1], stops)
+                                .map(|brush| FillPaint::Gradient(brush, stops.clone(), axis))
+                        })
+                        .transpose()?;
                     Ok(CachedLine {
+                        stroke_gradient,
                         index,
                         path,
                         brush,
@@ -289,6 +307,7 @@ fn content(
                 cache.lines = lines;
                 cache.built_gradients = cache.gradients.clone();
                 cache.built_axes = cache.gradient_axes.clone();
+                cache.built_stroke_gradients = cache.stroke_gradients.clone();
                 cache.frame = Some(frame);
                 cache.metrics = Some(metrics);
                 cache.device = Some(device_id);
@@ -304,12 +323,19 @@ fn content(
     let shift = ((anchor.from - frame.from) / (frame.to - frame.from)) as f32 * width;
     let transform = Matrix3x2::translation(shift, 0.0) * draw.transform();
     let has_bands = !cache.bands.layers.is_empty();
-    let stroke = |line: &CachedLine| {
-        if let Some(style) = &line.style {
-            draw.draw_path_styled(&line.path, &line.brush, LINE_WIDTH, style);
-        } else {
-            draw.draw_path(&line.path, &line.brush, LINE_WIDTH);
+    let stroke = |line: &CachedLine| match &line.stroke_gradient {
+        Some(FillPaint::Gradient(_, stops, axis)) if shift != 0.0 && axis[0].x != axis[1].x => {
+            let moved = axis.map(|p| Vector2 {
+                x: p.x - shift,
+                y: p.y,
+            });
+            match draw.create_linear_gradient(moved[0], moved[1], stops) {
+                Ok(brush) => stroke_path(draw, line, &brush),
+                Err(error) => tracing::warn!(%error,"chart: stroke gradient failed"),
+            }
         }
+        Some(FillPaint::Gradient(brush, ..)) => stroke_path(draw, line, brush),
+        _ => stroke_path(draw, line, &line.brush),
     };
     let paint_line = |line: &CachedLine, fill: bool, outline: bool| {
         let paint = || {
@@ -367,6 +393,14 @@ fn content(
         for line in &cache.lines {
             paint_line(line, false, true);
         }
+    }
+}
+
+fn stroke_path(draw: &DrawingSession<'_>, line: &CachedLine, brush: &impl windows_canvas::Paint) {
+    if let Some(style) = &line.style {
+        draw.draw_path_styled(&line.path, brush, LINE_WIDTH, style);
+    } else {
+        draw.draw_path(&line.path, brush, LINE_WIDTH);
     }
 }
 
@@ -636,6 +670,90 @@ mod tests {
                 assert!((left - right).abs() < 0.0001);
             }
         }
+    }
+
+    #[test]
+    fn stroke_gradient_preserves_path_and_plot_anchor_with_solid_fallback() {
+        let device = GpuDevice::new_warp().unwrap();
+        let target = device.create_render_target(200, 80).unwrap();
+        let metrics = Metrics::new(200.0, 80.0, 1.0);
+        let series = [Series {
+            color: hex(0xffffff),
+            fill: None,
+            interpolation: Interpolation::Linear,
+            points: vec![(0, 50.0), (3000, 50.0)],
+        }];
+        let options = LineChartOptions {
+            background: None,
+            border: None,
+            grid: None,
+            x_window: Some(1000),
+            y_range: Some((0.0, 100.0)),
+            ..Default::default()
+        };
+        let stops = vec![
+            GradientStop::new(0.0, hex(0x22aaff)),
+            GradientStop::new(1.0, hex(0x9999ff)),
+        ];
+        let mut cache = Cache {
+            stroke_gradients: std::rc::Rc::new(vec![Some((
+                [(0.0, 0.0), (0.88, 0.97)],
+                stops.clone(),
+            ))]),
+            ..Default::default()
+        };
+        let render_at = |cache: &mut Cache, end| {
+            target
+                .draw(|draw| {
+                    draw.clear(ColorF::TRANSPARENT);
+                    render(draw, &device, metrics, &series, &options, Some(end), cache);
+                    Ok(())
+                })
+                .unwrap();
+            target.read_pixels().unwrap()
+        };
+        let first = render_at(&mut cache, 1000.0);
+        let moved = render_at(&mut cache, 1013.25);
+        assert_eq!(cache.builds, 1);
+        assert_eq!(first, moved);
+        target
+            .draw(|draw| {
+                draw.clear(ColorF::TRANSPARENT);
+                let brush = draw.create_linear_gradient(
+                    Vector2 { x: 0.0, y: 0.0 },
+                    Vector2 { x: 176.0, y: 77.6 },
+                    &stops,
+                )?;
+                draw.draw_line(
+                    Vector2 { x: 0.0, y: 40.0 },
+                    Vector2 { x: 200.0, y: 40.0 },
+                    &brush,
+                    1.0,
+                );
+                Ok(())
+            })
+            .unwrap();
+        let reference = target.read_pixels().unwrap();
+        for x in 10..190 {
+            for y in 39..41 {
+                let at = (y * 200 + x) * 4;
+                assert!(
+                    first[at..at + 4]
+                        .iter()
+                        .zip(&reference[at..at + 4])
+                        .all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "at {x},{y}: {:?} vs {:?}",
+                    &first[at..at + 4],
+                    &reference[at..at + 4]
+                );
+            }
+        }
+        cache.stroke_gradients = Default::default();
+        assert_eq!(
+            render_at(&mut cache, 1013.25),
+            render_at(&mut Cache::default(), 1013.25)
+        );
+        assert_eq!(cache.builds, 2);
     }
 
     #[test]

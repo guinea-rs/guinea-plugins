@@ -48,6 +48,7 @@ struct Drawing {
     clock: Cell<Clock>,
     fixed_x: Cell<Option<(f64, f64)>>,
     selection_gutter: Cell<f64>,
+    stroke_gradients: RefCell<Rc<Vec<Option<super::model::StrokeGradient>>>>,
     gradient_axes: RefCell<Rc<Vec<Option<super::model::GradientAxis>>>>,
     gradients: RefCell<Rc<Vec<Option<Vec<windows_canvas::GradientStop>>>>>,
     series_clips: RefCell<Rc<Vec<Option<XSelection>>>>,
@@ -105,6 +106,7 @@ impl Paint for Drawing {
                 series_clips: self.series_clips.borrow().clone(),
                 gradients: self.gradients.borrow().clone(),
                 gradient_axes: self.gradient_axes.borrow().clone(),
+                stroke_gradients: self.stroke_gradients.borrow().clone(),
             })
         });
         let (series, options, end) = match &snapshot {
@@ -123,6 +125,7 @@ impl Paint for Drawing {
             cache.series_clips = s.series_clips.clone();
             cache.gradients = s.gradients.clone();
             cache.gradient_axes = s.gradient_axes.clone();
+            cache.stroke_gradients = s.stroke_gradients.clone();
         }
         paint::render(
             session,
@@ -416,6 +419,42 @@ impl Chart {
     /// Count completed surface draws independently of observer installation.
     pub fn painted_sequence(&self) -> u64 {
         self.drawing().painted_sequence.get()
+    }
+
+    /// Override stroke color with a plot-anchored gradient. None restores Series.color.
+    /// The axis and stops are independent from fill; stroke width/dashes are retained.
+    pub fn set_series_stroke_gradient_with_axis(
+        &self,
+        index: usize,
+        gradient: Option<super::model::StrokeGradient>,
+    ) {
+        if let Some((axis, stops)) = &gradient {
+            assert!(
+                axis[0] != axis[1]
+                    && axis.iter().all(|(x, y)| x.is_finite()
+                        && y.is_finite()
+                        && (0.0..=1.0).contains(x)
+                        && (0.0..=1.0).contains(y))
+            );
+            assert!(
+                stops.len() >= 2
+                    && stops.iter().all(|s| s.position.is_finite()
+                        && (0.0..=1.0).contains(&s.position)
+                        && [s.color.r, s.color.g, s.color.b, s.color.a]
+                            .iter()
+                            .all(|c| c.is_finite() && (0.0..=1.0).contains(c)))
+                    && stops.windows(2).all(|s| s[0].position <= s[1].position)
+            );
+        }
+        let mut gradients = self.drawing().stroke_gradients.borrow_mut();
+        if gradients.get(index).cloned().flatten() == gradient {
+            return;
+        }
+        let policy = Rc::make_mut(&mut gradients);
+        policy.resize(policy.len().max(index + 1), None);
+        policy[index] = gradient;
+        drop(gradients);
+        self.painted.redraw();
     }
 
     /// Set a plot-normalized gradient axis. None restores vertical (0,0)->(0,1).
@@ -1011,6 +1050,7 @@ mod tests {
             series_clips: Rc::default(),
             gradients: Rc::default(),
             gradient_axes: Rc::default(),
+            stroke_gradients: Rc::default(),
         };
         let heard = Rc::new(RefCell::new(Vec::new()));
         let target = heard.clone();
@@ -1124,6 +1164,7 @@ mod tests {
             series_clips: Rc::default(),
             gradients: Rc::default(),
             gradient_axes: Rc::default(),
+            stroke_gradients: Rc::default(),
         };
         *drawing.candidate.borrow_mut() = Some(snapshot.clone());
         drawing.surface_timing(crate::painted::SurfaceTiming::default());
