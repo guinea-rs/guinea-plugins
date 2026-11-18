@@ -31,6 +31,7 @@ mod link;
 mod live;
 mod profiler;
 mod runtime;
+mod source_filter;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -44,6 +45,7 @@ pub struct DevToolsConfig {
     reread_ms: u64,
     launch: bool,
     in_release: bool,
+    ignored_sources: Vec<String>,
 }
 
 impl Default for DevToolsConfig {
@@ -60,7 +62,16 @@ impl DevToolsConfig {
             reread_ms: 1000,
             launch: false,
             in_release: false,
+            ignored_sources: Vec::new(),
         }
+    }
+
+    /// Exclude routine trace traffic from sources with this exact `.named(...)` name.
+    /// Keeps source registration, snapshots, explicit actions and application logs.
+    /// Repeat to ignore several names. Does not affect Perfetto recording.
+    pub fn ignore_source(mut self, name: impl Into<String>) -> Self {
+        self.ignored_sources.push(name.into());
+        self
     }
 
     pub fn for_app(mut self, meta: AppMeta) -> Self {
@@ -156,6 +167,7 @@ fn devtools(app: &mut PluginBuilder, config: DevToolsConfig) -> anyhow::Result<D
         observed,
         Duration::from_millis(config.wait_ms),
         Duration::from_millis(config.reread_ms),
+        config.ignored_sources,
     );
 
     app.on_cleanup(|| {

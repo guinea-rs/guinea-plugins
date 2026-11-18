@@ -36,3 +36,21 @@ The plugin observes guinea 0.36 through the application's `Observed` handle.
 It rebuilds its view on reconnect and sends changes after the initial snapshot.
 The optional `profiling` feature serves explicit puffin instrumentation; guinea's
 old core puffin zones no longer exist. Native backend profiling remains separate.
+
+### Ignoring a named source in trace reports
+
+Use `DevToolsConfig::new().ignore_source("activity-refresh")` for a source given
+that exact `.named("activity-refresh")` name. Repeat for several names; all
+same-named sources match. The default still reports everything.
+
+Routine source lifecycle, pull/arrival records and their causal descendants are
+excluded before sending trace reports. Explicit actions and application log/span
+branches remain, reattached to the nearest retained cause. Source registration,
+Snapshots/Changes, actor state and Perfetto recording are unaffected.
+
+The filter learns initial sources on connection and keeps bounded correlation
+state (16,384 sources and causes each). Unknown or evicted causes fail open:
+some traffic can remain if a parent arrives in a later batch or observation loses
+records. Ends with a known hidden start are omitted; unknown Ends pass through so an
+older retained long-running span can still finish. Filtering does not reduce
+the cost of recording the original trace, and does not suppress frequent snapshots.

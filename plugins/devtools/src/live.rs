@@ -20,6 +20,7 @@ struct Link {
     scheduler: mpsc::Sender<(u64, Instant)>,
     runtime: Option<tokio::runtime::Handle>,
     connection: Option<Connection>,
+    ignored_sources: Vec<String>,
 }
 
 struct Connection {
@@ -31,6 +32,7 @@ struct Connection {
     dirty: bool,
     takes_changes: bool,
     lost: u64,
+    source_filter: crate::source_filter::Filter,
 }
 
 pub fn start(
@@ -39,6 +41,7 @@ pub fn start(
     observed: Observed,
     wait: Duration,
     reread: Duration,
+    ignored_sources: Vec<String>,
 ) {
     let (scheduler, pending) = mpsc::channel::<(u64, Instant)>();
     std::thread::spawn(move || {
@@ -78,6 +81,7 @@ pub fn start(
         scheduler,
         runtime: tokio::runtime::Handle::try_current().ok(),
         connection: None,
+        ignored_sources,
     }));
 }
 
@@ -120,6 +124,7 @@ pub fn connected(generation: u64, takes_changes: bool) {
             dirty: true,
             takes_changes,
             lost: 0,
+            source_filter: crate::source_filter::Filter::new(link.ignored_sources.clone()),
         });
     });
     flush(generation);
@@ -182,7 +187,8 @@ fn flush(generation: u64) {
         let batch = connection.watching.take();
         let mut traces = Traces::default();
         traces.lose(batch.dropped + std::mem::take(&mut connection.lost));
-        for (thread, record) in batch.trace {
+        let records = connection.source_filter.filter(&batch.events, batch.trace);
+        for (thread, record) in records {
             traces.push_on(thread, &record);
         }
         connection.dirty |= !batch.events.is_empty() || !traces.is_empty();
