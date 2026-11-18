@@ -34,6 +34,7 @@ pub(super) struct Cache {
     device: Option<usize>,
     lines: Vec<CachedLine>,
     pub strokes: Vec<LineStroke>,
+    pub stroke_widths: std::rc::Rc<Vec<Option<f32>>>,
     pub stroke_gradients: std::rc::Rc<Vec<Option<super::model::StrokeGradient>>>,
     built_stroke_gradients: std::rc::Rc<Vec<Option<super::model::StrokeGradient>>>,
     pub gradient_axes: std::rc::Rc<Vec<Option<super::model::GradientAxis>>>,
@@ -323,19 +324,27 @@ fn content(
     let shift = ((anchor.from - frame.from) / (frame.to - frame.from)) as f32 * width;
     let transform = Matrix3x2::translation(shift, 0.0) * draw.transform();
     let has_bands = !cache.bands.layers.is_empty();
-    let stroke = |line: &CachedLine| match &line.stroke_gradient {
-        Some(FillPaint::Gradient(_, stops, axis)) if shift != 0.0 && axis[0].x != axis[1].x => {
-            let moved = axis.map(|p| Vector2 {
-                x: p.x - shift,
-                y: p.y,
-            });
-            match draw.create_linear_gradient(moved[0], moved[1], stops) {
-                Ok(brush) => stroke_path(draw, line, &brush),
-                Err(error) => tracing::warn!(%error,"chart: stroke gradient failed"),
+    let stroke = |line: &CachedLine| {
+        let stroke_width = cache
+            .stroke_widths
+            .get(line.index)
+            .copied()
+            .flatten()
+            .unwrap_or(LINE_WIDTH);
+        match &line.stroke_gradient {
+            Some(FillPaint::Gradient(_, stops, axis)) if shift != 0.0 && axis[0].x != axis[1].x => {
+                let moved = axis.map(|p| Vector2 {
+                    x: p.x - shift,
+                    y: p.y,
+                });
+                match draw.create_linear_gradient(moved[0], moved[1], stops) {
+                    Ok(brush) => stroke_path(draw, line, &brush, stroke_width),
+                    Err(error) => tracing::warn!(%error,"chart: stroke gradient failed"),
+                }
             }
+            Some(FillPaint::Gradient(brush, ..)) => stroke_path(draw, line, brush, stroke_width),
+            _ => stroke_path(draw, line, &line.brush, stroke_width),
         }
-        Some(FillPaint::Gradient(brush, ..)) => stroke_path(draw, line, brush),
-        _ => stroke_path(draw, line, &line.brush),
     };
     let paint_line = |line: &CachedLine, fill: bool, outline: bool| {
         let paint = || {
@@ -396,11 +405,16 @@ fn content(
     }
 }
 
-fn stroke_path(draw: &DrawingSession<'_>, line: &CachedLine, brush: &impl windows_canvas::Paint) {
+fn stroke_path(
+    draw: &DrawingSession<'_>,
+    line: &CachedLine,
+    brush: &impl windows_canvas::Paint,
+    width: f32,
+) {
     if let Some(style) = &line.style {
-        draw.draw_path_styled(&line.path, brush, LINE_WIDTH, style);
+        draw.draw_path_styled(&line.path, brush, width, style);
     } else {
-        draw.draw_path(&line.path, brush, LINE_WIDTH);
+        draw.draw_path(&line.path, brush, width);
     }
 }
 
@@ -670,6 +684,62 @@ mod tests {
                 assert!((left - right).abs() < 0.0001);
             }
         }
+    }
+
+    #[test]
+    fn per_series_width_changes_only_stroke_without_rebuilding_geometry() {
+        let device = GpuDevice::new_warp().unwrap();
+        let target = device.create_render_target(100, 80).unwrap();
+        let metrics = Metrics::new(100.0, 80.0, 1.0);
+        let line = Series {
+            color: hex(0xffffff),
+            fill: None,
+            interpolation: Interpolation::Linear,
+            points: vec![(0, 50.0), (1000, 50.0)],
+        };
+        let mut empty = line.clone();
+        empty.points.clear();
+        let series = [empty, line];
+        let options = LineChartOptions {
+            background: None,
+            border: None,
+            grid: None,
+            y_range: Some((0.0, 100.0)),
+            ..Default::default()
+        };
+        let mut cache = Cache::default();
+        let render_at = |cache: &mut Cache| {
+            target
+                .draw(|draw| {
+                    draw.clear(ColorF::TRANSPARENT);
+                    render(draw, &device, metrics, &series, &options, None, cache);
+                    Ok(())
+                })
+                .unwrap();
+            target.read_pixels().unwrap()
+        };
+        let normal = render_at(&mut cache);
+        cache.stroke_widths = std::rc::Rc::new(vec![Some(10.0), Some(2.0)]);
+        let thick = render_at(&mut cache);
+        assert_eq!(cache.builds, 1);
+        let pixel = (39 * 100 + 50) * 4;
+        assert!(normal[pixel + 3] >= 126 && normal[pixel + 3] <= 129);
+        assert_eq!(
+            thick[pixel + 3],
+            255,
+            "two DIP stroke covers this row fully"
+        );
+        assert_eq!(
+            &thick[(38 * 100 + 50) * 4..(38 * 100 + 50) * 4 + 4],
+            &[0, 0, 0, 0]
+        );
+        cache.stroke_widths = std::rc::Rc::new(vec![Some(10.0), None]);
+        assert_eq!(
+            normal,
+            render_at(&mut cache),
+            "None restores one DIP, ignoring empty series index"
+        );
+        assert_eq!(cache.builds, 1);
     }
 
     #[test]

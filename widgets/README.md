@@ -375,3 +375,9 @@ The public `StrokeGradient` alias is `(GradientAxis, Vec<GradientStop>)`.
 None restores `Series.color`; width, dashes, interpolation and fill are unchanged.
 Stroke and fill axes/stops are independent, both pinned during selection. The
 same compensated-brush behavior applies to diagonal live stroke gradients.
+
+`chart.set_series_stroke_width(index, Some(2.0))` sets an individual line width
+in DIPs; None restores the original 1 DIP. Width must be finite and positive.
+It works with solid/gradient strokes and dash patterns, persists across publishes,
+and is pinned during selection. Fill, interpolation, viewport and cached paths
+are unchanged. Configure only the intended series/charts.

@@ -48,6 +48,7 @@ struct Drawing {
     clock: Cell<Clock>,
     fixed_x: Cell<Option<(f64, f64)>>,
     selection_gutter: Cell<f64>,
+    stroke_widths: RefCell<Rc<Vec<Option<f32>>>>,
     stroke_gradients: RefCell<Rc<Vec<Option<super::model::StrokeGradient>>>>,
     gradient_axes: RefCell<Rc<Vec<Option<super::model::GradientAxis>>>>,
     gradients: RefCell<Rc<Vec<Option<Vec<windows_canvas::GradientStop>>>>>,
@@ -107,6 +108,7 @@ impl Paint for Drawing {
                 gradients: self.gradients.borrow().clone(),
                 gradient_axes: self.gradient_axes.borrow().clone(),
                 stroke_gradients: self.stroke_gradients.borrow().clone(),
+                stroke_widths: self.stroke_widths.borrow().clone(),
             })
         });
         let (series, options, end) = match &snapshot {
@@ -126,6 +128,7 @@ impl Paint for Drawing {
             cache.gradients = s.gradients.clone();
             cache.gradient_axes = s.gradient_axes.clone();
             cache.stroke_gradients = s.stroke_gradients.clone();
+            cache.stroke_widths = s.stroke_widths.clone();
         }
         paint::render(
             session,
@@ -419,6 +422,25 @@ impl Chart {
     /// Count completed surface draws independently of observer installation.
     pub fn painted_sequence(&self) -> u64 {
         self.drawing().painted_sequence.get()
+    }
+
+    /// Override an indexed series' stroke width in DIPs; None restores 1 DIP.
+    /// Width must be finite and positive. Persists across publications and is
+    /// pinned with the image during selection. Fill and geometry are unchanged.
+    pub fn set_series_stroke_width(&self, index: usize, width: Option<f32>) {
+        assert!(
+            width.is_none_or(|w| w.is_finite() && w > 0.0),
+            "stroke width must be finite and positive"
+        );
+        let mut widths = self.drawing().stroke_widths.borrow_mut();
+        if widths.get(index).copied().flatten() == width {
+            return;
+        }
+        let policy = Rc::make_mut(&mut widths);
+        policy.resize(policy.len().max(index + 1), None);
+        policy[index] = width;
+        drop(widths);
+        self.painted.redraw();
     }
 
     /// Override stroke color with a plot-anchored gradient. None restores Series.color.
@@ -900,6 +922,7 @@ mod tests {
                 windows_canvas::GradientStop::new(1.0, crate::color::hex(0x0000ff)),
             ]),
         );
+        chart.set_series_stroke_width(0, Some(2.0));
         chart.set_series_x_clip(0, Some((1800, 1200)));
         let before = draw();
         assert_eq!(
@@ -919,6 +942,7 @@ mod tests {
             .take(&Pointer::Pressed(pointer(20.0)), Some(&front));
         chart.set_x_selection(Some((1200, 1200)));
         assert!(drawing.selection.borrow().pinned().is_some());
+        chart.set_series_stroke_width(0, Some(3.0));
         chart.set_series_fill_gradient(0, None);
         chart.set_series_x_clip(0, None);
         chart.publish(vec![series(&[(9000, 80.0), (10_000, 10.0)])], options);
@@ -1051,6 +1075,7 @@ mod tests {
             gradients: Rc::default(),
             gradient_axes: Rc::default(),
             stroke_gradients: Rc::default(),
+            stroke_widths: Rc::default(),
         };
         let heard = Rc::new(RefCell::new(Vec::new()));
         let target = heard.clone();
@@ -1165,6 +1190,7 @@ mod tests {
             gradients: Rc::default(),
             gradient_axes: Rc::default(),
             stroke_gradients: Rc::default(),
+            stroke_widths: Rc::default(),
         };
         *drawing.candidate.borrow_mut() = Some(snapshot.clone());
         drawing.surface_timing(crate::painted::SurfaceTiming::default());
